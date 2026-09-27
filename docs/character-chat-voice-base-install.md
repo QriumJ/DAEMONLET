@@ -134,3 +134,12 @@ platform-specific skips; all 28 Python worker tests passed after including the M
 receipt-policy fixture in the transfer. Windows production-supervisor measurements
 were chunk RTF 0.484, complete RTF 0.481 and warm cancellation 2 ms. This establishes
 software synthesis/ownership behavior, not Windows audio-device playback.
+
+Final Mac app follow-up (code commit `1e0df5d`): the production package was applied
+with the original profile preserved. Actual UI selected default voice and completed
+chunk playback plus two complete-sentence WAV playbacks. The native audit contained
+the fixed female description/seed 42 and no adapter/reference. Complete-sentence
+RTFs were 0.954–0.963; software playback-ended acknowledgements were observed.
+The prior Belle binding, Metal chunk mode and volume 0.5 were restored, and the app
+was left running. This adds native Mac GUI evidence; physical listening and Windows
+GUI deployment/playback remain unverified for this revision.
