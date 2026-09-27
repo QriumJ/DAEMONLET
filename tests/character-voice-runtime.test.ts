@@ -1,4 +1,4 @@
-import {afterEach,expect,it} from 'vitest'
+import {afterEach,expect,it,vi} from 'vitest'
 import {mkdtemp,rm,readdir} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
@@ -16,3 +16,25 @@ it.each(['oom','corrupt','hang'])('rejects %s and recovers after restart',async 
 it('cancels a blocking synthesis and waits for process exit before restart',async()=>{const {w,root}=await worker();await w.start(root,'x');const job=w.synthesize('hang',binding(w),0);const result=expect(job).rejects.toThrow('CANCELLED');await w.stop();await result;expect(w.running).toBe(false);await w.start(root,'x');expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)})
 it('cancellation during cache creation cannot spawn a late worker',async()=>{const {w,root}=await worker();const job=w.start(root,'x');const rejected=expect(job).rejects.toThrow('CANCELLED');await w.stop();await rejected;expect(w.running).toBe(false);expect(await readdir(root)).toEqual([])})
 it('an immediate restart drains cancelled initialization instead of inheriting its rejection',async()=>{const {w,root}=await worker();const old=w.start(root,'x').catch(e=>e.message);await w.stop();await w.start(root,'x');expect(await old).toBe('VOICE_CANCELLED');expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)})
+it('streams silent chunks incrementally with bounded credits and final totals',async()=>{
+ const {w,root}=await worker();await w.start(root,'x');const chunks:any[]=[],release:Array<()=>void>=[]
+ const pending=w.stream('stream',binding(w),0,chunk=>{chunks.push(chunk);return new Promise<void>(r=>release.push(r))})
+ await vi.waitFor(()=>expect(chunks).toHaveLength(3));expect(w.busy).toBe(true);expect(chunks.map(c=>c.sampleOffset)).toEqual([0,4800,9600]);release[0]()
+ const done=await pending;expect(done.totalChunks).toBe(4);expect(chunks).toHaveLength(4);expect(w.busy).toBe(false);release.forEach(r=>r());await w.stop();expect(await readdir(root)).toEqual([])
+})
+it.each(['duplicate','offset','total'])('rejects invalid stream %s metadata',async mode=>{
+ const {w,root}=await worker();await w.start(root,'x');await expect(w.stream(mode,binding(w),0,async()=>{})).rejects.toThrow();await w.stop();expect(w.running).toBe(false)
+})
+it('cancels credit-blocked generation and starts a clean replacement',async()=>{
+ const {w,root}=await worker();await w.start(root,'x');let count=0
+ const pending=w.stream('stream',binding(w),0,()=>{count++;return new Promise(()=>{})});const cancelled=expect(pending).rejects.toThrow('CANCELLED')
+ await vi.waitFor(()=>expect(count).toBe(3));await w.stop();await cancelled;await w.start(root,'x');expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)
+})
+it('late playback rejection from an old session cannot stop its replacement',async()=>{
+ const {w,root}=await worker();await w.start(root,'x');let rejectOld!:(error:Error)=>void
+ await w.stream('stream',binding(w),0,chunk=>chunk.chunkIndex===3?new Promise<void>((_resolve,reject)=>{rejectOld=reject}):Promise.resolve())
+ await w.stop();await w.start(root,'x');const replacement=w.sessionId,stop=vi.spyOn(w,'stop')
+ rejectOld(Error('VOICE_PLAYBACK'));await new Promise(r=>setTimeout(r,30))
+ expect(stop).not.toHaveBeenCalled();expect(w.running).toBe(true);expect(w.sessionId).toBe(replacement)
+ expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)
+})

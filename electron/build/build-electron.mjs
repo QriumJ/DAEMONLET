@@ -18,6 +18,7 @@ await rm(outdir, { recursive: true, force: true })
 await mkdir(resolve(outdir, "codex"), { recursive: true })
 await mkdir(resolve(outdir, "voice"), { recursive: true })
 await copyFile(resolve(root, "electron/voice/worker.py"), resolve(outdir, "voice/worker.py"))
+await copyFile(resolve(root, "electron/voice/engine.py"), resolve(outdir, "voice/engine.py"))
 const chatTarget = runtimeTarget(process.env.PET_BUILD_PLATFORM || process.platform, process.env.PET_BUILD_ARCH || process.arch)
 const chatRuntime = resolve(root, '.generated/character-chat-runtime-package', chatTarget)
 if (existsSync(chatRuntime)) {

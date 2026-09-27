@@ -96,6 +96,16 @@ See [Windows chat setup](windows-character-chat.md). No LLM is downloaded by voi
    New requests, retries, conversation/character/model changes, voice changes,
    window hide/close, and app shutdown invalidate old speech.
 
+The **음성 실행 모드** selector keeps the original **기준 모드** as default.
+**빠른 시작** caches fixed reference features and streams each new audio patch;
+**CUDA 가속 (실험)** additionally requires the separate approved torch 2.8 / Triton
+3.4 runtime. Connect that Python before selecting the mode. Use **음성 엔진 미리
+준비** and wait until ready before speaking; fresh compilation can take minutes.
+The new paths start playback within a sentence and prepare at most its immediate
+successor. Compiled pronunciation/quality still requires listening acceptance.
+Switch back to **기준 모드** to restore complete-WAV synthesis and playback.
+See [performance, setup commands and verification boundaries](character-chat-voice-performance.md).
+
 Hiding or closing the chat permanently revokes automatic speech for requests
 accepted before that boundary, even if their replies finish after the window is
 shown again. Text generation and saving can still finish while hidden. Reopening

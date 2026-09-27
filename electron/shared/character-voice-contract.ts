@@ -2,10 +2,11 @@ import type {GenerationBinding} from './character-chat-contract'
 
 export const VOICE_IPC = {action:'character-voice.action', changed:'character-voice.changed', audio:'character-voice.audio', event:'character-voice.event'} as const
 export type VoiceProfile = {id:string;version:string;name:string;fingerprint:string;adapterSha256:string}
-export type SpeechBinding = GenerationBinding & {messageId:string;speechEpoch:number;voiceProfileId:string;voiceProfileVersion:string;voiceFingerprint:string;runtimeSessionId:string}
-export type VoiceSnapshot = {epoch:number;enabled:boolean;autoRead:boolean;volume:number;profiles:VoiceProfile[];bindings:Record<string,string>;status:'off'|'idle'|'loading'|'synthesizing'|'playing'|'stopped'|'error';error:string|null;runtimeConfigured:boolean}
-export type VoiceAction = {type:'ready'|'snapshot'|'import'|'configure'|'test'|'stop'}|{type:'enabled'|'auto';value:boolean}|{type:'volume';value:number}|{type:'bind';profile:string|null}|{type:'remove';profile:string}|{type:'read';messageId:string}|{type:'played';audioId:string;epoch:number;error?:boolean}
-export type VoiceEvent = {type:'stop';epoch:number}|{type:'audio';epoch:number;audioId:string;binding:SpeechBinding;segmentIndex:number}
+export type ExecutionProfile='baseline'|'cached'|'compiled'
+export type SpeechBinding = GenerationBinding & {messageId:string;speechEpoch:number;voiceProfileId:string;voiceProfileVersion:string;voiceFingerprint:string;runtimeSessionId:string;executionProfile?:ExecutionProfile}
+export type VoiceSnapshot = {epoch:number;enabled:boolean;autoRead:boolean;volume:number;profiles:VoiceProfile[];bindings:Record<string,string>;status:'off'|'idle'|'loading'|'synthesizing'|'playing'|'stopped'|'error';error:string|null;runtimeConfigured:boolean;executionProfile?:ExecutionProfile}
+export type VoiceAction = {type:'ready'|'snapshot'|'import'|'configure'|'test'|'stop'|'prepare'}|{type:'executionProfile';value:ExecutionProfile}|{type:'enabled'|'auto';value:boolean}|{type:'volume';value:number}|{type:'bind';profile:string|null}|{type:'remove';profile:string}|{type:'read';messageId:string}|{type:'played';audioId:string;epoch:number;error?:boolean}|{type:'scheduled';audioId:string;epoch:number;delayMs:number;gapMs:number}|{type:'outputStopped';epoch:number;elapsedMs:number}
+export type VoiceEvent = {type:'stop';epoch:number;requestedAt?:number}|{type:'audio';epoch:number;audioId:string;binding:SpeechBinding;segmentIndex:number;stream?:{synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number}}
 export interface VoiceApi {action(value:VoiceAction):Promise<VoiceSnapshot>;audio(id:string,epoch:number):Promise<Uint8Array>;subscribe(listener:(state:VoiceSnapshot)=>void):()=>void;onEvent(listener:(event:VoiceEvent)=>void):()=>void}
 
 // Lossless UTF-16 offsets; grapheme boundaries are preserved even at the hard limit.

@@ -1,9 +1,14 @@
 // Synthetic process fixture: never produces Belle audio or runs Python/GPU inference.
 const readline=require('node:readline'),fs=require('node:fs'),path=require('node:path')
 let cache
+let stream
 const send=(r,type,extra={})=>process.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...extra})+'\n')
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const r=JSON.parse(line)
+ if(r.type==='credit'){
+  if(stream&&r.chunkIndex===0){stream.sendChunk(3);send(stream.request,'synthesis-finished',{synthesisId:stream.request.synthesisId,totalSamples:stream.request.text==='total'?1:19200,totalChunks:4});stream=null}
+  return
+ }
  if(r.type==='init'){
   cache=r.cache
   if(r.package.endsWith('crash')){process.exit(2);return}
@@ -17,5 +22,13 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const bytes=Buffer.alloc(44+9600);bytes.write('RIFF');bytes.writeUInt32LE(bytes.length-8,4);bytes.write('WAVEfmt ',8);bytes.writeUInt32LE(16,16);bytes.writeUInt16LE(1,20);bytes.writeUInt16LE(1,22);bytes.writeUInt32LE(48000,24);bytes.writeUInt32LE(96000,28);bytes.writeUInt16LE(2,32);bytes.writeUInt16LE(16,34);bytes.write('data',36);bytes.writeUInt32LE(9600,40)
   fs.writeFileSync(path.join(cache,r.audioId+'.wav'),r.text==='corrupt'?Buffer.alloc(3):bytes)
   send(r,'audio-ready',{audioId:r.audioId,binding:r.binding,segmentIndex:r.segmentIndex,generationMs:1,rtf:0.01})
+ }
+ if(r.type==='stream'){
+  const sendChunk=index=>{
+   const audioId=require('node:crypto').randomUUID(),bytes=Buffer.alloc(9644);bytes.write('RIFF');bytes.writeUInt32LE(bytes.length-8,4);bytes.write('WAVEfmt ',8);bytes.writeUInt32LE(16,16);bytes.writeUInt16LE(1,20);bytes.writeUInt16LE(1,22);bytes.writeUInt32LE(48000,24);bytes.writeUInt32LE(96000,28);bytes.writeUInt16LE(2,32);bytes.writeUInt16LE(16,34);bytes.write('data',36);bytes.writeUInt32LE(9600,40)
+   fs.writeFileSync(path.join(cache,audioId+'.wav'),bytes)
+   send(r,'audio-chunk',{synthesisId:r.synthesisId,audioId,binding:r.binding,segmentIndex:r.segmentIndex,chunkIndex:r.text==='duplicate'?0:index,sampleOffset:r.text==='offset'?1:index*4800,sampleCount:4800,sampleRate:48000,firstChunkReadyMs:10})
+  }
+  stream={request:r,sendChunk};send(r,'synthesis-started');for(let i=0;i<3;i++)sendChunk(i)
  }
 })

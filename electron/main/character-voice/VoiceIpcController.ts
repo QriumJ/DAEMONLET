@@ -58,7 +58,9 @@ export class VoiceIpcController {
   switch(v.type){
    case 'ready':this.rendererReady=true;this.updateOutput();return
    case 'snapshot':return
-   case 'stop':return this.stop()
+   case 'stop':return this.service.stop(true,false)
+   case 'prepare':return this.service.prepare()
+   case 'executionProfile':if(!['baseline','cached','compiled'].includes(v.value))throw Error('VOICE_ACTION');return this.service.executionProfile(v.value)
    case 'enabled':case 'auto':if(typeof v.value!=='boolean')throw Error('VOICE_ACTION');return v.type==='enabled'?this.service.enabled(v.value):this.service.auto(v.value)
    case 'volume':if(!Number.isFinite(v.value)||v.value<0||v.value>1)throw Error('VOICE_ACTION');return this.service.volume(v.value)
    case 'bind':if(!character||v.profile!==null&&(typeof v.profile!=='string'||v.profile.length>170))throw Error('VOICE_ACTION');return this.service.bind(character.id,v.profile)
@@ -66,6 +68,8 @@ export class VoiceIpcController {
    case 'read':if(typeof v.messageId!=='string'||v.messageId.length>80)throw Error('VOICE_ACTION');return this.service.readMessage(v.messageId)
    case 'test':return this.service.test()
    case 'played':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||v.error!==undefined&&typeof v.error!=='boolean')throw Error('VOICE_ACTION');return this.service.played(v.audioId,v.epoch,v.error)
+   case 'scheduled':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.delayMs)||v.delayMs<0||v.delayMs>6000||!Number.isFinite(v.gapMs)||v.gapMs<0||v.gapMs>180_000)throw Error('VOICE_ACTION');return this.service.scheduled(v.audioId,v.epoch,v.delayMs,v.gapMs)
+   case 'outputStopped':if(!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.elapsedMs)||v.elapsedMs<0||v.elapsedMs>180_000)throw Error('VOICE_ACTION');return this.service.outputStopped(v.epoch,v.elapsedMs)
    case 'import':case 'configure':{
     const win=this.window();if(!win||win.isDestroyed()||this.picking)return
     this.picking=true

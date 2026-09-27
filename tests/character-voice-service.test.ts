@@ -102,3 +102,38 @@ it('F2 hiding revokes a ready WAV before retrieval and late acknowledgement',asy
  expect(()=>f.service.audio(event.audioId,event.epoch)).toThrow('VOICE_AUDIO_EXPIRED');f.service.played(event.audioId,event.epoch)
  await new Promise(r=>setTimeout(r,0));expect(f.runtime.synthesize).toHaveBeenCalledTimes(1)
 })
+it('streaming overlaps only the immediate next sentence and keeps separate audio capabilities',async()=>{
+ const f=await fixture();(f.service as any).state.executionProfile='cached';f.message.text='응. 다음! 마지막.'
+ let index=0
+ const stream=vi.fn(async(_text:string,_binding:any,_segment:number,accept:any)=>{
+  const id=++index;void accept({audioId:`chunk-${id}`,bytes:new Uint8Array(20),durationMs:100,generationMs:1,rtf:.01,synthesisId:`s${id}`,chunkIndex:0,sampleOffset:0,sampleCount:4800,firstChunkReadyMs:1}).catch(()=>{})
+  return {totalChunks:1,totalSamples:4800}
+ });Object.assign(f.runtime,{stream,busy:false})
+ f.service.completed(f.message);await vi.waitFor(()=>expect(stream).toHaveBeenCalledTimes(2));await new Promise(r=>setTimeout(r,10));expect(stream).toHaveBeenCalledTimes(2)
+ const consume=(id:string)=>{const epoch=f.service.snapshot().epoch;f.service.audio(id,epoch);f.service.played(id,epoch)}
+ consume('chunk-1');await vi.waitFor(()=>expect(stream).toHaveBeenCalledTimes(3));consume('chunk-2');consume('chunk-3');await vi.waitFor(()=>expect(f.service.snapshot().status).toBe('idle'))
+})
+it('warm idle GPU survives voice-only stop, but hide still unloads it',async()=>{
+ const f=await fixture();Object.assign(f.runtime,{busy:false});f.service.completed(f.message);await vi.waitFor(()=>expect(f.events.some(e=>e.type==='audio')).toBe(true))
+ f.runtime.stop.mockClear();await f.service.stop(true,false);expect(f.runtime.stop).not.toHaveBeenCalled();f.service.setOutputReady(false);await vi.waitFor(()=>expect(f.runtime.stop).toHaveBeenCalled())
+})
+it('hide revokes current and prefetched stream capabilities and prevents a third sentence',async()=>{
+ const f=await fixture();(f.service as any).state.executionProfile='cached';f.message.text='첫 문장. 다음 문장. 마지막 문장.'
+ let count=0
+ const stream=vi.fn(async(_text:string,_binding:any,_segment:number,accept:any)=>{
+  const id=++count;void accept({audioId:`hidden-${id}`,bytes:new Uint8Array(20),durationMs:100,synthesisId:`s${id}`,chunkIndex:0,sampleOffset:0,sampleCount:4800,firstChunkReadyMs:1}).catch(()=>{})
+  return {totalChunks:1,totalSamples:4800}
+ });Object.assign(f.runtime,{stream,busy:false})
+ f.service.completed(f.message);await vi.waitFor(()=>expect(stream).toHaveBeenCalledTimes(2))
+ const epoch=f.service.snapshot().epoch;f.service.setOutputReady(false)
+ for(const id of ['hidden-1','hidden-2']){expect(()=>f.service.audio(id,epoch)).toThrow('VOICE_AUDIO_EXPIRED');f.service.played(id,epoch)}
+ await vi.waitFor(()=>expect(f.runtime.stop).toHaveBeenCalled());await new Promise(r=>setTimeout(r,0))
+ expect(stream).toHaveBeenCalledTimes(2);expect(f.message.status).toBe('complete')
+})
+it('voice-only stop cancels an explicit preparation even before speech exists',async()=>{
+ const f=await fixture();(f.service as any).state.executionProfile='compiled';Object.assign(f.runtime,{busy:true})
+ let release!:()=>void;f.runtime.start.mockImplementationOnce(()=>new Promise<void>(r=>{release=r}))
+ const ready=f.service.prepare();await vi.waitFor(()=>expect(release).toBeTypeOf('function'));f.runtime.stop.mockClear()
+ await f.service.stop(true,false);expect(f.runtime.stop).toHaveBeenCalledOnce()
+ release();await ready;expect(f.service.snapshot().status).toBe('stopped')
+})

@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react'
-import type {VoiceAction,VoiceApi,VoiceSnapshot} from '../../electron/shared/character-voice-contract'
+import type {VoiceAction,VoiceApi,VoiceSnapshot,ExecutionProfile} from '../../electron/shared/character-voice-contract'
 import {AudioPlaybackController} from './AudioPlaybackController'
 declare global{interface Window{characterVoice:VoiceApi}}
 const statuses={off:'음성 꺼짐',idle:'준비됨',loading:'음성 모델 준비 중',synthesizing:'문장 합성 중',playing:'음성 재생 중',stopped:'음성 중단됨',error:'음성 오류 · 텍스트 대화는 계속 사용할 수 있어요'}
@@ -26,6 +26,10 @@ export function VoiceControls({characterId,menu}:{characterId?:string;menu:boole
   {menu&&<><label><input type="checkbox" checked={state.enabled} onChange={e=>void act({type:'enabled',value:e.target.checked})}/>음성 사용</label>
    <label>캐릭터 음성<select aria-label="캐릭터 음성" value={selected} onChange={e=>void act({type:'bind',profile:e.target.value||null})}><option value="">없음</option>{state.profiles.map(p=><option value={p.id+'@'+p.version} key={p.id+'@'+p.version}>{p.name} · {p.version}</option>)}</select></label>
    <button onClick={()=>void act({type:'import'})}>음성 패키지 가져오기</button><button onClick={()=>void act({type:'configure'})}>TTS 런타임·모델 연결</button>
+   <label>음성 실행 모드<select aria-label="음성 실행 모드" value={state.executionProfile||'baseline'} onChange={e=>void act({type:'executionProfile',value:e.target.value as ExecutionProfile})}><option value="baseline">기준 모드 · 완성 후 재생</option><option value="cached">빠른 시작 · 캐시·청크 재생</option><option value="compiled">CUDA 가속 (실험) · 별도 런타임 필요</option></select></label>
+   {state.executionProfile==='compiled'&&<small>처음 준비에는 컴파일 시간이 필요하며 발음·음질은 확인 중입니다. 준비 실패 시 기준 모드를 선택할 수 있습니다.</small>}
+   <button disabled={!state.enabled||!selected||!state.runtimeConfigured||state.executionProfile==='baseline'} onClick={()=>void act({type:'prepare'})}>음성 엔진 미리 준비</button>
+   {state.error==='COMPILE_UNAVAILABLE'&&<p>CUDA 컴파일을 적용하지 못했습니다. 최적화 런타임을 연결하거나 다른 실행 모드를 선택해 주세요.</p>}
    <button disabled={!state.enabled||!selected||!state.runtimeConfigured} onClick={()=>void act({type:'test'})}>새 문장 시험 재생</button>
    <label><input type="checkbox" checked={state.autoRead} onChange={e=>void act({type:'auto',value:e.target.checked})}/>새 답변 자동 읽기</label>
    <label>음량<input aria-label="음량" type="range" min="0" max="1" step="0.05" value={state.volume} onChange={e=>void act({type:'volume',value:Number(e.target.value)})}/></label>

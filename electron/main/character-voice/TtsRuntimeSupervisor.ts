@@ -4,9 +4,10 @@ import {join,isAbsolute} from 'node:path'
 import {mkdir,mkdtemp,readFile,lstat,rm} from 'node:fs/promises'
 import type {SpeechBinding} from '../../shared/character-voice-contract'
 
-export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string}
+export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:'baseline'|'cached'|'compiled';compilerCache?:string}
 export type SpawnWorker=(command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams
 export type AudioResult={audioId:string;bytes:Uint8Array;durationMs:number;generationMs:number;rtf:number;peakAllocatedBytes?:number;peakReservedBytes?:number}
+export type AudioChunk=AudioResult & {synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number;firstChunkReadyMs:number}
 export function verifyWav(bytes:Buffer) {
  if(bytes.length<44||bytes.length>5_800_000||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE'||bytes.readUInt32LE(4)+8!==bytes.length)throw Error('VOICE_INVALID_WAV')
  let format=false,samples=0
@@ -25,17 +26,18 @@ export class TtsRuntimeSupervisor {
  private ending:Promise<void>|null=null
  private cache:string|null=null
  private key=''
- private pending:{id:string;expected:string;resolve:(v:any)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}|null=null
+ private pending:{id:string;expected:string;resolve:(v:any)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>;chunk?:(v:any)=>void}|null=null
  private starting:Promise<void>|null=null
  private revision=0
  audit:Record<string,unknown>|null=null
  constructor(readonly config:TtsConfig,private timeoutMs=180_000,private spawnProcess:SpawnWorker=spawn){}
  get running(){return !!this.child}
- private call(type:string,expected:string,data:object={}) {
+ get busy(){return !!this.pending||!!this.starting}
+ private call(type:string,expected:string,data:object={},chunk?:(v:any)=>void) {
   if(!this.child||this.pending)return Promise.reject(Error('VOICE_WORKER_BUSY'))
   return new Promise<any>((resolve,reject)=>{
-   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},this.timeoutMs)
-   this.pending={id,expected,resolve,reject,timer}
+   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&this.config.executionProfile==='compiled'?900_000:this.timeoutMs)
+   this.pending={id,expected,resolve,reject,timer,chunk}
    this.child!.stdin.write(JSON.stringify({protocolVersion:1,type,requestId:id,...data})+'\n',error=>{if(error)this.fail(Error('VOICE_WORKER_IO'))})
   })
  }
@@ -64,7 +66,8 @@ export class TtsRuntimeSupervisor {
    while(buffer.includes('\n')){const index=buffer.indexOf('\n'),line=buffer.slice(0,index);buffer=buffer.slice(index+1)
     try {const v=JSON.parse(line),p=this.pending
      if(v.protocolVersion!==1||!p||v.requestId!==p.id)throw Error('VOICE_PROTOCOL')
-     if(v.type==='synthesis-started'&&p.expected==='audio-ready')continue
+     if(v.type==='synthesis-started'&&(p.expected==='audio-ready'||p.expected==='synthesis-finished'))continue
+     if(v.type==='audio-chunk'&&p.chunk){p.chunk(v);continue}
      if(v.type==='error'){this.fail(Error(typeof v.code==='string'&&/^[A-Z_]{1,60}$/.test(v.code)?v.code:'VOICE_WORKER_ERROR'));void this.stop().catch(()=>{});return}
      if(v.type!==p.expected)throw Error('VOICE_PROTOCOL')
      this.pending=null;clearTimeout(p.timer);p.resolve(v)
@@ -73,7 +76,7 @@ export class TtsRuntimeSupervisor {
   })
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
-  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
+  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile||'baseline',compilerCache:this.config.compilerCache});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
   catch(e){await this.stop();throw e}
  }
  async synthesize(text:string,binding:SpeechBinding,segmentIndex:number):Promise<AudioResult> {
@@ -84,6 +87,34 @@ export class TtsRuntimeSupervisor {
   const path=join(cache,audioId+'.wav')
   try {const stat=await lstat(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>5_800_000)throw Error('VOICE_INVALID_WAV');const bytes=await readFile(path),durationMs=verifyWav(bytes);return {audioId,bytes,durationMs,generationMs:result.generationMs,rtf:result.rtf,peakAllocatedBytes:result.peakAllocatedBytes,peakReservedBytes:result.peakReservedBytes}}
   finally {await rm(path,{force:true}).catch(()=>{})}
+ }
+ async stream(text:string,binding:SpeechBinding,segmentIndex:number,accept:(audio:AudioChunk)=>Promise<void>) {
+  const synthesisId=randomUUID(),cache=this.cache,child=this.child
+  if(!cache||!child||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
+  let index=0,offset=0,reads=Promise.resolve(),failure:Error|null=null
+  const failStream=(error:Error)=>{failure=error;if(this.child===child){this.fail(error);void this.stop().catch(()=>{})}}
+  const ids=new Set<string>()
+  const result=await this.call('stream','synthesis-finished',{streamVersion:1,synthesisId,text,binding,segmentIndex,style:null},v=>{
+   if(v.synthesisId!==synthesisId||v.segmentIndex!==segmentIndex||JSON.stringify(v.binding)!==JSON.stringify(binding)||v.chunkIndex!==index||v.sampleOffset!==offset||!Number.isSafeInteger(v.sampleCount)||v.sampleCount<1||v.sampleCount>48000||v.sampleRate!==48000||!/^[-a-f0-9]{36}$/.test(v.audioId)||offset+v.sampleCount>48000*60)throw Error('VOICE_STREAM_SEQUENCE')
+   if(ids.has(v.audioId))throw Error('VOICE_STREAM_SEQUENCE')
+   ids.add(v.audioId);++index;offset+=v.sampleCount
+   reads=reads.then(async()=>{
+    if(this.cache!==cache||this.child!==child)throw Error('VOICE_CANCELLED')
+    const path=join(cache,v.audioId+'.wav')
+    let bytes:Buffer
+    try{const stat=await lstat(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>96044)throw Error('VOICE_INVALID_WAV');bytes=await readFile(path);if(verifyWav(bytes)!==v.sampleCount/48)throw Error('VOICE_INVALID_WAV')}
+    finally{await rm(path,{force:true}).catch(()=>{})}
+    // Dispatch ordered chunks without awaiting playback. Three producer credits
+    // bound bytes and scheduled audio; consumption returns each credit separately.
+    void accept({audioId:v.audioId,bytes,durationMs:v.sampleCount/48,generationMs:0,rtf:0,synthesisId,chunkIndex:v.chunkIndex,sampleOffset:v.sampleOffset,sampleCount:v.sampleCount,firstChunkReadyMs:v.firstChunkReadyMs}).then(()=>{
+     if(this.child===child)child.stdin.write(JSON.stringify({protocolVersion:1,type:'credit',requestId:v.requestId,chunkIndex:v.chunkIndex})+'\n',()=>{})
+    }).catch(failStream)
+   }).catch(failStream)
+  })
+  await reads
+  if(failure)throw failure
+  if(result.synthesisId!==synthesisId||result.totalSamples!==offset||result.totalChunks!==index||!index)throw Error('VOICE_STREAM_TOTAL')
+  return result
  }
  stop():Promise<void> {
   ++this.revision

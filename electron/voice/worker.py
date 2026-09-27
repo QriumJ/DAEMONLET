@@ -11,6 +11,7 @@ import re
 import sys
 import time
 import wave
+import uuid
 
 PROTOCOL = sys.stdout
 MODEL = "openbmb/VoxCPM2"
@@ -60,7 +61,7 @@ PUBLIC_ERRORS = {
     "RUNTIME_SOURCE", "RUNTIME_VERSION", "RUNTIME_SOURCE_CHANGED", "ADAPTER_MISMATCH",
     "LORA_TENSORS", "LORA_INCOMPLETE", "UNSUPPORTED_STYLE", "SYNTHESIS_INPUT",
     "INVALID_WAVEFORM", "INVALID_WAV", "PROTOCOL_LIMIT", "PROTOCOL_VERSION",
-    "ALREADY_INITIALIZED", "PROTOCOL_STATE",
+    "ALREADY_INITIALIZED", "PROTOCOL_STATE", "EXECUTION_PROFILE", "COMPILE_UNAVAILABLE", "STREAM_CREDIT",
 }
 
 
@@ -89,6 +90,8 @@ class Worker:
     def initialize(self, request):
         CudaDevice.require_platform()
         started = time.perf_counter()
+        phases = {}
+        phase = started
         self.cache = Path(request["cache"])
         self.cache.mkdir(parents=True, exist_ok=True)
         # Native libraries and upstream progress messages cannot touch protocol stdout.
@@ -97,6 +100,8 @@ class Worker:
                           NUMBA_CACHE_DIR=str(self.cache / "numba"), PYTHONDONTWRITEBYTECODE="1")
         import torch
         CudaDevice.require(torch)
+        phases['torchImportMs'] = (time.perf_counter()-phase)*1000
+        phase = time.perf_counter()
         package = Path(request["package"])
         if sha(package / "checksums.sha256") != CHECKSUMS:
             raise ValueError("SELECTION_MISMATCH")
@@ -117,6 +122,8 @@ class Worker:
         for name, expected in snapshot["files"].items():
             if sha(inside(base, name)) != expected:
                 raise ValueError("MODEL_CHANGED")
+        phases['fileValidationMs'] = (time.perf_counter()-phase)*1000
+        phase = time.perf_counter()
         # An installation receipt is created only by the explicit setup tool.
         receipt = read_json(Path(sys.prefix) / "voice-runtime.json")
         if receipt["source_commit"] != SOURCE:
@@ -124,6 +131,17 @@ class Worker:
         for name, expected in self.voice["engine"]["runtime"].items():
             if importlib.metadata.version(name) != expected:
                 raise ValueError("RUNTIME_VERSION")
+        from engine import Engine, runtime_fingerprint, PROFILES
+        profile = request.get('executionProfile', 'baseline')
+        if profile not in PROFILES:
+            raise ValueError('EXECUTION_PROFILE')
+        self.reference = inside(package, self.voice['reference'])
+        identity = dict(model=REVISION, source=SOURCE, adapter=ADAPTER, package=CHECKSUMS, reference=sha(self.reference), device=torch.cuda.get_device_name(), capability=torch.cuda.get_device_capability(), dtype='bfloat16', python=sys.version, engine=sha(Path(__file__).with_name('engine.py')))
+        fingerprint = runtime_fingerprint(profile, identity)
+        if profile == 'compiled':
+            compiler = Path(request['compilerCache']) / fingerprint
+            compiler.mkdir(parents=True, exist_ok=True)
+            os.environ.update(TORCHINDUCTOR_CACHE_DIR=str(compiler / 'inductor'), TRITON_CACHE_DIR=str(compiler / 'triton'), NUMBA_CACHE_DIR=str(compiler / 'numba'))
         import voxcpm
         source_root = Path(voxcpm.__file__).parent
         for name, expected in receipt["source_files"].items():
@@ -132,12 +150,17 @@ class Worker:
         from voxcpm import VoxCPM
         from voxcpm.model.voxcpm2 import LoRAConfig
         from safetensors.torch import load_file
+        phases['upstreamImportMs'] = (time.perf_counter()-phase)*1000
+        phase = time.perf_counter()
         lora = inside(package, self.voice["lora"])
         if sha(lora / "lora_weights.safetensors") != ADAPTER:
             raise ValueError("ADAPTER_MISMATCH")
         config = read_json(lora / "lora_config.json")
         self.model = VoxCPM.from_pretrained(str(base), device="cuda", optimize=False, load_denoiser=False,
                                           local_files_only=True, lora_config=LoRAConfig(**config["lora_config"]))
+        torch.cuda.synchronize()
+        phases['modelLoadMs'] = (time.perf_counter()-phase)*1000
+        phase = time.perf_counter()
         tensors = load_file(str(lora / "lora_weights.safetensors"))
         expected = {k for k, _ in self.model.tts_model.named_parameters() if "lora_" in k}
         if len(tensors) != 384 or set(tensors) != expected or not all(torch.isfinite(v).all().item() for v in tensors.values()):
@@ -147,9 +170,15 @@ class Worker:
             raise ValueError("LORA_INCOMPLETE")
         self.reference = inside(package, self.voice["reference"])
         self.settings = {k: self.voice["inference"][k] for k in ("cfg_value", "inference_timesteps", "normalize", "denoise", "retry_badcase", "max_len", "seed")}
+        self.model.tts_model.eval()
         torch.cuda.synchronize()
+        phases['adapterAuditLoadMs'] = (time.perf_counter()-phase)*1000
+        self.engine = Engine(self.model, self.reference, self.settings, profile)
+        self.engine.prepare()
+        if request.get('warmup', True):
+            self.engine.warmup()
         return dict(loadMs=(time.perf_counter()-started)*1000, loadedKeys=len(loaded), adapterSha256=ADAPTER,
-                    modelRevision=REVISION, sourceCommit=SOURCE, referenceSha256=sha(self.reference))
+                    modelRevision=REVISION, sourceCommit=SOURCE, referenceSha256=sha(self.reference), executionProfile=profile, runtimeFingerprint=fingerprint, phases=phases, compileWarningsCaptured=False, referenceCacheBuilds=self.engine.cache_builds, firstInferenceAfterCompileMs=self.engine.audit.get('warmupMs') if profile == 'compiled' else None, **self.engine.audit)
 
     def synthesize(self, request):
         import numpy as np
@@ -164,7 +193,8 @@ class Worker:
         torch.cuda.synchronize()
         torch.cuda.reset_peak_memory_stats()
         start = time.perf_counter()
-        audio = self.model.generate(text=text, reference_wav_path=str(self.reference), **self.settings)
+        with contextlib.closing(self.engine.generate(text)) as generated:
+            audio = next(generated)
         torch.cuda.synchronize()
         elapsed = (time.perf_counter()-start)*1000
         audio = np.asarray(audio)
@@ -183,9 +213,67 @@ class Worker:
                     sampleRate=sr, durationMs=duration, generationMs=elapsed, rtf=elapsed/duration,
                     peakAllocatedBytes=torch.cuda.max_memory_allocated(), peakReservedBytes=torch.cuda.max_memory_reserved())
 
+    def stream(self, request, credit):
+        import numpy as np
+        import soundfile as sf
+        import torch
+        if int(self.model.tts_model.sample_rate) != 48000:
+            raise ValueError('INVALID_WAVEFORM')
+        text = request.get('text')
+        if request.get('streamVersion') != 1 or not isinstance(text, str) or not text.strip() or len(text) > 400 or request.get('style') is not None:
+            raise ValueError('SYNTHESIS_INPUT')
+        start = time.perf_counter()
+        torch.cuda.reset_peak_memory_stats()
+        total = chunks = 0
+        peak = blocked = 0
+        first = onset = None
+        # Three 160ms chunks in flight; parent credits are returned on playback.
+        with contextlib.closing(self.engine.generate(text, streaming=True)) as generated:
+            while True:
+                waited = time.perf_counter()
+                credit(chunks)
+                blocked += (time.perf_counter()-waited)*1000
+                try:
+                    audio = np.asarray(next(generated))
+                except StopIteration:
+                    break
+                if audio.ndim != 1 or not 0 < audio.size <= 48000 or not np.isfinite(audio).all() or total + audio.size > 48000*60:
+                    raise ValueError('INVALID_WAVEFORM')
+                magnitude = float(np.max(np.abs(audio)))
+                peak = max(peak, magnitude)
+                audio_id = str(uuid.uuid4())
+                path = self.cache / (audio_id + '.wav')
+                sf.write(path, audio, 48000, format='WAV', subtype='PCM_16')
+                elapsed = (time.perf_counter()-start)*1000
+                if first is None:
+                    first = elapsed
+                if onset is None and magnitude >= 1e-7:
+                    onset = elapsed
+                emit('audio-chunk', request['requestId'], audioId=audio_id, binding=request['binding'], synthesisId=request['synthesisId'], segmentIndex=request['segmentIndex'], chunkIndex=chunks, sampleOffset=total, sampleCount=int(audio.size), sampleRate=48000, firstChunkReadyMs=first)
+                total += audio.size
+                chunks += 1
+        torch.cuda.synchronize()
+        if peak < 1e-7 or not total:
+            raise ValueError('INVALID_WAVEFORM')
+        elapsed = (time.perf_counter()-start)*1000
+        return dict(synthesisId=request['synthesisId'], totalSamples=total, totalChunks=chunks, firstChunkReadyMs=first, firstSignalChunkReadyMs=onset, generationMs=elapsed, producerBlockedMs=blocked, rtf=elapsed/(total/48), peakAllocatedBytes=torch.cuda.max_memory_allocated(), peakReservedBytes=torch.cuda.max_memory_reserved())
+
 
 def main():
     worker = None
+    tails = {}
+    def consume_tail(value):
+        ident = value.get('requestId')
+        if ident not in tails:
+            return False
+        index, total = tails[ident]
+        if value != dict(protocolVersion=1, type='credit', requestId=ident, chunkIndex=index):
+            raise ValueError('STREAM_CREDIT')
+        if index + 1 == total:
+            del tails[ident]
+        else:
+            tails[ident] = (index+1, total)
+        return True
     while True:
         line = sys.stdin.readline(65537)
         if not line:
@@ -199,6 +287,8 @@ def main():
             if request.get("protocolVersion") != 1 or not isinstance(request_id, str):
                 raise ValueError("PROTOCOL_VERSION")
             kind = request["type"]
+            if kind == 'credit' and consume_tail(request):
+                continue
             if kind == "init":
                 if worker:
                     raise ValueError("ALREADY_INITIALIZED")
@@ -211,6 +301,25 @@ def main():
             elif kind == "synthesize" and worker:
                 emit("synthesis-started", request_id)
                 emit("audio-ready", request_id, **worker.synthesize(request))
+            elif kind == 'stream' and worker:
+                emit('synthesis-started', request_id)
+                def credit(index):
+                    if index < 3:
+                        return
+                    while True:
+                        line = sys.stdin.readline(65537)
+                        if len(line) > 65536 or not line.endswith('\n'):
+                            raise ValueError('STREAM_CREDIT')
+                        value = json.loads(line)
+                        if not consume_tail(value):
+                            break
+                    if value != dict(protocolVersion=1, type='credit', requestId=request_id, chunkIndex=index-3):
+                        raise ValueError('STREAM_CREDIT')
+                result = worker.stream(request, credit)
+                if len(tails) >= 2:
+                    raise ValueError('STREAM_CREDIT')
+                tails[request_id] = (max(0, result['totalChunks']-2), result['totalChunks'])
+                emit('synthesis-finished', request_id, **result)
             elif kind == "cancel":
                 # While generate is blocking, the parent kills this owned process.
                 emit("cancelled", request_id)

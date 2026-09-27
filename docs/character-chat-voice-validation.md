@@ -1,5 +1,59 @@
 # Voice integration verification — 2026-09-27
 
+## PR #28 low latency — latest work
+
+Continued from clean local/remote `35751049769c591e16e426f397545a94206ea4b8`.
+The adopted package, reference, 384-key LoRA and original independent runtime
+remain unchanged. The voice-lab Git tree was still clean after execution.
+Only the explicitly approved separate runtime copy added pip and pinned
+`triton-windows==3.4.0.post21`; no training or weight publication occurred.
+
+See [performance measurements and reproduction commands](character-chat-voice-performance.md)
+for the full before/after table, runtime fingerprint and exact verification scope.
+Real Windows CUDA compilation executed all four pinned components. Warm whole-WAV
+RTF median improved from 1.762 to 0.417. The incremental 12-sample worker median
+was 0.502, first chunk 114 ms. Native compiled first playback median was 397 ms
+across two trials and three actual E4B turns, with zero scheduled inter-sentence
+gaps/underruns in those samples. The five completed runs acknowledged 146 chunks.
+
+The Windows native matrix used the actual packaged code and existing isolated
+profile: both file pickers, explicit preparation, compiled mode, ordered multiple
+sentences, replay, active voice-only stop, active hide/reopen without history
+autoplay, new question during playback, replacement text/audio recovery and
+normal Exit during playback. Owned candidate/worker processes and windows were
+absent, and transient audio files were zero afterward. Worker shutdown ranged
+347–394 ms in the active UI cancellation cases; this misses 250 ms. Renderer
+stop acknowledgement was 0–3 ms, **not audible-stop latency**. Cold preparation
+or recovery still costs about 45–46 s with persisted compiler cache.
+
+Final review found two further races and reproduced each as a failing test:
+an old stream's late playback rejection stopped its replacement worker, and
+voice-only stop did not cancel explicit preparation before speech existed.
+Failure handling now checks the owned child identity; voice-only stop retains
+only idle workers and cancels busy preparation. These are Main-only changes;
+the measured Python engine, worker and playback scheduler remain unchanged.
+
+Python voice tests passed **14 tests**, including cached-reference reuse, streaming
+API argument/closure checks, silent prefix/final tail, actual-compile evidence
+requirements, cache fingerprinting and tail-credit ordering. The existing Python
+3.11 steps in both CI jobs execute this same expanded suite without model/GPU
+dependencies. F1–F5 tests remain intact. The final full TypeScript regression
+passed **2,063 tests, 0 failed, 74 skipped**, including both new race regressions.
+
+Typecheck, source check, renderer/Electron production build, Windows packaging
+and `release:verify` passed. The measured package had 230 app.asar entries, no
+weights/reference WAV/site-packages/private runtime paths, and matching external
+`worker.py` / `engine.py` source hashes. An initial audit looked inside app.asar
+for the worker; the corrected audit verified the intentionally external resources.
+Restricted process-termination tests were rerun under normal user permissions.
+
+**NOT_TESTED:** physical listening, loopback, word completeness/pronunciation,
+long soak, missing-output-device UI, signed installer and runtime relocation.
+The compiled fixed-text waveform duration changed in one sample, so compiled
+quality is not claimed equivalent and the UI marks it experimental. 12B and a
+second external character are **BLOCKED_MISSING_ASSETS**. Mac remains NOT_TESTED
+and unsupported by this CUDA worker. Historical reports below are preserved.
+
 ## PR #28 stabilization — F1–F5
 
 Started from clean local/remote `cb43a8b9fb4afc199d049433dc6038eb256273e8`.
