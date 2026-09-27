@@ -46,3 +46,18 @@ run('fails closed when an installed model is later modified',async()=>{
  const {installer}=await setup(vi.fn(async()=>new Response('abcdef')) as any);await installer.install()
  await writeFile(join(installer.path,'VoxCPM2-Acoustic-F16.gguf'),'ABCDEF');await expect(installer.ready()).rejects.toThrow('VOICE_BASE_CHANGED')
 })
+
+it('pinned downloader materializes verified empty source files without network IO',async()=>{
+ const {downloadVoiceFile}=await import('../electron/main/character-voice/PinnedVoiceDownload')
+ const root=await mkdtemp(join(tmpdir(),'voice-empty-'));roots.push(root);const path=join(root,'empty.py'),fetcher=vi.fn()
+ await downloadVoiceFile(path,{url:'https://example.invalid/empty.py',bytes:0,sha256:createHash('sha256').update('').digest('hex')},new AbortController().signal,()=>{},fetcher as any)
+ expect((await stat(path)).size).toBe(0);expect(fetcher).not.toHaveBeenCalled()
+})
+it('Windows pinned downloads resume verified ranges and reject corrupt bytes',async()=>{
+ const {downloadVoiceFile}=await import('../electron/main/character-voice/PinnedVoiceDownload')
+ const root=await mkdtemp(join(tmpdir(),'voice-pinned-'));roots.push(root);const path=join(root,'wheel'),signal=new AbortController().signal
+ const file={url:'https://example.invalid/wheel',bytes:6,sha256:createHash('sha256').update('abcdef').digest('hex')}
+ await writeFile(path,'abc');const fetcher=vi.fn(async()=>new Response('def',{status:206,headers:{'content-range':'bytes 3-5/6'}})) as any
+ await downloadVoiceFile(path,file,signal,()=>{},fetcher);expect(fetcher.mock.calls[0][1].headers.Range).toBe('bytes=3-');expect(await readFile(path,'utf8')).toBe('abcdef')
+ await writeFile(path,'ABCDEF');await expect(downloadVoiceFile(path,file,signal,()=>{},fetcher)).rejects.toThrow('VOICE_BASE_CHANGED');await expect(stat(path)).rejects.toThrow()
+})

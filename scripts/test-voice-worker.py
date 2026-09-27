@@ -188,6 +188,27 @@ class CacheTests(unittest.TestCase):
         self.assertNotIn('normalize', first)
         self.assertNotIn('denoise', first)
 
+    def test_default_voice_design_without_reference_in_both_paths(self):
+        defaults = json.loads((WORKER.parent / 'base-voice-defaults.json').read_text())
+        engine, calls, tts, tensor = self.engine()
+        engine.reference = None
+        engine.voice_description = defaults['description']
+        engine.settings['seed'] = defaults['seed']
+        def streaming(**kwargs):
+            calls.append(('stream', kwargs))
+            yield tensor, None, None
+        tts.generate_with_prompt_cache_streaming = streaming
+        with patch.dict('sys.modules', {'torch': SimpleNamespace()}):
+            engine.prepare()
+            list(engine.generate('안녕.'))
+            list(engine.generate('안녕.', streaming=True))
+        self.assertEqual(engine.cache_builds, 0)
+        self.assertEqual([c[0] for c in calls], ['generate', 'stream'])
+        for _, kwargs in calls:
+            self.assertEqual(kwargs['target_text'], '(' + defaults['description'] + ') 안녕.')
+            self.assertIsNone(kwargs['prompt_cache'])
+            self.assertEqual(kwargs['seed'], 42)
+
     def test_stream_is_incremental_and_closes_generator(self):
         engine, _, tts, tensor = self.engine()
         events = []

@@ -1,4 +1,5 @@
 import {join,dirname} from 'node:path'
+import {WindowsVoiceInstaller} from './WindowsVoiceInstaller'
 import {VoiceBaseInstaller} from './VoiceBaseInstaller'
 import {dialog,ipcMain,type BrowserWindow} from 'electron'
 import {isTrustedSender} from '../SecurityPolicy'
@@ -16,7 +17,7 @@ export class VoiceIpcController {
  private closing:Promise<void>|null=null
  private detach:Array<()=>unknown>=[]
  constructor(root:string,worker:string,private window:()=>BrowserWindow|null,private chat:CharacterChatService,private devServerUrl?:string){
-  this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>console.info('[voice]',JSON.stringify(value)),new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
+  this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>console.info('[voice]',JSON.stringify(value)),process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
   this.detach.push(chat.subscribeVoiceStart(id=>this.service.requestStarted(id)),chat.subscribeVoice(message=>{if(message)this.service.completed(message);else this.service.cancel()}),chat.subscribe(()=>this.service.onChatChanged()))
   ipcMain.handle(VOICE_IPC.action,async(event,value:VoiceAction)=>{
    if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl))throw Error('UNTRUSTED_SENDER')

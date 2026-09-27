@@ -6,7 +6,7 @@ import type {SpeechBinding,ExecutionProfile} from '../../shared/character-voice-
 
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 
-export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean}
+export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean;windowsBase?:boolean}
 export type SpawnWorker=(command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams
 export type AudioResult={audioId:string;bytes:Uint8Array;durationMs:number;generationMs:number;rtf:number;peakAllocatedBytes?:number;peakReservedBytes?:number}
 export type AudioChunk=AudioResult & {synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number;firstChunkReadyMs:number}
@@ -48,7 +48,7 @@ export class TtsRuntimeSupervisor {
  private call(type:string,expected:string,data:object={},chunk?:(v:any)=>void) {
   if(!this.child||this.pending||this.cancellation)return Promise.reject(Error('VOICE_WORKER_BUSY'))
   return new Promise<any>((resolve,reject)=>{
-   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&['compiled','gguf-metal-f16','gguf-metal-f16-complete'].includes(this.config.executionProfile||'')?900_000:this.timeoutMs)
+   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&['compiled','gguf-metal-f16','gguf-metal-f16-complete','cuda-compiled','cuda-compiled-complete'].includes(this.config.executionProfile||'')?900_000:this.timeoutMs)
    const stream=data as {synthesisId:string;binding:SpeechBinding}
    const target=type==='stream'?{requestId:id,synthesisId:stream.synthesisId,runtimeSessionId:stream.binding.runtimeSessionId,speechEpoch:stream.binding.speechEpoch}:undefined
    this.pending={id,expected,target,resolve,reject,timer,chunk}
@@ -114,11 +114,11 @@ export class TtsRuntimeSupervisor {
   })
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
-  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
+  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:this.config.windowsBase===true,compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
   catch(e){await this.stop();throw e}
  }
  async synthesize(text:string,binding:SpeechBinding,segmentIndex:number):Promise<AudioResult> {
-  if(this.config.executionProfile==='gguf-metal-f16-complete'){
+  if(['gguf-metal-f16-complete','cuda-compiled-complete'].includes(this.config.executionProfile||'')){
    const parts:Buffer[]=[];let header:Buffer|undefined,samples=0
    const result=await this.stream(text,binding,segmentIndex,async chunk=>{
     if(chunk.bytes.length!==44+chunk.sampleCount*2)throw Error('VOICE_INVALID_WAV')

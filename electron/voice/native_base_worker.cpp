@@ -3,6 +3,7 @@
 #include "voxcpm2_cli.cpp"
 #undef main
 #include "nlohmann/json.hpp"
+#include "base_voice_defaults.h"
 #include <iostream>
 #include <condition_variable>
 #include <mutex>
@@ -28,7 +29,7 @@ int main(){
   if(!fs::path(cache).is_absolute()||!model.is_absolute())throw std::runtime_error("PATH");fs::create_directories(cache);
   ggml_time_init();if(!runtime.init((model/"VoxCPM2-BaseLM-F16.gguf").string(),(model/"VoxCPM2-Acoustic-F16.gguf").string(),-1,true))throw std::runtime_error("UNSUPPORTED_DEVICE");
   if(std::string(ggml_backend_name(runtime.residual_lm.backend)).find("MTL")!=0)throw std::runtime_error("UNSUPPORTED_DEVICE");
-  emit("ready",initial,{{"workerPid",getpid()},{"backend","Metal"},{"mode","base"},{"adapterRepresentation","none"},{"referenceCacheBuilds",0}});
+  emit("ready",initial,{{"workerPid",getpid()},{"backend","Metal"},{"mode","base"},{"defaultVoice",{{"description",BASE_VOICE_DESCRIPTION},{"seed",BASE_VOICE_SEED}}},{"adapterRepresentation","none"},{"referenceCacheBuilds",0}});
  }catch(const std::exception&){emit("error",initial,{{"code","VOICE_BASE_RUNTIME"}});return 3;}
  std::mutex mutex;std::condition_variable cv;bool quit=false,cancel=false;J activeTarget=nullptr,cancelRequest=nullptr,lastTarget=nullptr;
  std::string activeRequest;int produced=0,credited=0;std::deque<J> requests;std::map<std::string,std::pair<int,int>> tails;std::map<std::string,std::vector<fs::path>> tailFiles;
@@ -64,7 +65,7 @@ int main(){
   auto milliseconds=[&]{return std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();};
   try{
    const auto text=request.at("text").get<std::string>();if(text.empty()||text.size()>1600||request.at("streamVersion")!=1||!request.at("style").is_null())throw std::runtime_error("SYNTHESIS_INPUT");
-   emit("synthesis-started",rid);VoxCPM2GenerateParams params;params.seed=42;params.inference_timesteps=10;params.cfg_value=2;params.temperature=1;params.target_sr=48000;params.max_steps=std::min(600,int(runtime.tokenize_text(text,false,true).size())*6+10);
+   emit("synthesis-started",rid);VoxCPM2GenerateParams params;params.seed=BASE_VOICE_SEED;params.inference_timesteps=10;params.cfg_value=2;params.temperature=1;params.target_sr=48000;params.max_steps=std::min(600,int(runtime.tokenize_text(text,false,true).size())*6+10);
    std::vector<float> pending;int patches=0;
    auto publish=[&](bool terminal=false){
     if(pending.empty())return true;
@@ -79,7 +80,7 @@ int main(){
     if(!terminal&&produced-credited>=3&&!cv.wait_for(lock,std::chrono::seconds(30),[&]{return quit||cancel||produced-credited<3;}))throw std::runtime_error("STREAM_CREDIT");
     return !quit&&!cancel;
    };
-   ok=runtime.generate_streaming(text,[&](const std::vector<float>&pcm,bool final){
+   ok=runtime.generate_streaming(std::string("(")+BASE_VOICE_DESCRIPTION+") "+text,[&](const std::vector<float>&pcm,bool final){
     {std::lock_guard<std::mutex>lock(mutex);if(quit||cancel)return false;}
     for(float x:pcm)if(!std::isfinite(x))throw std::runtime_error("INVALID_WAVEFORM");pending.insert(pending.end(),pcm.begin(),pcm.end());++patches;
     return (patches%3==0||final||patches>=params.max_steps)?publish(final||patches>=params.max_steps):true;

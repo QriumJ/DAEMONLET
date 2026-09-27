@@ -12,11 +12,12 @@ BASELINES = {'baseline', 'mps-fp32-baseline'}
 
 
 class Engine:
-    def __init__(self, model, reference, settings, profile, backend=CudaDevice):
+    def __init__(self, model, reference, settings, profile, backend=CudaDevice, voice_description=None):
         if profile not in PROFILES:
             raise ValueError('EXECUTION_PROFILE')
         self.model, self.reference, self.settings, self.profile = model, reference, settings, profile
         self.backend = backend
+        self.voice_description = voice_description
         self.cache = None
         self.cache_builds = 0
         self.compile_counts = {}
@@ -24,7 +25,7 @@ class Engine:
 
     def prepare(self):
         import torch
-        if self.profile not in BASELINES:
+        if self.profile not in BASELINES and self.reference is not None:
             start = time.perf_counter()
             self.cache = self.model.tts_model.build_prompt_cache(reference_wav_path=str(self.reference))
             self.backend.synchronize(torch)
@@ -63,6 +64,8 @@ class Engine:
                 raise ValueError('COMPILE_UNAVAILABLE') from error
 
     def generate(self, text, streaming=False):
+        if self.voice_description:
+            text = f"({self.voice_description}) {text}"
         if self.profile in BASELINES:
             if streaming:
                 raise ValueError('EXECUTION_PROFILE')

@@ -10,15 +10,16 @@
         "configuration": "Release",
         "sharedLibraries": false,
         "mode": "base-no-reference",
-        "nativeSourceSha256": "aa54a487a2e0cd93944606f2c36a8087e600df3d7b53bd83a00cb72e0f523bd9",
+        "nativeSourceSha256": "18202e6846dc941b6f63b518ae5ff36378c4740f77f373c0a42061f833939350",
         "deploymentTarget": "13.0",
         "nativeCpuInstructions": false,
-        "validatedHost": "Apple Silicon / macOS 27"
+        "validatedHost": "Apple Silicon / macOS 27",
+        "baseVoiceDefaultsSha256": "7ad951d19313151cb9e040d3e392da92a3c0a0da9cd6d09fb28f2ca435f20bce"
       },
       "files": {
         "daemonlet-voice-engine": {
-          "bytes": 4716408,
-          "sha256": "2dfbf8d8f91a00c4d1f73a7eb9a2a84eb54844222457c0bf0fff06b9c04a8dbe"
+          "bytes": 4716456,
+          "sha256": "61d1d89760786ff05cae3b73e4b9e9f1957c3835a34827ace0fbfcdef9c6ec9e"
         },
         "ggml-metal.metal": {
           "bytes": 450832,

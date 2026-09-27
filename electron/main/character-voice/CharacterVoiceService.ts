@@ -6,7 +6,7 @@ import {speechSegments,isStreamingProfile,voiceCapabilities,type SpeechBinding,t
 import {importVoicePackage,profileKey,SELECTED_VOICE,verifyVoicePackage} from './VoicePackage'
 import {TtsRuntimeSupervisor,type TtsConfig,type AudioChunk} from './TtsRuntimeSupervisor'
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
-import {VoiceBaseInstaller,BASE_VOICE,BASE_KEY} from './VoiceBaseInstaller'
+import {type BaseVoiceInstallation,BASE_VOICE,BASE_KEY} from './VoiceBaseInstaller'
 import {replaceFile} from '../character-chat/replaceFile'
 
 export class CharacterVoiceService {
@@ -30,9 +30,11 @@ export class CharacterVoiceService {
  private spokenRequestAt=0
  private firstPlayback=false
  private lastPlaybackEndAt=0
- constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:VoiceBaseInstaller){}
- snapshot(){const s=structuredClone(this.state);if(this.base){s.baseInstall=this.base.snapshot();if(s.baseInstall.supported){s.defaultProfile=BASE_KEY;if(this.bindingKey(this.chat().character?.id||'')===BASE_KEY)s.runtimeConfigured=s.baseInstall.installed}}return s}
- private bindingKey(id:string){return this.state.bindings[id]??(this.base?.snapshot().supported?BASE_KEY:'')}
+ constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation){}
+ snapshot(){const s=structuredClone(this.state);s.executionProfile=this.activeProfile();if(this.base){s.baseInstall=this.base.snapshot();if(s.baseInstall.supported){s.defaultProfile=this.baseKey();if(this.bindingKey(this.chat().character?.id||'')===this.baseKey()){s.runtimeConfigured=s.baseInstall.installed;if(!this.base.native)s.availableProfiles=['cuda-compiled','cuda-compiled-complete']}else if(!this.base.native)s.availableProfiles=['cuda-compiled','cuda-compiled-complete']}}return s}
+ private baseKey(){return this.base?profileKey(this.base.profile):BASE_KEY}
+ private activeProfile():ExecutionProfile{const mode=this.state.executionProfile||'baseline';if(this.base&&!this.base.native)return mode==='cuda-compiled-complete'?'cuda-compiled-complete':'cuda-compiled';if(mode==='cuda-compiled'||mode==='cuda-compiled-complete')return 'compiled';return mode}
+ private bindingKey(id:string){return this.state.bindings[id]??(this.base?.snapshot().supported?this.baseKey():'')}
  refreshBase(){this.emit()}
  async installBase(){if(!this.base)throw Error('VOICE_BASE_UNSUPPORTED');await this.base.install();this.state.error=null;this.emit();await this.prepare()}
  cancelInstallBase(){return this.base?.cancel()}
@@ -71,14 +73,14 @@ export class CharacterVoiceService {
     if(entry.name!==profileKey(p.profile))throw Error('VOICE_PROFILE_PATH')
     this.state.profiles.push(p.profile)
    }
-   if(this.base){await this.base.initialize();if(this.base.snapshot().supported)this.state.profiles.push(BASE_VOICE)}
+   if(this.base){await this.base.initialize();if(this.base.snapshot().supported)this.state.profiles.push(this.base.profile)}
    for(const [character,key] of Object.entries(this.state.bindings))if(!this.state.profiles.some(p=>profileKey(p)===key))delete this.state.bindings[character]
    this.state.status=this.state.enabled?'idle':'off';this.emit()
   }catch{this.error(Error('VOICE_STORAGE'))}
  }
  private async save(){
   await mkdir(this.root,{recursive:true});const temp=join(this.root,'settings-'+randomUUID()+'.tmp')
-  try{await writeFile(temp,JSON.stringify({version:1,enabled:this.state.enabled,autoRead:this.state.autoRead,volume:this.state.volume,bindings:this.state.bindings,runtime:this.config,pendingRemoval:[...this.pendingRemoval],executionProfile:this.state.executionProfile||'baseline'})+'\n',{flag:'wx'});await replaceFile(temp,join(this.root,'settings.json'))}
+  try{await writeFile(temp,JSON.stringify({version:1,enabled:this.state.enabled,autoRead:this.state.autoRead,volume:this.state.volume,bindings:this.state.bindings,runtime:this.config,pendingRemoval:[...this.pendingRemoval],executionProfile:this.activeProfile()})+'\n',{flag:'wx'});await replaceFile(temp,join(this.root,'settings.json'))}
   finally{await rm(temp,{force:true}).catch(()=>{})}
  }
  private mutate(work:()=>Promise<void>){const task=this.serial.then(async()=>{if(this.disposed)return;const previous=this.snapshot(),config=this.config,removals=new Set(this.pendingRemoval);try{await work();await this.save();this.emit()}catch(e){this.state={...previous,epoch:this.state.epoch};this.config=config;this.pendingRemoval=removals;this.error(e)}});this.serial=task.catch(()=>{});return task}
@@ -89,22 +91,22 @@ export class CharacterVoiceService {
  auto(value:boolean){return this.mutate(async()=>{this.state.autoRead=value})}
  volume(value:number){return this.mutate(async()=>{this.state.volume=value})}
  executionProfile(value:ExecutionProfile){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.state.executionProfile=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
- private getRuntime(){const config:{python:string;model:string;nativeBase?:boolean}=this.selectedProfile()?.id===BASE_VOICE.id?{python:this.base!.executable,model:this.base!.path,nativeBase:true}:this.config!;if(this.runtime&&this.runtime.config?.nativeBase!==config.nativeBase){void this.runtime.stop().catch(()=>{});this.runtime=null}return this.runtime??=this.makeRuntime({...config,worker:this.worker,cacheRoot:join(this.root,'cache'),compilerCache:join(this.root,'compiler-cache'),executionProfile:this.state.executionProfile||'baseline'})}
+ private getRuntime(){const config:{python:string;model:string;nativeBase?:boolean;windowsBase?:boolean}=this.selectedProfile()?.id===BASE_VOICE.id?{python:this.base!.executable,model:this.base!.path,nativeBase:this.base!.native,windowsBase:!this.base!.native}:this.config!;if(this.runtime&&this.runtime.config?.nativeBase!==config.nativeBase){void this.runtime.stop().catch(()=>{});this.runtime=null}return this.runtime??=this.makeRuntime({...config,worker:this.worker,cacheRoot:join(this.root,'cache'),compilerCache:join(this.root,'compiler-cache'),executionProfile:this.activeProfile()})}
  prepare():Promise<void>{
   if(this.preparing)return this.preparing
   const profile=this.selectedProfile()
-  if(this.disposed||!this.outputReady||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.state.executionProfile)&&this.state.executionProfile!=='gguf-metal-f16-complete')||this.currentSpeech)return Promise.resolve()
+  if(this.disposed||!this.outputReady||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.activeProfile())&&!this.activeProfile().endsWith('-complete'))||this.currentSpeech)return Promise.resolve()
   const operation=this.operation,runtime=this.getRuntime()
   this.state.status='loading';this.emit()
-  const task=(profile.id===BASE_VOICE.id?this.base!.ready():Promise.resolve()).then(()=>{if(operation!==this.operation||this.disposed)throw Error('VOICE_CANCELLED');return runtime.start(join(this.root,'profiles',profileKey(profile)),profile.fingerprint+':'+this.state.executionProfile)}).then(()=>{
+  const task=(profile.id===BASE_VOICE.id?this.base!.ready():Promise.resolve()).then(()=>{if(operation!==this.operation||this.disposed)throw Error('VOICE_CANCELLED');return runtime.start(join(this.root,'profiles',profileKey(profile)),profile.fingerprint+':'+this.activeProfile())}).then(()=>{
    if(operation===this.operation&&this.outputReady&&!this.disposed){this.state.status='idle';this.state.error=null;this.emit();this.diagnose({type:'preparation-ready',at:Date.now(),session:runtime.sessionId,audit:runtime.audit})}
   }).catch(e=>{if(operation===this.operation&&!this.disposed&&this.outputReady)this.error(e)}).finally(()=>{if(this.preparing===task)this.preparing=null})
   this.preparing=task;return task
  }
- bind(characterId:string,profile:string|null){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.runtime=null;if((profile===BASE_KEY||profile===null)&&this.base?.snapshot().supported&&!this.state.executionProfile?.startsWith('gguf-metal-'))this.state.executionProfile='gguf-metal-f16';if(profile&&!this.state.profiles.some(p=>profileKey(p)===profile))throw Error('VOICE_PROFILE');if(profile)this.state.bindings[characterId]=profile;else delete this.state.bindings[characterId];this.state.error=null})}
+ bind(characterId:string,profile:string|null){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.runtime=null;if((profile===this.baseKey()||profile===null)&&this.base?.native&&this.base.snapshot().supported&&!this.state.executionProfile?.startsWith('gguf-metal-'))this.state.executionProfile='gguf-metal-f16';if(profile&&!this.state.profiles.some(p=>profileKey(p)===profile))throw Error('VOICE_PROFILE');if(profile)this.state.bindings[characterId]=profile;else delete this.state.bindings[characterId];this.state.error=null})}
  private async removeFiles(profile:string){await rm(join(this.root,'gguf-cache',profile),{recursive:true,force:true,maxRetries:3});await rm(join(this.root,'profiles',profile),{recursive:true,force:true,maxRetries:3})}
  remove(profile:string){
-  if(profile===BASE_KEY)throw Error('VOICE_BASE_BUILTIN')
+  if(profile===this.baseKey())throw Error('VOICE_BASE_BUILTIN')
   void this.stop().catch(e=>this.error(e))
   const task=this.serial.then(async()=>{
    if(this.disposed)return
@@ -162,10 +164,10 @@ export class CharacterVoiceService {
    this.state.error=null;this.state.status=runtime.running?'synthesizing':'loading';this.emit()
    if(!current())return
    if(profile.id===BASE_VOICE.id){await this.base!.ready();if(!current())return}
-   await runtime.start(join(this.root,'profiles',profileKey(profile)),profile.fingerprint+':'+(this.state.executionProfile||'baseline'))
+   await runtime.start(join(this.root,'profiles',profileKey(profile)),profile.fingerprint+':'+this.activeProfile())
    if(!current())return
    this.diagnose({type:'runtime-ready',at:Date.now(),session:runtime.sessionId,audit:runtime.audit})
-   const binding:SpeechBinding={...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,runtimeSessionId:runtime.sessionId,executionProfile:this.state.executionProfile||'baseline'}
+   const binding:SpeechBinding={...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,runtimeSessionId:runtime.sessionId,executionProfile:this.activeProfile()}
    if(isStreamingProfile(binding.executionProfile)){
     let previous=Promise.resolve()
     for(const segment of segments){

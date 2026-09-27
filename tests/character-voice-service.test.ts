@@ -144,3 +144,14 @@ it('removal deletes only the selected voice derivative and preserves another voi
  await mkdir(own,{recursive:true});await mkdir(other,{recursive:true});await writeFile(join(own,'derived'),'own');await writeFile(join(other,'derived'),'other')
  await f.service.remove('voice@1');await expect(stat(own)).rejects.toThrow();expect(await readFile(join(other,'derived'),'utf8')).toBe('other')
 })
+
+it('Windows builtin voice needs no package or manual runtime and keeps two compiled modes',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'voice-windows-base-'));roots.push(root)
+ const base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/managed/python',path:'/managed/model',snapshot:()=>({supported:true,installed:true,phase:'idle' as const,bytes:1,total:1,error:null}),initialize:async()=>{},ready:async()=>'/managed/model',install:async()=>{},cancel:async()=>{}}
+ const configs:any[]=[];const runtime={config:null as any,sessionId:'base-session',running:false,start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),retireSpeech:vi.fn(),cancelSpeech:vi.fn(async()=>({keptWarm:true,elapsedMs:0}))}
+ const service=new CharacterVoiceService(root,'/worker',()=>({character:{id:'test',revision:'1'}}) as any,()=>{},()=>{},config=>{configs.push(config);runtime.config=config;return runtime as any},()=>{},base);services.push(service)
+ await service.initialize();expect(service.snapshot()).toMatchObject({defaultProfile:'voxcpm2_default@base',runtimeConfigured:true,executionProfile:'cuda-compiled',availableProfiles:['cuda-compiled','cuda-compiled-complete']})
+ await service.enabled(true);service.setOutputReady(true);await service.prepare();expect(configs[0]).toMatchObject({windowsBase:true,nativeBase:false,python:'/managed/python',model:'/managed/model',executionProfile:'cuda-compiled'})
+ await service.executionProfile('cuda-compiled-complete');expect(service.snapshot().executionProfile).toBe('cuda-compiled-complete');expect(JSON.parse(await readFile(join(root,'settings.json'),'utf8')).executionProfile).toBe('cuda-compiled-complete')
+ expect(configs.at(-1).executionProfile).toBe('cuda-compiled-complete')
+})

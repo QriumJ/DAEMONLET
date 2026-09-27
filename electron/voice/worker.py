@@ -313,7 +313,10 @@ def main():
                 if kind == 'init':
                     if worker:
                         raise ValueError('ALREADY_INITIALIZED')
-                    if request.get('executionProfile') == 'gguf-metal-f16':
+                    if request.get('baseModel') is True:
+                        from windows_base_worker import create_worker
+                        candidate = create_worker(Worker)()
+                    elif request.get('executionProfile') == 'gguf-metal-f16':
                         from gguf_worker import GgufWorker
                         candidate = GgufWorker(emit)
                     else:

@@ -43,6 +43,7 @@ export async function verifyVoicePackage(root:string,selected?:typeof SELECTED_V
  if(listed.size!==files.size-1)throw Error('VOICE_UNLISTED_FILE')
  for(const [name,hash] of listed)if(!files.has(name)||await sha256(join(root,name))!==hash)throw Error('VOICE_CHECKSUM_MISMATCH')
  const v=await boundedJson(join(root,'voice.json')) as VoiceManifest
+ if(v.voice_id==='voxcpm2_default')throw Error('VOICE_SCHEMA')
  if(v.schema_version!=='voicelab.experimental.v1'||!/[a-z0-9]/.test(v.voice_id)||! /^[a-z0-9_-]{1,80}$/.test(v.voice_id)||! /^[a-zA-Z0-9._-]{1,80}$/.test(v.version)||typeof v.display_name!=='string'||v.display_name.length>120)throw Error('VOICE_SCHEMA')
  for(const [k,value] of Object.entries(ENGINE))if(v.engine?.[k as keyof typeof ENGINE]!==value)throw Error('VOICE_ENGINE')
  if(v.mode!=='reference'||v.output_sample_rate!==48000)throw Error('VOICE_MODE')

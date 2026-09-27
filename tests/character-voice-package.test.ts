@@ -32,3 +32,7 @@ it('always pins the adopted Belle identity while allowing other compatible packa
  const manifest=JSON.parse(files['voice.json']);manifest.voice_id=SELECTED_VOICE.id;manifest.version=SELECTED_VOICE.version;files['voice.json']=JSON.stringify(manifest);await save()
  await expect(verifyVoicePackage(root)).rejects.toThrow('VOICE_SELECTION_MISMATCH')
 })
+
+it('reserves the builtin default voice identity against imported packages',async()=>{
+ const {root,files,save}=await fixture();const manifest=JSON.parse(files['voice.json']);manifest.voice_id='voxcpm2_default';files['voice.json']=JSON.stringify(manifest);await save();await expect(verifyVoicePackage(root)).rejects.toThrow()
+})
