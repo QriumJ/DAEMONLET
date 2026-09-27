@@ -27,7 +27,7 @@ const cleanup:Array<()=>Promise<void>>=[]
 afterEach(async()=>{io.remaining=0;for(const close of cleanup.splice(0))await close();vi.restoreAllMocks()})
 async function fixture(){
  const root=await mkdtemp(join(tmpdir(),'voice-ownership-')),requests:any[]=[],events:VoiceEvent[]=[]
- let cache='',spawns=0,kills=0,hold=false,finish=()=>{}
+ let cache='',spawns=0,kills=0,hold=false,finish=()=>{},cancelReply=()=>{}
  const spawn:SpawnWorker=()=>{
   ++spawns
   const child:any=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.exitCode=null
@@ -35,6 +35,7 @@ async function fixture(){
   const send=(r:any,type:string,extra={})=>child.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...extra})+'\n')
   child.stdin.on('data',(bytes:Buffer)=>{for(const line of bytes.toString().trim().split('\n')){
    const r=JSON.parse(line);requests.push(r)
+   if(r.type==='cancel-stream')cancelReply=()=>send(r,'cancelled',{target:r.target,cleanupComplete:true,keptWarm:true})
    if(r.type==='init'){cache=r.cache;queueMicrotask(()=>send(r,'ready'))}
    if(r.type==='synthesize'){
     finish=()=>{writeFileSync(join(cache,r.audioId+'.wav'),wav());send(r,'audio-ready',{audioId:r.audioId,binding:r.binding,segmentIndex:r.segmentIndex,generationMs:1,rtf:.01})}
@@ -62,8 +63,30 @@ async function fixture(){
  const read=()=>service.readMessage('message')
  const audio=()=>events.filter((e):e is Extract<VoiceEvent,{type:'audio'}>=>e.type==='audio')
  const consume=()=>{for(const e of audio()){try{service.audio(e.audioId,e.epoch);service.played(e.audioId,e.epoch)}catch{}}}
- return {runtime,service,read,audio,consume,requests,message,cache:()=>cache,spawns:()=>spawns,kills:()=>kills,hold:()=>{hold=true},finish:()=>finish()}
+ return {runtime,service,read,audio,consume,requests,message,cache:()=>cache,spawns:()=>spawns,kills:()=>kills,hold:()=>{hold=true},finish:()=>finish(),cancelReply:()=>cancelReply()}
 }
+
+it.each(['stop','reread'])('R2 real service %s waits for cleanup ack before replacement',async boundary=>{
+ const f=await fixture();f.hold();f.read();await vi.waitFor(()=>expect(f.audio()).toHaveLength(2))
+ const session=f.runtime.sessionId,old=f.audio()[0]
+ const stopped=boundary==='stop'?f.service.stop(true,false):Promise.resolve();f.read()
+ await vi.waitFor(()=>expect(f.requests.filter(r=>r.type==='cancel-stream')).toHaveLength(1))
+ expect(f.requests.filter(r=>r.type==='stream')).toHaveLength(1)
+ expect(f.requests.filter(r=>r.type==='credit')).toHaveLength(0)
+ expect(()=>f.service.audio(old.audioId,old.epoch)).toThrow('VOICE_AUDIO_EXPIRED')
+ f.cancelReply();await stopped
+ await vi.waitFor(()=>expect(f.requests.filter(r=>r.type==='stream')).toHaveLength(2))
+ expect(f.kills()).toBe(0);expect(f.spawns()).toBe(1);expect(f.runtime.sessionId).toBe(session)
+ f.finish();await vi.waitFor(()=>{f.consume();expect(f.service.snapshot().status).toBe('idle')})
+})
+
+it('R2 unload during cancellation kills the owned worker and forbids late replacement',async()=>{
+ const f=await fixture();f.hold();f.read();await vi.waitFor(()=>expect(f.audio()).toHaveLength(2))
+ const cancel=f.service.stop(true,false);f.read()
+ await vi.waitFor(()=>expect(f.requests.filter(r=>r.type==='cancel-stream')).toHaveLength(1))
+ await f.service.close();await cancel;f.cancelReply()
+ expect(f.runtime.running).toBe(false);expect(f.kills()).toBe(1);expect(f.requests.filter(r=>r.type==='stream')).toHaveLength(1)
+})
 
 it.each(['baseline','cached'] as const)('R1 real service retires terminal IO before same-worker %s replacement',async profile=>{
  const f=await fixture(),barrier=blockRead(2);f.read()

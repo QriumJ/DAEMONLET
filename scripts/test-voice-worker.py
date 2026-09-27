@@ -12,9 +12,71 @@ from unittest.mock import patch
 WORKER = Path(__file__).resolve().parents[1] / "electron/voice/worker.py"
 sys.path.insert(0, str(WORKER.parent))
 from engine import Engine, runtime_fingerprint
+from control import Inbox, StreamControl, StreamCancelled
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_active_credit_wait_cancellation_recovers_same_worker(self):
+        module = runpy.run_path(str(WORKER))
+        closed = []
+        binding = dict(runtimeSessionId='session', speechEpoch=1)
+        request = dict(type='stream', requestId='old', synthesisId='s', binding=binding)
+        target = dict(requestId='old', synthesisId='s', **binding)
+        requests = [dict(type='init', requestId='i'), request,
+                    dict(type='cancel-stream', requestId='cancel', target=target),
+                    dict(type='health', requestId='new')]
+        def stream(self, request, credit):
+            try:
+                credit(3)
+                self.fail('generation must not finish')
+            finally:
+                closed.append('generator-closed')
+        def cleanup(self):
+            closed.append('state-cleaned')
+        output = io.StringIO()
+        module['emit'].__globals__['PROTOCOL'] = output
+        with patch.object(module['Worker'], 'initialize', lambda self, request: {}), patch.object(module['Worker'], 'stream', stream), patch.object(module['Worker'], 'cancel_stream', cleanup, create=True), patch.object(module['Worker'], 'reuse_audit', lambda self: {}), patch('sys.stdin', io.StringIO(''.join(json.dumps(dict(protocolVersion=1, **r))+'\n' for r in requests))):
+            module['main']()
+        replies = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([v['type'] for v in replies], ['ready', 'synthesis-started', 'cancelled', 'ready'])
+        self.assertEqual(replies[2]['target'], target)
+        self.assertEqual(closed, ['generator-closed', 'state-cleaned'])
+
+    def test_cleanup_failure_never_acknowledges_or_accepts_successor(self):
+        module = runpy.run_path(str(WORKER))
+        request = dict(type='stream', requestId='old', synthesisId='s', binding={})
+        target = dict(requestId='old', synthesisId='s', runtimeSessionId=None, speechEpoch=None)
+        requests = [dict(type='init', requestId='i'), request, dict(type='cancel-stream', requestId='cancel', target=target), dict(type='health', requestId='successor')]
+        def stream(self, request, credit):
+            credit(3)
+        def cleanup(self):
+            raise ValueError('STREAM_CLEANUP')
+        output = io.StringIO()
+        module['emit'].__globals__['PROTOCOL'] = output
+        with patch.object(module['Worker'], 'initialize', lambda self, request: {}), patch.object(module['Worker'], 'stream', stream), patch.object(module['Worker'], 'cancel_stream', cleanup), patch('sys.stdin', io.StringIO(''.join(json.dumps(dict(protocolVersion=1, **r))+'\n' for r in requests))):
+            module['main']()
+        replies = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([v['type'] for v in replies], ['ready', 'synthesis-started', 'error'])
+        self.assertEqual(replies[-1]['code'], 'STREAM_CLEANUP')
+
+    def test_native_initialization_finishes_before_stdin_reader_starts(self):
+        module = runpy.run_path(str(WORKER))
+        events = []
+        def initialize(worker, request):
+            events.append('native-ready')
+            return {}
+        def inbox(source):
+            events.append('reader-start')
+            return Inbox(source)
+        output = io.StringIO()
+        module['emit'].__globals__['PROTOCOL'] = output
+        module['main'].__globals__['Inbox'] = inbox
+        requests = [dict(protocolVersion=1, type='init', requestId='i'), dict(protocolVersion=1, type='health', requestId='h')]
+        with patch.object(module['Worker'], 'initialize', initialize), patch('sys.stdin', io.StringIO(''.join(json.dumps(r)+'\n' for r in requests))):
+            module['main']()
+        self.assertEqual(events, ['native-ready', 'reader-start'])
+        self.assertEqual([json.loads(line)['type'] for line in output.getvalue().splitlines()], ['ready', 'ready'])
+
     def run_worker(self, lines):
         result = subprocess.run([sys.executable, "-B", "-u", str(WORKER)], input=lines, text=True,
                                 capture_output=True, timeout=10, encoding="utf-8")
@@ -217,6 +279,96 @@ class CacheTests(unittest.TestCase):
         self.assertEqual([v['type'] for v in replies], ['ready'] + ['synthesis-started', 'synthesis-finished'] * 6 + ['ready'])
         self.assertEqual(replies[-1]['requestId'], 'end')
 
+
+
+class CancellationTests(unittest.TestCase):
+    def test_reader_is_bounded(self):
+        inbox = Inbox(io.StringIO((json.dumps(dict(protocolVersion=1, type='health', requestId='h'))+'\n')*100))
+        try:
+            with inbox.condition:
+                self.assertTrue(inbox.condition.wait_for(lambda: len(inbox.items) == 32, timeout=2))
+                self.assertEqual(len(inbox.items), 32)
+            self.assertTrue(inbox.thread.is_alive())
+        finally:
+            inbox.close()
+            inbox.thread.join(2)
+        self.assertFalse(inbox.thread.is_alive())
+
+    def test_cancel_during_next_discards_chunk_and_closes_on_owner_thread(self):
+        import queue
+        import tempfile
+        import threading
+        lines = queue.Queue()
+        inbox = Inbox(SimpleNamespace(readline=lambda limit: lines.get()))
+        module = runpy.run_path(str(WORKER))
+        emitted, events = [], []
+        module['emit'].__globals__['emit'] = lambda *a, **k: emitted.append(k)
+        request = dict(streamVersion=1, requestId='old', synthesisId='s', text='test', binding=dict(runtimeSessionId='session', speechEpoch=1))
+        target = dict(requestId='old', synthesisId='s', **request['binding'])
+        def generate(*args, **kwargs):
+            try:
+                events.append(('next', threading.get_ident()))
+                lines.put(json.dumps(dict(protocolVersion=1, type='cancel-stream', requestId='c', target=target))+'\n')
+                inbox.peek(True)
+                yield object()
+            finally:
+                events.append(('closed', threading.get_ident()))
+        try:
+            with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'numpy': SimpleNamespace(asarray=lambda a: a), 'soundfile': SimpleNamespace(), 'torch': SimpleNamespace(cuda=SimpleNamespace(reset_peak_memory_stats=lambda: None))}):
+                worker = module['Worker']()
+                worker.cache = Path(cache)
+                worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
+                worker.engine = SimpleNamespace(generate=generate)
+                with self.assertRaises(StreamCancelled) as raised:
+                    worker.stream(request, StreamControl(inbox, request, lambda _: False))
+                self.assertEqual(raised.exception.boundary, 'chunk-boundary')
+                self.assertEqual(list(Path(cache).iterdir()), [])
+            self.assertEqual(emitted, [])
+            self.assertEqual(events, [('next', threading.get_ident()), ('closed', threading.get_ident())])
+            self.assertNotEqual(threading.get_ident(), inbox.thread.ident)
+        finally:
+            inbox.close()
+            lines.put('')
+            inbox.thread.join(2)
+
+    def test_cancel_cleanup_clears_kv_in_place_and_preserves_reference(self):
+        import contextlib
+        import tempfile
+        module = runpy.run_path(str(WORKER))
+        events = []
+        caches = [SimpleNamespace(kv_cache=SimpleNamespace(zero_=lambda: events.append('zero')), current_length=25) for _ in range(2)]
+        buffers = [cache.kv_cache for cache in caches]
+        reference = object()
+        mod = SimpleNamespace(forward=object())
+        torch = SimpleNamespace(inference_mode=contextlib.nullcontext, cuda=SimpleNamespace(synchronize=lambda: events.append('sync')))
+        with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'torch': torch}):
+            worker = module['Worker']()
+            worker.model = SimpleNamespace(tts_model=SimpleNamespace(base_lm=SimpleNamespace(kv_cache=caches[0]), residual_lm=SimpleNamespace(kv_cache=caches[1])))
+            worker.engine = SimpleNamespace(cache=reference)
+            worker.vae_forwards = [(mod, mod.forward)]
+            owned = Path(cache)/'owned.wav'
+            owned.touch()
+            worker.stream_files = [owned]
+            worker.cancel_stream()
+            self.assertFalse(owned.exists())
+            self.assertEqual(events, ['zero', 'zero', 'sync'])
+            self.assertIs(worker.engine.cache, reference)
+            for state, buffer in zip(caches, buffers):
+                self.assertIs(state.kv_cache, buffer)
+                self.assertEqual(state.current_length, 0)
+            mod.forward = object()
+            with self.assertRaisesRegex(ValueError, 'STREAM_CLEANUP'):
+                worker.cancel_stream()
+
+    def test_wrong_cancel_identity_is_not_acknowledged(self):
+        request = dict(requestId='old', synthesisId='s', binding=dict(runtimeSessionId='session', speechEpoch=1))
+        inbox = Inbox(io.StringIO(json.dumps(dict(protocolVersion=1, type='cancel-stream', requestId='c', target={}))+'\n'))
+        try:
+            inbox.peek(True)
+            with self.assertRaisesRegex(ValueError, 'STREAM_CANCEL_BINDING'):
+                StreamControl(inbox, request, lambda _: False)(3)
+        finally:
+            inbox.close()
 
 if __name__ == "__main__":
     unittest.main()

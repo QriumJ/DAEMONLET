@@ -51,3 +51,19 @@ it('retired same-session playback rejections cannot cancel repeated warm replace
   expect(w.sessionId).toBe(session);expect(w.running).toBe(true);expect(stop).not.toHaveBeenCalled()
  }
 })
+it.each(['stream','cancel-terminal'])('R2 cancels %s and reuses its session without stopping',async mode=>{
+ const {w,root}=await worker();await w.start(root,'x');const session=w.sessionId,stop=vi.spyOn(w,'stop');let chunks=0
+ const old=w.stream(mode,binding(w),0,()=>{chunks++;return new Promise(()=>{})}).catch(e=>e.message)
+ await vi.waitFor(()=>expect(chunks).toBe(3))
+ const result=await w.cancelSpeech()
+ expect(result.keptWarm).toBe(true);expect(await old).toBe('VOICE_CANCELLED');expect(stop).not.toHaveBeenCalled();expect(w.sessionId).toBe(session)
+ expect((await w.synthesize('valid',{...binding(w),speechEpoch:2},0)).durationMs).toBe(100)
+})
+it.each(['cancel-timeout','cancel-wrong','cancel-crash'])('R2 %s falls back to owned exit before recovery',async mode=>{
+ const {w,root}=await worker();await w.start(root,'x');const oldSession=w.sessionId;let chunks=0
+ const old=w.stream(mode,binding(w),0,()=>{chunks++;return new Promise(()=>{})}).catch(e=>e.message)
+ await vi.waitFor(()=>expect(chunks).toBe(3))
+ const result=await w.cancelSpeech(100);expect(result.keptWarm).toBe(false);expect(w.running).toBe(false)
+ expect(await old).toBe(mode==='cancel-wrong'?'VOICE_PROTOCOL':mode==='cancel-crash'?'VOICE_WORKER_EXIT':'VOICE_CANCELLED')
+ await w.start(root,'x');expect(w.sessionId).not.toBe(oldSession);expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)
+})

@@ -107,8 +107,8 @@ state is not a shutdown leak.
 
 ## Scope and remaining work
 
-R2 cooperative cancellation during active generation/credit waiting is **not
-implemented** here. Active cancellation still terminates the owned worker and
+This R1 report predates [R2 cooperative cancellation](character-chat-voice-cancellation.md).
+R2 was **not implemented in the R1 candidate measured above**. Active cancellation still terminates the owned worker and
 subsequent use reloads it. R1 prevents stale work from destroying an idle warm
 worker; it does not remove the approximately 45-second historical reload cost
 after active cancellation.

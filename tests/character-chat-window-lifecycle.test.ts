@@ -21,6 +21,7 @@ it.each([false,true])('Voice F2: hide then show=%s denies late completed reply',
  const {window}=await savedFixture();mockWindows();await window.open()
  const win=window.window as any;win.isVisible=()=>true;win.webContents.isDestroyed=()=>false
  const voice=window.voice.service as any,runtime={running:false,sessionId:'mock',retireSpeech:vi.fn(),start:vi.fn(async()=>{}),stop:vi.fn(async()=>{}),synthesize:vi.fn(async()=>({audioId:'mock',bytes:new Uint8Array(1),durationMs:1}))}
+ Object.assign(runtime,{cancelSpeech:vi.fn(async()=>{await runtime.stop();return {keptWarm:false,elapsedMs:0}})})
  voice.runtime=runtime;voice.config={python:'mock',model:'mock'};voice.state.enabled=true;voice.state.profiles=[{id:'voice',version:'1'}];voice.state.bindings={gpichan:'voice@1'}
  const chat=window.service.snapshot(),message={id:'pending',role:'assistant',status:'streaming',text:'응.',binding:{characterId:'gpichan',revision:chat.character!.revision,conversationId:chat.conversation!.id,requestId:'pending',epoch:chat.epoch,modelId:'E4B'}}
  chat.conversation!.messages.push(message as any);vi.spyOn(window.service,'snapshot').mockReturnValue(chat)

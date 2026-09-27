@@ -1,6 +1,6 @@
 import {resolve,join} from 'node:path'
-import {mkdir,writeFile} from 'node:fs/promises'
-import {randomUUID} from 'node:crypto'
+import {mkdir,writeFile,readdir} from 'node:fs/promises'
+import {randomUUID,createHash} from 'node:crypto'
 import {verifyVoicePackage,importVoicePackage,SELECTED_VOICE,profileKey} from '../electron/main/character-voice/VoicePackage'
 import {TtsRuntimeSupervisor} from '../electron/main/character-voice/TtsRuntimeSupervisor'
 import type {SpeechBinding} from '../electron/shared/character-voice-contract'
@@ -65,6 +65,37 @@ else if(command==='import'){
    report.cancel={workerStopMs:performance.now()-started,ownedWorkerExited:true}
    await worker.start(source,verified.profile.fingerprint+':'+profile);binding.runtimeSessionId=worker.sessionId
    report.recovery=await worker.stream(texts[2],binding,0,async()=>{})
+  }
+  if(args.includes('--cooperative-cancel')){
+   const capture=async()=>{
+    const hash=createHash('sha256');let samples=0,first:number|undefined;const start=performance.now()
+    const metrics=await worker.stream(texts[2],binding,0,async chunk=>{first??=performance.now()-start;hash.update(chunk.bytes);samples+=chunk.sampleCount})
+    return {hash:hash.digest('hex'),samples,firstChunkReceivedMs:first,...metrics}
+   }
+   const reference=await capture(),session=worker.sessionId,pid=worker.audit?.workerPid
+   report.cooperative={reference,pid,session,cycles:[]}
+   for(const mode of ['credit-wait','generation','credit-wait','generation']){
+    ++binding.speechEpoch
+    let seen=0,trigger!:()=>void
+    const ready=new Promise<void>(resolve=>{trigger=resolve})
+    const pending=worker.stream(texts[5],binding,0,async()=>{
+     ++seen;if(seen===(mode==='credit-wait'?3:1))trigger()
+     if(mode==='credit-wait')await new Promise(()=>{})
+    }).then(()=>null,error=>error.message)
+    let deadline:ReturnType<typeof setTimeout>|undefined
+    try{await Promise.race([ready,pending.then(()=>{throw Error('EARLY_STREAM_END')}),new Promise<never>((_,reject)=>{deadline=setTimeout(()=>reject(Error('CANCEL_PROBE_TIMEOUT')),10000)})])}finally{clearTimeout(deadline)}
+    await new Promise(resolve=>setTimeout(resolve,mode==='credit-wait'?150:20))
+    const cancel=await worker.cancelSpeech(),error=await pending
+    if(cancel.reuseAudit?.referenceCacheBuilds!==1||Object.values(cancel.reuseAudit?.compileCounts||{}).some((count:any)=>count.graphs!==1||count.executions<1))throw Error('CANCEL_REUSE_AUDIT')
+    if(!cancel.keptWarm||error!=='VOICE_CANCELLED'||worker.sessionId!==session||worker.audit?.workerPid!==pid)throw Error('COOPERATIVE_CANCEL_FAILED')
+    const remaining=(await readdir(join(data,'cache'),{recursive:true})).filter(path=>path.endsWith('.wav'))
+    if(remaining.length)throw Error('CANCEL_CACHE_LEAK')
+    ++binding.speechEpoch
+    const recovery=await capture()
+    if(recovery.hash!==reference.hash||recovery.samples!==reference.samples)throw Error('CANCEL_RECOVERY_WAVEFORM_CHANGED')
+    report.cooperative.cycles.push({mode,cancel,error,chunksBeforeCancel:seen,remainingWavs:remaining.length,samePid:true,sameSession:true,recovery})
+    await writeFile(join(data,'stream-result.json'),JSON.stringify(report,null,2)+'\n')
+   }
   }
   report.status='PASS'
  }catch(e){report.status='FAIL';report.error=e instanceof Error?e.message:'ERROR';throw e}

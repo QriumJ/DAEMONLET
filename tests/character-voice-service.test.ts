@@ -36,6 +36,7 @@ async function fixture(){const root=await mkdtemp(join(tmpdir(),'voice-service-'
  const chat={epoch:1,model:'E4B',character:{id:'actual-id',revision:'rev1'},conversation:{id:'conversation',messages:[message]}} as LocalChatSnapshot
  let audio=0
  const runtime={sessionId:'session',running:false,retireSpeech:vi.fn(),start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),synthesize:vi.fn(async()=>({audioId:'audio-'+(++audio),bytes:new Uint8Array([1,2]),durationMs:10,generationMs:1,rtf:0.1}))}
+ const cancelSpeech=vi.fn(async()=>{await runtime.stop();return {keptWarm:false,elapsedMs:0}});Object.assign(runtime,{cancelSpeech})
  const events:VoiceEvent[]=[]
  const service=new CharacterVoiceService(root,'/worker',()=>chat,()=>{},e=>events.push(e),()=>runtime as unknown as TtsRuntimeSupervisor);services.push(service)
  await service.initialize();await service.configure('/python','/model');await service.enabled(true)

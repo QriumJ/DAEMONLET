@@ -12,6 +12,7 @@ import sys
 import time
 import wave
 import uuid
+from control import Inbox, StreamControl, StreamCancelled, stream_target, read_request
 
 PROTOCOL = sys.stdout
 MODEL = "openbmb/VoxCPM2"
@@ -61,7 +62,7 @@ PUBLIC_ERRORS = {
     "RUNTIME_SOURCE", "RUNTIME_VERSION", "RUNTIME_SOURCE_CHANGED", "ADAPTER_MISMATCH",
     "LORA_TENSORS", "LORA_INCOMPLETE", "UNSUPPORTED_STYLE", "SYNTHESIS_INPUT",
     "INVALID_WAVEFORM", "INVALID_WAV", "PROTOCOL_LIMIT", "PROTOCOL_VERSION",
-    "ALREADY_INITIALIZED", "PROTOCOL_STATE", "EXECUTION_PROFILE", "COMPILE_UNAVAILABLE", "STREAM_CREDIT",
+    "ALREADY_INITIALIZED", "PROTOCOL_STATE", "EXECUTION_PROFILE", "COMPILE_UNAVAILABLE", "STREAM_CREDIT", "STREAM_CANCEL_BINDING", "STREAM_CLEANUP",
 }
 
 
@@ -99,6 +100,7 @@ class Worker:
                           HF_HOME=str(self.cache / "hf"), TORCH_HOME=str(self.cache / "torch"),
                           NUMBA_CACHE_DIR=str(self.cache / "numba"), PYTHONDONTWRITEBYTECODE="1")
         import torch
+        import soundfile
         CudaDevice.require(torch)
         phases['torchImportMs'] = (time.perf_counter()-phase)*1000
         phase = time.perf_counter()
@@ -177,7 +179,8 @@ class Worker:
         self.engine.prepare()
         if request.get('warmup', True):
             self.engine.warmup()
-        return dict(loadMs=(time.perf_counter()-started)*1000, loadedKeys=len(loaded), adapterSha256=ADAPTER,
+        self.vae_forwards = [(mod, mod.forward) for mod in self.model.tts_model.audio_vae.decoder.modules()]
+        return dict(workerPid=os.getpid(), loadMs=(time.perf_counter()-started)*1000, loadedKeys=len(loaded), adapterSha256=ADAPTER,
                     modelRevision=REVISION, sourceCommit=SOURCE, referenceSha256=sha(self.reference), executionProfile=profile, runtimeFingerprint=fingerprint, phases=phases, compileWarningsCaptured=False, referenceCacheBuilds=self.engine.cache_builds, firstInferenceAfterCompileMs=self.engine.audit.get('warmupMs') if profile == 'compiled' else None, **self.engine.audit)
 
     def synthesize(self, request):
@@ -227,6 +230,8 @@ class Worker:
         total = chunks = 0
         peak = blocked = 0
         first = onset = None
+        self.stream_files = []
+
         # Three 160ms chunks in flight; parent credits are returned on playback.
         with contextlib.closing(self.engine.generate(text, streaming=True)) as generated:
             while True:
@@ -237,12 +242,17 @@ class Worker:
                     audio = np.asarray(next(generated))
                 except StopIteration:
                     break
+                # IO can request cancellation while next() owns the GPU. Observe
+                # it here, before publishing the completed chunk, on this thread.
+                if hasattr(credit, 'checkpoint'):
+                    credit.checkpoint(chunks)
                 if audio.ndim != 1 or not 0 < audio.size <= 48000 or not np.isfinite(audio).all() or total + audio.size > 48000*60:
                     raise ValueError('INVALID_WAVEFORM')
                 magnitude = float(np.max(np.abs(audio)))
                 peak = max(peak, magnitude)
                 audio_id = str(uuid.uuid4())
                 path = self.cache / (audio_id + '.wav')
+                self.stream_files.append(path)
                 sf.write(path, audio, 48000, format='WAV', subtype='PCM_16')
                 elapsed = (time.perf_counter()-start)*1000
                 if first is None:
@@ -257,6 +267,26 @@ class Worker:
             raise ValueError('INVALID_WAVEFORM')
         elapsed = (time.perf_counter()-start)*1000
         return dict(synthesisId=request['synthesisId'], totalSamples=total, totalChunks=chunks, firstChunkReadyMs=first, firstSignalChunkReadyMs=onset, generationMs=elapsed, producerBlockedMs=blocked, rtf=elapsed/(total/48), peakAllocatedBytes=torch.cuda.max_memory_allocated(), peakReservedBytes=torch.cuda.max_memory_reserved())
+
+    def reuse_audit(self):
+        return dict(referenceCacheBuilds=self.engine.cache_builds, compileCounts=self.engine.compile_counts)
+
+    def cancel_stream(self):
+        # Engine.generate's finally closes the pinned upstream generator. Its
+        # StreamingVAEDecoder.__exit__ restores forwards and drops conv state.
+        # Verify that restoration, and clear static KV storage in place so CUDA
+        # graph addresses survive. The fixed reference prompt cache is untouched.
+        import torch
+        if any(mod.forward != original for mod, original in self.vae_forwards):
+            raise ValueError('STREAM_CLEANUP')
+        with torch.inference_mode():
+            for lm in (self.model.tts_model.base_lm, self.model.tts_model.residual_lm):
+                lm.kv_cache.kv_cache.zero_()
+                lm.kv_cache.current_length = 0
+        torch.cuda.synchronize()
+        for path in getattr(self, 'stream_files', []):
+            path.unlink(missing_ok=True)
+        self.stream_files = []
 
 
 def main():
@@ -274,65 +304,71 @@ def main():
         else:
             tails[ident] = (index+1, total)
         return True
-    while True:
-        line = sys.stdin.readline(65537)
-        if not line:
-            return
-        request_id = None
-        try:
-            if len(line) > 65536 or not line.endswith("\n"):
-                raise ValueError("PROTOCOL_LIMIT")
-            request = json.loads(line)
-            request_id = request.get("requestId")
-            if request.get("protocolVersion") != 1 or not isinstance(request_id, str):
-                raise ValueError("PROTOCOL_VERSION")
-            kind = request["type"]
-            if kind == 'credit' and consume_tail(request):
-                continue
-            if kind == "init":
-                if worker:
-                    raise ValueError("ALREADY_INITIALIZED")
-                candidate = Worker()
-                audit = candidate.initialize(request)
-                worker = candidate
-                emit("ready", request_id, **audit)
-            elif kind == "health":
-                emit("ready", request_id, initialized=worker is not None)
-            elif kind == "synthesize" and worker:
-                emit("synthesis-started", request_id)
-                emit("audio-ready", request_id, **worker.synthesize(request))
-            elif kind == 'stream' and worker:
-                emit('synthesis-started', request_id)
-                def credit(index):
-                    if index < 3:
-                        return
-                    while True:
-                        line = sys.stdin.readline(65537)
-                        if len(line) > 65536 or not line.endswith('\n'):
+    inbox = None
+    last_target = None
+    try:
+        while True:
+            request_id = None
+            try:
+                request = inbox.take() if inbox else read_request(sys.stdin)
+                request_id = request['requestId']
+                kind = request['type']
+                if kind == 'credit' and consume_tail(request):
+                    continue
+                if kind == 'init':
+                    if worker:
+                        raise ValueError('ALREADY_INITIALIZED')
+                    candidate = Worker()
+                    audit = candidate.initialize(request)
+                    worker = candidate
+                    # NumPy's Windows native import can block behind a reader's
+                    # CRT stdin lock. Load/warm native dependencies before the
+                    # reader starts; initialization still uses kill fallback.
+                    inbox = Inbox(sys.stdin)
+                    emit('ready', request_id, **audit)
+                elif kind == 'health':
+                    emit('ready', request_id, initialized=worker is not None)
+                elif kind == 'synthesize' and worker:
+                    emit('synthesis-started', request_id)
+                    emit('audio-ready', request_id, **worker.synthesize(request))
+                elif kind == 'stream' and worker:
+                    last_target = stream_target(request)
+                    emit('synthesis-started', request_id)
+                    control = StreamControl(inbox, request, consume_tail)
+                    try:
+                        result = worker.stream(request, control)
+                    except StreamCancelled as cancelled:
+                        worker.cancel_stream()
+                        tails.pop(request_id, None)
+                        emit('cancelled', cancelled.request['requestId'], target=last_target, cleanupComplete=True, keptWarm=True, boundary=cancelled.boundary, reuseAudit=worker.reuse_audit())
+                        continue
+                    if control.received < result['totalChunks']:
+                        if len(tails) >= 2:
                             raise ValueError('STREAM_CREDIT')
-                        value = json.loads(line)
-                        if not consume_tail(value):
-                            break
-                    if value != dict(protocolVersion=1, type='credit', requestId=request_id, chunkIndex=index-3):
-                        raise ValueError('STREAM_CREDIT')
-                result = worker.stream(request, credit)
-                if len(tails) >= 2:
-                    raise ValueError('STREAM_CREDIT')
-                tails[request_id] = (max(0, result['totalChunks']-2), result['totalChunks'])
-                emit('synthesis-finished', request_id, **result)
-            elif kind == "cancel":
-                # While generate is blocking, the parent kills this owned process.
-                emit("cancelled", request_id)
-            elif kind == "shutdown":
-                emit("cancelled", request_id)
+                        tails[request_id] = (control.received, result['totalChunks'])
+                    emit('synthesis-finished', request_id, **result)
+                elif kind == 'cancel-stream' and worker:
+                    # Terminal response may race cancellation on the parent pipe.
+                    if last_target is None or request.get('target') != last_target:
+                        raise ValueError('STREAM_CANCEL_BINDING')
+                    worker.cancel_stream()
+                    tails.pop(last_target['requestId'], None)
+                    emit('cancelled', request_id, target=last_target, cleanupComplete=True, keptWarm=True, boundary='terminal', reuseAudit=worker.reuse_audit())
+                elif kind == 'cancel':
+                    emit('cancelled', request_id)
+                elif kind == 'shutdown':
+                    emit('cancelled', request_id)
+                    return
+                else:
+                    raise ValueError('PROTOCOL_STATE')
+            except EOFError:
                 return
-            else:
-                raise ValueError("PROTOCOL_STATE")
-        except Exception as error:
-            code = error_code(error)
-            emit("error", request_id, code=code)
-            # Fail closed: no base-voice fallback, no surviving partially loaded CUDA model.
-            return
+            except Exception as error:
+                emit('error', request_id, code=error_code(error))
+                return
+    finally:
+        if inbox:
+            inbox.close()
 
 
 if __name__ == "__main__":

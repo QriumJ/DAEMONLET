@@ -8,6 +8,8 @@ export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string
 export type SpawnWorker=(command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams
 export type AudioResult={audioId:string;bytes:Uint8Array;durationMs:number;generationMs:number;rtf:number;peakAllocatedBytes?:number;peakReservedBytes?:number}
 export type AudioChunk=AudioResult & {synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number;firstChunkReadyMs:number}
+type CancelTarget={requestId:string;synthesisId:string;runtimeSessionId:string;speechEpoch:number}
+type CancelResult={keptWarm:boolean;elapsedMs:number;fallback?:string;boundary?:string;reuseAudit?:Record<string,any>}
 export function verifyWav(bytes:Buffer) {
  if(bytes.length<44||bytes.length>5_800_000||bytes.toString('ascii',0,4)!=='RIFF'||bytes.toString('ascii',8,12)!=='WAVE'||bytes.readUInt32LE(4)+8!==bytes.length)throw Error('VOICE_INVALID_WAV')
  let format=false,samples=0
@@ -26,7 +28,8 @@ export class TtsRuntimeSupervisor {
  private ending:Promise<void>|null=null
  private cache:string|null=null
  private key=''
- private pending:{id:string;expected:string;resolve:(v:any)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>;chunk?:(v:any)=>void}|null=null
+ private pending:{id:string;expected:string;target?:CancelTarget;resolve:(v:any)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>;chunk?:(v:any)=>void}|null=null
+ private cancellation:{id:string;target:CancelTarget;resolve:()=>void;reject:(e:Error)=>void;task:Promise<CancelResult>;boundary?:string;reuseAudit?:Record<string,any>}|null=null
  private starting:Promise<void>|null=null
  private revision=0
  private streams=new Set<{retire:()=>void}>()
@@ -36,19 +39,40 @@ export class TtsRuntimeSupervisor {
  get running(){return !!this.child}
  // Protocol/GPU activity ends at the terminal response, before file delivery and
  // playback necessarily finish. An idle model can still have retiring callbacks.
- get busy(){return !!this.pending||!!this.starting}
+ get busy(){return !!this.pending||!!this.starting||!!this.cancellation}
+ get cancellationPending(){return !!this.cancellation}
  get deliveryPending(){return this.deliveries>0}
  retireSpeech(){for(const stream of this.streams)stream.retire()}
  private call(type:string,expected:string,data:object={},chunk?:(v:any)=>void) {
-  if(!this.child||this.pending)return Promise.reject(Error('VOICE_WORKER_BUSY'))
+  if(!this.child||this.pending||this.cancellation)return Promise.reject(Error('VOICE_WORKER_BUSY'))
   return new Promise<any>((resolve,reject)=>{
    const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&this.config.executionProfile==='compiled'?900_000:this.timeoutMs)
-   this.pending={id,expected,resolve,reject,timer,chunk}
+   const stream=data as {synthesisId:string;binding:SpeechBinding}
+   const target=type==='stream'?{requestId:id,synthesisId:stream.synthesisId,runtimeSessionId:stream.binding.runtimeSessionId,speechEpoch:stream.binding.speechEpoch}:undefined
+   this.pending={id,expected,target,resolve,reject,timer,chunk}
    this.child!.stdin.write(JSON.stringify({protocolVersion:1,type,requestId:id,...data})+'\n',error=>{if(error)this.fail(Error('VOICE_WORKER_IO'))})
   })
  }
  private fail(error:Error){const p=this.pending;this.pending=null;if(p){clearTimeout(p.timer);p.reject(error)}}
+ cancelSpeech(timeoutMs=2000):Promise<CancelResult> {
+  this.retireSpeech()
+  if(this.cancellation)return this.cancellation.task
+  const started=Date.now(),p=this.pending,child=this.child
+  if(this.starting||p&&!p.target)return this.stop().then(()=>({keptWarm:false,elapsedMs:Date.now()-started,fallback:'non-streaming'}))
+  if(!p?.target||!child)return Promise.resolve({keptWarm:!!child,elapsedMs:0})
+  let resolve!:()=>void,reject!:(e:Error)=>void
+  const acknowledgement=new Promise<void>((yes,no)=>{resolve=yes;reject=no})
+  const timer=setTimeout(()=>reject(Error('VOICE_CANCEL_TIMEOUT')),timeoutMs)
+  const cancellation:{id:string;target:CancelTarget;resolve:()=>void;reject:(e:Error)=>void;task:Promise<CancelResult>;boundary?:string;reuseAudit?:Record<string,any>}={id:randomUUID(),target:p.target,resolve,reject,task:Promise.resolve({keptWarm:false,elapsedMs:0})}
+  this.cancellation=cancellation
+  cancellation.task=acknowledgement.then(()=>{if(this.child!==child||this.ending)throw Error('VOICE_CANCEL_ABORTED');return {keptWarm:true,elapsedMs:Date.now()-started,boundary:cancellation.boundary,reuseAudit:cancellation.reuseAudit}}).catch(async error=>{
+   await this.stop();return {keptWarm:false,elapsedMs:Date.now()-started,fallback:error instanceof Error?error.message:'VOICE_CANCEL_FAILED'}
+  }).finally(()=>{clearTimeout(timer);if(this.cancellation===cancellation)this.cancellation=null})
+  child.stdin.write(JSON.stringify({protocolVersion:1,type:'cancel-stream',requestId:cancellation.id,target:cancellation.target})+'\n',error=>{if(error)reject(Error('VOICE_WORKER_IO'))})
+  return cancellation.task
+ }
  async start(packagePath:string,fingerprint:string) {
+  if(this.cancellation)await this.cancellation.task
   if(this.ending)await this.ending
   if(this.starting){await this.starting.catch(()=>{});if(this.key===fingerprint)return;if(this.ending)await this.ending}
   if(this.child&&this.key===fingerprint)return
@@ -70,7 +94,12 @@ export class TtsRuntimeSupervisor {
    buffer+=chunk
    if(buffer.length>65536){this.fail(Error('VOICE_PROTOCOL_LIMIT'));void this.stop().catch(()=>{});return}
    while(buffer.includes('\n')){const index=buffer.indexOf('\n'),line=buffer.slice(0,index);buffer=buffer.slice(index+1)
-    try {const v=JSON.parse(line),p=this.pending
+    try {const v=JSON.parse(line),p=this.pending,c=this.cancellation
+     if(c&&v.requestId===c.id){
+      if(v.protocolVersion!==1||v.type!=='cancelled'||v.cleanupComplete!==true||v.keptWarm!==true||JSON.stringify(v.target)!==JSON.stringify(c.target))throw Error('VOICE_CANCEL_PROTOCOL')
+      if(p?.id===c.target.requestId)this.fail(Error('VOICE_CANCELLED'))
+      c.boundary=typeof v.boundary==='string'?v.boundary:undefined;c.reuseAudit=v.reuseAudit;c.resolve();continue
+     }
      if(v.protocolVersion!==1||!p||v.requestId!==p.id)throw Error('VOICE_PROTOCOL')
      if(v.type==='synthesis-started'&&(p.expected==='audio-ready'||p.expected==='synthesis-finished'))continue
      if(v.type==='audio-chunk'&&p.chunk){p.chunk(v);continue}
@@ -97,18 +126,19 @@ export class TtsRuntimeSupervisor {
  async stream(text:string,binding:SpeechBinding,segmentIndex:number,accept:(audio:AudioChunk)=>Promise<void>) {
   const synthesisId=randomUUID(),cache=this.cache,child=this.child
   if(!cache||!child||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
-  let index=0,offset=0,reads=Promise.resolve(),failure:Error|null=null,retired=false,delivered=false,nextCredit=0
+  let index=0,offset=0,reads=Promise.resolve(),failure:Error|null=null,retired=false,delivered=false,nextCredit=0,discardCredits=false
   const credits:Array<{requestId:string;ready:boolean}>=[]
   const flushCredits=()=>{
    while(credits[nextCredit]?.ready){const chunkIndex=nextCredit++,credit=credits[chunkIndex]
-    if(this.child===child)child.stdin.write(JSON.stringify({protocolVersion:1,type:'credit',requestId:credit.requestId,chunkIndex})+'\n',()=>{})
+    if(!discardCredits&&this.child===child&&this.cancellation?.target.requestId!==credit.requestId)child.stdin.write(JSON.stringify({protocolVersion:1,type:'credit',requestId:credit.requestId,chunkIndex})+'\n',()=>{})
    }
    if(delivered&&nextCredit===index)this.streams.delete(owner)
   }
   // Retiring a speech is independent of child identity or the pending request.
   // A previous sentence still owns its playback errors until the service retires
-  // the entire speech. Returning each discarded credit once drains worker tails.
-  const owner={retire:()=>{retired=true;for(const credit of credits)credit.ready=true;flushCredits();this.streams.delete(owner)}}
+  // the entire speech. Terminal tails drain once; an active cancelled producer
+  // must stay blocked until cancel-stream instead of computing discarded chunks.
+  const owner={retire:()=>{retired=true;discardCredits ||= this.pending?.target?.synthesisId===synthesisId;for(const credit of credits)credit.ready=true;flushCredits();this.streams.delete(owner)}}
   this.streams.add(owner)
   const failStream=(error:Error)=>{failure=error;if(!retired&&this.child===child){this.fail(error);void this.stop().catch(()=>{})}}
   const ids=new Set<string>()
@@ -141,6 +171,7 @@ export class TtsRuntimeSupervisor {
   finally{delivered=true;flushCredits()}
  }
  stop():Promise<void> {
+  this.cancellation?.reject(Error('VOICE_CANCEL_ABORTED'))
   this.retireSpeech()
   ++this.revision
   if(this.ending)return this.ending

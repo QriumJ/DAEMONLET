@@ -221,9 +221,13 @@ export class CharacterVoiceService {
   if(this.active){clearTimeout(this.active.timer);this.active.resolve();this.active=null}
   for(const a of this.chunks.values()){clearTimeout(a.timer);a.resolve()}this.chunks.clear()
   this.state.status=this.state.enabled?'stopped':'off';this.emit()
-  // Stop only a busy worker. Warm idle workers survive normal completion, not OFF/close.
-  if(this.runtime&&((invalidate&&(unload||this.runtime.busy===true))||(hadSpeech&&this.runtime.busy!==false))){
-   try{await this.runtime.stop();this.diagnose({type:'worker-stopped',at:Date.now(),workerStopMs:Date.now()-stopStartedAt})}
+  // OFF/hide/close/runtime changes still unload. Voice-only stop/replacement
+  // waits for owner-thread cleanup before reusing an active streaming worker.
+  if(this.runtime&&((invalidate&&unload)||(invalidate&&this.runtime.busy===true)||(hadSpeech&&this.runtime.busy!==false)||this.runtime.cancellationPending)){
+   try{
+    if(invalidate&&unload){await this.runtime.stop();this.diagnose({type:'worker-stopped',at:Date.now(),workerStopMs:Date.now()-stopStartedAt})}
+    else {const result=await this.runtime.cancelSpeech();this.diagnose({type:'speech-cancelled',at:Date.now(),...result})}
+   }
    catch(e){this.diagnose({type:'worker-stop-failed',at:Date.now()});this.error(e);throw e}
   }
  }

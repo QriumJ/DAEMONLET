@@ -2,9 +2,17 @@
 const readline=require('node:readline'),fs=require('node:fs'),path=require('node:path')
 let cache
 let stream
+let cancelMode=''
 const send=(r,type,extra={})=>process.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...extra})+'\n')
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const r=JSON.parse(line)
+ if(r.type==='cancel-stream'){
+  if(cancelMode==='cancel-timeout')return
+  if(cancelMode==='cancel-crash'){process.exit(2);return}
+  if(cancelMode==='cancel-wrong'){send(r,'cancelled',{target:{...r.target,speechEpoch:999},cleanupComplete:true,keptWarm:true});return}
+  if(cancelMode==='cancel-terminal')send(stream.request,'synthesis-finished',{synthesisId:stream.request.synthesisId,totalSamples:14400,totalChunks:3})
+  stream=null;send(r,'cancelled',{target:r.target,cleanupComplete:true,keptWarm:true});return
+ }
  if(r.type==='credit'){
   if(stream&&r.chunkIndex===0){stream.sendChunk(3);send(stream.request,'synthesis-finished',{synthesisId:stream.request.synthesisId,totalSamples:stream.request.text==='total'?1:19200,totalChunks:4});stream=null}
   return
@@ -24,6 +32,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   send(r,'audio-ready',{audioId:r.audioId,binding:r.binding,segmentIndex:r.segmentIndex,generationMs:1,rtf:0.01})
  }
  if(r.type==='stream'){
+  cancelMode=r.text
   const sendChunk=index=>{
    const audioId=require('node:crypto').randomUUID(),bytes=Buffer.alloc(9644);bytes.write('RIFF');bytes.writeUInt32LE(bytes.length-8,4);bytes.write('WAVEfmt ',8);bytes.writeUInt32LE(16,16);bytes.writeUInt16LE(1,20);bytes.writeUInt16LE(1,22);bytes.writeUInt32LE(48000,24);bytes.writeUInt32LE(96000,28);bytes.writeUInt16LE(2,32);bytes.writeUInt16LE(16,34);bytes.write('data',36);bytes.writeUInt32LE(9600,40)
    fs.writeFileSync(path.join(cache,audioId+'.wav'),bytes)

@@ -120,11 +120,20 @@ No unsupported emotion parameters or fabricated lip sync are used.
 
 ## Lifetimes and failures
 
-Main owns one Python worker, one synthesis and one pending WAV. The next sentence
-waits for playback acknowledgement. An opaque one-use audio ID grants only the
-current renderer its bound bytes. Epoch checks cover late synthesis, reads and
-decode completion. Busy worker cancellation terminates the owned process tree
-and waits before restarting; this can make the next request cold.
+Main owns one Python worker and one GPU generation at a time. Streaming bounds
+in-flight audio to three chunks and prepares at most the immediate next sentence.
+An opaque one-use audio ID grants only the current renderer its bound bytes.
+Epoch checks cover late synthesis, reads and decode completion.
+
+In cached/compiled streaming modes, **음성만 중단** and **다시 읽기** first revoke
+old playback, then cancel at a chunk boundary or credit wait. The generator closes
+and VAE/KV state is cleared before an identity-bound acknowledgement permits a new
+request on the same warm worker. Reference and compiler caches are retained.
+Initialization and baseline synthesis still terminate the owned process tree.
+A missing acknowledgement after two seconds, invalid acknowledgement, worker crash
+or cleanup failure also falls back to termination before recovery. OFF, hide,
+close, app exit and runtime/voice changes explicitly unload the worker.
+See [R2 implementation and measured verification](character-chat-voice-cancellation.md).
 
 Worker errors are shown independently from text errors. GPU OOM does not retry
 with another speaker or CPU. Logs contain state/IDs/timings/hashes, not dialogue
