@@ -151,6 +151,7 @@ class DeviceTests(unittest.TestCase):
         classify = module["error_code"]
         self.assertEqual(classify(module["WorkerError"]("UNSUPPORTED_DEVICE")), "UNSUPPORTED_DEVICE")
         self.assertEqual(classify(ValueError("MODEL_CHANGED")), "MODEL_CHANGED")
+        self.assertEqual(classify(ModuleNotFoundError("private module path")), "RUNTIME_DEPENDENCY")
         self.assertEqual(classify(RuntimeError("UNSUPPORTED_DEVICE")), "TTS_FAILED")
         self.assertEqual(classify(ValueError("PRIVATE_SECRET")), "TTS_FAILED")
         self.assertEqual(classify(RuntimeError("private/path dialogue")), "TTS_FAILED")

@@ -66,6 +66,8 @@ PUBLIC_ERRORS = {
 def error_code(error):
     if isinstance(error, (WorkerError, ValueError)) and str(error) in PUBLIC_ERRORS:
         return str(error)
+    if isinstance(error, (ImportError, importlib.metadata.PackageNotFoundError)):
+        return "RUNTIME_DEPENDENCY"
     if "out of memory" in str(error).lower():
         return "MPS_OOM" if "mps" in str(error).lower() else "CUDA_OOM"
     return "TTS_FAILED"
