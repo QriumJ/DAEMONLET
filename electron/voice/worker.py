@@ -100,8 +100,8 @@ class Worker:
                           HF_HOME=str(self.cache / "hf"), TORCH_HOME=str(self.cache / "torch"),
                           NUMBA_CACHE_DIR=str(self.cache / "numba"), PYTHONDONTWRITEBYTECODE="1")
         import torch
-        import soundfile
         CudaDevice.require(torch)
+        import soundfile
         phases['torchImportMs'] = (time.perf_counter()-phase)*1000
         phase = time.perf_counter()
         package = Path(request["package"])

@@ -141,7 +141,7 @@ class DeviceTests(unittest.TestCase):
         import tempfile
         module = runpy.run_path(str(WORKER))
         fake = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False))
-        with tempfile.TemporaryDirectory() as cache, patch("sys.platform", "win32"), patch.dict("sys.modules", {"torch": fake}), patch.dict("os.environ"):
+        with tempfile.TemporaryDirectory() as cache, patch("sys.platform", "win32"), patch.dict("sys.modules", {"torch": fake, "soundfile": None}), patch.dict("os.environ"):
             with self.assertRaisesRegex(module["WorkerError"], "UNSUPPORTED_DEVICE"):
                 module["Worker"]().initialize({"cache": cache})
 
