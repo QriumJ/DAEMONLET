@@ -23,6 +23,8 @@ jobs:
       - run: npm run source:check
       - run: npm run typecheck
       - run: npm test
+      - name: Voice worker protocol and device errors (no GPU or model)
+        run: python -B scripts/test-voice-worker.py
       - run: python -m unittest discover -s tests/creator -v
       - run: npm run creator:check
       - run: npm run build:renderer
@@ -39,6 +41,11 @@ jobs:
         with:
           node-version: 24.x
           cache: npm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Voice worker protocol and device errors (no GPU or model)
+        run: python -B scripts/test-voice-worker.py
       - run: npm ci
       - run: npm run electron:install
       - run: npm run source:check

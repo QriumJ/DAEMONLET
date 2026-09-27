@@ -17,7 +17,7 @@ import {CharacterChatService} from './CharacterChatService'
 export class CharacterChatWindow {
  readonly voice:VoiceIpcController;
  window:BrowserWindow|null=null;readonly service:CharacterChatService;private initialized:Promise<void>|null=null;private disposing:Promise<void>|null=null;private disposed=false;private deleting=false;private importing=false;private detach:(()=>void)|null=null
- constructor(private dirname:string,private registry:CharacterRegistry,private devServerUrl:string|undefined,private hooks:{pet:()=>BrowserWindow|null;reveal:()=>void;active:(value:boolean)=>void;select:(entry:CharacterEntry)=>Promise<void>;selected:()=>string} ){const runtime=join(app.isPackaged?process.resourcesPath:dirname,'local-llm',process.platform==='win32'?'llama-server.exe':'llama-server');this.service=new CharacterChatService(join(app.getPath('userData'),'character-chat'),runtime,registry,hooks.select);this.voice=new VoiceIpcController(join(app.getPath('userData'),'voice'),join(app.isPackaged?process.resourcesPath:dirname,'voice','worker.py'),()=>this.window,this.service,this.devServerUrl);ipcMain.handle(LOCAL_CHAT_IPC.gesture,(event,kind,request)=>{if(!isTrustedSender(event,this.window,'character-chat',this.devServerUrl)||!['move','resize'].includes(kind)||!validWindowDragRequest(request))throw Error('UNTRUSTED_GESTURE');return (kind==='move'?this.moveGesture:this.resizeGesture).request(request,this.gestureReleased)});this.service.subscribe(()=>{this.window?.webContents.send(LOCAL_CHAT_IPC.changed,this.service.snapshot());this.publish()});ipcMain.handle(LOCAL_CHAT_IPC.getPresentation,event=>{if(!isTrustedSender(event,this.hooks.pet(),'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.presentation()});ipcMain.handle(LOCAL_CHAT_IPC.action,async(event,value:LocalChatAction)=>{if(!isTrustedSender(event,this.window,'character-chat',this.devServerUrl))throw Error('UNTRUSTED_SENDER');await this.initialize();try{await this.action(value)}catch(e){this.service.setError(e)}return this.service.snapshot()})}
+ constructor(private dirname:string,private registry:CharacterRegistry,private devServerUrl:string|undefined,private hooks:{pet:()=>BrowserWindow|null;reveal:()=>void;active:(value:boolean)=>void;select:(entry:CharacterEntry)=>Promise<void>;selected:()=>string} ){const runtime=join(app.isPackaged?process.resourcesPath:dirname,'local-llm',process.platform==='win32'?'llama-server.exe':'llama-server');this.service=new CharacterChatService(join(app.getPath('userData'),'character-chat'),runtime,registry,hooks.select);this.voice=new VoiceIpcController(join(app.getPath('userData'),'voice'),join(app.isPackaged?process.resourcesPath:dirname,'voice','worker.py'),()=>this.window,this.service,this.devServerUrl);ipcMain.handle(LOCAL_CHAT_IPC.gesture,(event,kind,request)=>{if(!isTrustedSender(event,this.window,'character-chat',this.devServerUrl)||!['move','resize'].includes(kind)||!validWindowDragRequest(request))throw Error('UNTRUSTED_GESTURE');return (kind==='move'?this.moveGesture:this.resizeGesture).request(request,this.gestureReleased)});this.service.subscribe(()=>{try{const win=this.window;if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed())win.webContents.send(LOCAL_CHAT_IPC.changed,this.service.snapshot());this.publish()}catch{console.warn('[chat] CHAT_NOTIFICATION_FAILED')}});ipcMain.handle(LOCAL_CHAT_IPC.getPresentation,event=>{if(!isTrustedSender(event,this.hooks.pet(),'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.presentation()});ipcMain.handle(LOCAL_CHAT_IPC.action,async(event,value:LocalChatAction)=>{if(!isTrustedSender(event,this.window,'character-chat',this.devServerUrl))throw Error('UNTRUSTED_SENDER');await this.initialize();try{await this.action(value)}catch(e){this.service.setError(e)}return this.service.snapshot()})}
  private layout = new ChatWindowLayout(join(app.getPath('userData'),'character-chat','window-layout.json'))
  private gestureReleased=true
  private gesturePoint:{x:number;y:number;at:number}|null=null
@@ -41,7 +41,7 @@ export class CharacterChatWindow {
  private presentation():LocalChatPresentation{const s=this.service.snapshot();return {active:!!this.window,epoch:s.epoch,characterId:s.character?.id??null,revision:s.character?.revision??null,phase:s.phase==='loading'?'generating':s.phase,definition:this.service.definition,meaning:s.meaning??null}}
  private publish(){const pet=this.hooks.pet();if(pet&&!pet.isDestroyed())pet.webContents.send(LOCAL_CHAT_IPC.presentation,this.presentation())}
  async open(){if(this.disposed)return;this.hooks.reveal();if(this.window){this.window.show();this.window.focus();return}await this.initialize();if(this.disposed)return;const selected=this.registry.get(this.hooks.selected()),current=this.service.snapshot().character;if(selected&&(current?.id!==selected.id||current.revision!==selected.revision))await this.service.selectCharacter(selected.id);if(this.disposed)return;const reopened=this.window as BrowserWindow|null;if(reopened){reopened.show();reopened.focus();return}const win=this.window=new BrowserWindow({...this.layout.value.size,minWidth:CHAT_WINDOW_MIN.width,minHeight:CHAT_WINDOW_MIN.height,maxWidth:CHAT_WINDOW_MAX.width,maxHeight:CHAT_WINDOW_MAX.height,title:'DAEMONLET 캐릭터챗 말풍선',frame:false,transparent:true,hasShadow:false,resizable:true,movable:true,maximizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,backgroundColor:'#00000000',show:false,webPreferences:{preload:join(this.dirname,'character-chat-preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true,webviewTag:false}});
- win.on('hide',()=>void this.voice.stop());win.on('close',()=>void this.voice.stop());
+ this.voice.attachWindow(win);
  secureWebContents(win.webContents,'character-chat',this.devServerUrl);
  win.webContents.on('before-mouse-event',(_event,input)=>{const box=win.getBounds();if(['mouseDown','mouseMove','mouseUp'].includes(input.type)&&Number.isFinite(input.x)&&Number.isFinite(input.y))this.gesturePoint={x:box.x+input.x,y:box.y+input.y,at:Date.now()};if(input.type==='mouseDown'){this.gestureStart.record(box,input,input.button==='left');if(input.button==='left')this.gestureReleased=false}if(input.type==='mouseUp'&&input.button==='left')this.gestureReleased=true});
  const position=()=>{
@@ -80,5 +80,22 @@ export class CharacterChatWindow {
  case 'codex-mode':this.window?.close();break;default:throw Error('지원하지 않는 요청')
  }}
  dispose():Promise<void>{if(this.disposing)return this.disposing;this.disposed=true;this.disposing=this.finishDispose();return this.disposing}
- private async finishDispose(){this.moveGesture.cancel();this.resizeGesture.cancel();ipcMain.removeHandler(LOCAL_CHAT_IPC.gesture);ipcMain.removeHandler(LOCAL_CHAT_IPC.action);ipcMain.removeHandler(LOCAL_CHAT_IPC.getPresentation);this.detach?.();const closing=this.service.close();await this.initialized?.catch(()=>{});try{await this.saveLayout();await closing;await this.voice.close()}finally{this.window?.destroy();this.window=null}}
+ private async finishDispose(){
+  const failures:unknown[]=[]
+  const attempt=async(work:()=>unknown)=>{try{await work()}catch{failures.push(true)}}
+  // Start both shutdowns immediately, and attach rejection handlers immediately.
+  const closing=Promise.all([
+   attempt(()=>this.service.close()),attempt(()=>this.voice.close()),
+   attempt(()=>this.moveGesture.cancel()),attempt(()=>this.resizeGesture.cancel()),
+   attempt(()=>ipcMain.removeHandler(LOCAL_CHAT_IPC.gesture)),
+   attempt(()=>ipcMain.removeHandler(LOCAL_CHAT_IPC.action)),
+   attempt(()=>ipcMain.removeHandler(LOCAL_CHAT_IPC.getPresentation)),
+   attempt(()=>this.detach?.())
+  ])
+  await this.initialized?.catch(()=>{})
+  await attempt(()=>this.saveLayout())
+  await closing
+  await attempt(()=>this.window?.destroy());this.window=null
+  if(failures.length)throw Error('CHAT_CLOSE_FAILED')
+ }
 }

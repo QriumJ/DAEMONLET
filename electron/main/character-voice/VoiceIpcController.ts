@@ -8,13 +8,19 @@ export class VoiceIpcController {
  readonly service:CharacterVoiceService
  private initialized:Promise<void>|null=null
  private picking=false
+ private rendererReady=false
+ private outputGeneration=0
+ private attached:BrowserWindow|null=null
+ private closing:Promise<void>|null=null
  private detach:Array<()=>unknown>=[]
  constructor(root:string,worker:string,private window:()=>BrowserWindow|null,private chat:CharacterChatService,private devServerUrl?:string){
-  this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.window()?.webContents.send(VOICE_IPC.changed,s),e=>this.window()?.webContents.send(VOICE_IPC.event,e),undefined,value=>console.info('[voice]',JSON.stringify(value)))
-  this.detach.push(chat.subscribeVoice(message=>{if(message)this.service.completed(message);else this.service.cancel()}),chat.subscribe(()=>this.service.onChatChanged()))
+  this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>console.info('[voice]',JSON.stringify(value)))
+  this.detach.push(chat.subscribeVoiceStart(id=>this.service.requestStarted(id)),chat.subscribeVoice(message=>{if(message)this.service.completed(message);else this.service.cancel()}),chat.subscribe(()=>this.service.onChatChanged()))
   ipcMain.handle(VOICE_IPC.action,async(event,value:VoiceAction)=>{
    if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl))throw Error('UNTRUSTED_SENDER')
+   const owner=this.window(),generation=this.outputGeneration
    await this.initialize()
+   if(owner!==this.window()||generation!==this.outputGeneration||!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl))throw Error('VOICE_OUTPUT_EXPIRED')
    try{await this.action(value)}catch(e){this.service.error(e)}
    return this.service.snapshot()
   })
@@ -23,12 +29,34 @@ export class VoiceIpcController {
    return this.service.audio(id,epoch as number)
   })
  }
+ private send(channel:string,value:unknown){
+  const win=this.window()
+  if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed()){
+   try{win.webContents.send(channel,value)}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}
+  }
+ }
+ attachWindow(win:BrowserWindow){
+  ++this.outputGeneration;this.attached=win;this.rendererReady=false;this.service.setOutputReady(false)
+  const current=()=>this.attached===win
+  const deny=()=>{if(current()){++this.outputGeneration;this.service.setOutputReady(false)}}
+  const reset=()=>{if(current()){this.rendererReady=false;deny()}}
+  win.on('hide',deny);win.on('close',reset);win.on('closed',reset)
+  win.on('show',()=>{if(current())this.updateOutput()})
+  win.webContents.on('did-start-loading',reset)
+  win.webContents.on('render-process-gone',reset)
+  win.webContents.on('destroyed',reset)
+ }
+ private updateOutput(){
+  const win=this.window()
+  this.service.setOutputReady(!this.closing&&!!win&&win===this.attached&&!win.isDestroyed()&&!win.webContents.isDestroyed()&&win.isVisible()&&this.rendererReady)
+ }
  initialize(){return this.initialized??=this.service.initialize()}
  async stop(){try{await this.service.stop()}catch(e){this.service.error(e)}}
  private async action(v:VoiceAction){
   if(!v||typeof v!=='object')throw Error('VOICE_ACTION')
   const character=this.chat.snapshot().character
   switch(v.type){
+   case 'ready':this.rendererReady=true;this.updateOutput();return
    case 'snapshot':return
    case 'stop':return this.stop()
    case 'enabled':case 'auto':if(typeof v.value!=='boolean')throw Error('VOICE_ACTION');return v.type==='enabled'?this.service.enabled(v.value):this.service.auto(v.value)
@@ -58,5 +86,14 @@ export class VoiceIpcController {
    default:throw Error('VOICE_ACTION')
   }
  }
- async close(){ipcMain.removeHandler(VOICE_IPC.action);ipcMain.removeHandler(VOICE_IPC.audio);this.detach.forEach(fn=>fn());await this.service.close()}
+ close():Promise<void>{
+  if(this.closing)return this.closing
+  this.rendererReady=false
+  const work=[()=>ipcMain.removeHandler(VOICE_IPC.action),()=>ipcMain.removeHandler(VOICE_IPC.audio),...this.detach,()=>this.service.close()]
+  this.detach=[]
+  this.closing=Promise.allSettled(work.map(fn=>Promise.resolve().then(fn))).then(results=>{
+   if(results.some(r=>r.status==='rejected'))throw Error('VOICE_CLOSE_FAILED')
+  })
+  return this.closing
+ }
 }

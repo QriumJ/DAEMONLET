@@ -13,7 +13,6 @@ import time
 import wave
 
 PROTOCOL = sys.stdout
-sys.stdout = sys.stderr
 MODEL = "openbmb/VoxCPM2"
 REVISION = "32279effe8c19989596f05d353d1447f51d9e915"
 SOURCE = "f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69"
@@ -51,15 +50,44 @@ def inside(root, name):
     return target
 
 
+class WorkerError(Exception):
+    """Expected public errors; never transmit arbitrary exception messages."""
+
+
+PUBLIC_ERRORS = {
+    "UNSUPPORTED_DEVICE", "JSON_LIMIT", "PATH", "LINK", "SELECTION_MISMATCH",
+    "PACKAGE_CHANGED", "MODEL_REVISION", "MODEL_MANIFEST", "MODEL_CHANGED",
+    "RUNTIME_SOURCE", "RUNTIME_VERSION", "RUNTIME_SOURCE_CHANGED", "ADAPTER_MISMATCH",
+    "LORA_TENSORS", "LORA_INCOMPLETE", "UNSUPPORTED_STYLE", "SYNTHESIS_INPUT",
+    "INVALID_WAVEFORM", "INVALID_WAV", "PROTOCOL_LIMIT", "PROTOCOL_VERSION",
+    "ALREADY_INITIALIZED", "PROTOCOL_STATE",
+}
+
+
+def error_code(error):
+    if isinstance(error, (WorkerError, ValueError)) and str(error) in PUBLIC_ERRORS:
+        return str(error)
+    if "out of memory" in str(error).lower():
+        return "CUDA_OOM"
+    return "TTS_FAILED"
+
+
 class CudaDevice:
     @staticmethod
     def require(torch):
-        if sys.platform != "win32" or not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
-            raise RuntimeError("UNSUPPORTED_DEVICE")
+        CudaDevice.require_platform()
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+            raise WorkerError("UNSUPPORTED_DEVICE")
+
+    @staticmethod
+    def require_platform():
+        if sys.platform != "win32":
+            raise WorkerError("UNSUPPORTED_DEVICE")
 
 
 class Worker:
     def initialize(self, request):
+        CudaDevice.require_platform()
         started = time.perf_counter()
         self.cache = Path(request["cache"])
         self.cache.mkdir(parents=True, exist_ok=True)
@@ -67,6 +95,8 @@ class Worker:
         os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_DATASETS_OFFLINE="1",
                           HF_HOME=str(self.cache / "hf"), TORCH_HOME=str(self.cache / "torch"),
                           NUMBA_CACHE_DIR=str(self.cache / "numba"), PYTHONDONTWRITEBYTECODE="1")
+        import torch
+        CudaDevice.require(torch)
         package = Path(request["package"])
         if sha(package / "checksums.sha256") != CHECKSUMS:
             raise ValueError("SELECTION_MISMATCH")
@@ -91,8 +121,6 @@ class Worker:
         receipt = read_json(Path(sys.prefix) / "voice-runtime.json")
         if receipt["source_commit"] != SOURCE:
             raise ValueError("RUNTIME_SOURCE")
-        import torch
-        CudaDevice.require(torch)
         for name, expected in self.voice["engine"]["runtime"].items():
             if importlib.metadata.version(name) != expected:
                 raise ValueError("RUNTIME_VERSION")
@@ -192,15 +220,14 @@ def main():
             else:
                 raise ValueError("PROTOCOL_STATE")
         except Exception as error:
-            code = str(error) if isinstance(error, ValueError) and re.fullmatch(r"[A-Z_]+", str(error)) else "TTS_FAILED"
-            if "out of memory" in str(error).lower():
-                code = "CUDA_OOM"
+            code = error_code(error)
             emit("error", request_id, code=code)
             # Fail closed: no base-voice fallback, no surviving partially loaded CUDA model.
             return
 
 
 if __name__ == "__main__":
+    sys.stdout = sys.stderr
     # Redirect file descriptor 1 as well, retaining a dedicated protocol handle.
     PROTOCOL = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
     os.dup2(2, 1)

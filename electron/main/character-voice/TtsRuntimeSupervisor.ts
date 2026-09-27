@@ -103,7 +103,7 @@ export class TtsRuntimeSupervisor {
     let timer:ReturnType<typeof setTimeout>|undefined
     try{await Promise.race([exited,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('VOICE_WORKER_STOP_TIMEOUT')),5000)})])}finally{if(timer)clearTimeout(timer)}
    }
-   if(cache){await rm(cache,{recursive:true,force:true,maxRetries:3,retryDelay:100}).catch(()=>{});if(this.cache===cache)this.cache=null}
+   if(cache){await rm(cache,{recursive:true,force:true,maxRetries:3,retryDelay:100}).catch(()=>{throw Error('VOICE_CACHE_CLEANUP')});if(this.cache===cache)this.cache=null}
   })()
   this.ending=task
   void task.finally(()=>{if(this.ending===task)this.ending=null}).catch(()=>{})

@@ -96,6 +96,13 @@ See [Windows chat setup](windows-character-chat.md). No LLM is downloaded by voi
    New requests, retries, conversation/character/model changes, voice changes,
    window hide/close, and app shutdown invalidate old speech.
 
+Hiding or closing the chat permanently revokes automatic speech for requests
+accepted before that boundary, even if their replies finish after the window is
+shown again. Text generation and saving can still finish while hidden. Reopening
+does not replay those replies: use **다시 읽기** or send a new question. Main
+requires a visible live window and a subscribed renderer before admitting speech;
+renderer visibility and decode-generation checks provide additional protection.
+
 Audio is 48kHz mono PCM16. Web Audio performs output-device resampling and gain;
 volume does not change synthesis settings. The default neutral reference mode,
 CFG 2, 10 steps, seed 42, normalize/denoise/retry disabled, max_len 600 are fixed.
@@ -122,4 +129,18 @@ Rollback: switch voice OFF, allow the worker to exit, then either select **없�
 to unbind or use **선택 음성 삭제** to remove the selected copy and its bindings.
 For manual cleanup, close the app and remove only its own voice cache/runtime/profile
 copies. Preserve conversations, original `.petchar` packs, and voice-lab inputs.
+Deletion first commits unbinding and a cleanup marker once, then removes the
+app-owned package copy. If settings cannot be saved, the registration and package
+remain. If file cleanup fails, the profile stays unbound and
+`VOICE_CLEANUP_PENDING` is shown; restart retries cleanup without re-registering
+the leftover folder. Reimporting a verified package clears its cleanup marker.
+
+Unsupported OS/CUDA/BF16 is reported as `UNSUPPORTED_DEVICE` before model hashing
+or loading. No automatic fallback is attempted. Shutdown attempts text, voice,
+IPC and window cleanup independently; notification failures cannot skip worker
+termination, and worker-stop failures remain errors.
+
+GPU-free Python protocol/device regressions run in both CI jobs with Python 3.11:
+`python -B scripts/test-voice-worker.py`. These are separate from creator tests and
+do not prove CUDA synthesis, app playback or physical listening.
 See [verification boundaries](character-chat-voice-validation.md).

@@ -3,6 +3,8 @@ import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {EventEmitter} from 'node:events'
+import {ipcMain} from 'electron'
+import {VOICE_IPC} from '../electron/shared/character-voice-contract'
 import {randomUUID} from 'node:crypto'
 import {ConversationStore} from '../electron/main/character-chat/ConversationStore'
 const environment=vi.hoisted(()=>({root:'',windows:vi.fn(),confirm:vi.fn()}))
@@ -10,6 +12,22 @@ vi.mock('electron',async()=>({app:{getPath:()=>environment.root,isPackaged:false
 vi.mock('../electron/main/SecurityPolicy',()=>({secureWebContents:vi.fn(),expectedRendererUrl:()=> 'pet://app/character-chat.html',isTrustedSender:()=>true}))
 import {CharacterChatWindow} from '../electron/main/character-chat/CharacterChatWindow'
 const roots:string[]=[]
+it.each(['LLM_STOP_FAILED','CHAT_STORAGE_FAILED'])('Voice F3: %s cannot skip voice cleanup',async code=>{
+ const {window}=await fixture();const destroy=vi.fn();window.window={destroy} as any
+ vi.spyOn(window.service,'close').mockRejectedValue(Error(code));const close=vi.spyOn(window.voice,'close').mockResolvedValue()
+ await expect(window.dispose()).rejects.toThrow();expect(close).toHaveBeenCalledTimes(1);expect(destroy).toHaveBeenCalledTimes(1)
+})
+it.each([false,true])('Voice F2: hide then show=%s denies late completed reply',async show=>{
+ const {window}=await savedFixture();mockWindows();await window.open()
+ const win=window.window as any;win.isVisible=()=>true;win.webContents.isDestroyed=()=>false
+ const voice=window.voice.service as any,runtime={running:false,sessionId:'mock',start:vi.fn(async()=>{}),stop:vi.fn(async()=>{}),synthesize:vi.fn(async()=>({audioId:'mock',bytes:new Uint8Array(1),durationMs:1}))}
+ voice.runtime=runtime;voice.config={python:'mock',model:'mock'};voice.state.enabled=true;voice.state.profiles=[{id:'voice',version:'1'}];voice.state.bindings={gpichan:'voice@1'}
+ const chat=window.service.snapshot(),message={id:'pending',role:'assistant',status:'streaming',text:'응.',binding:{characterId:'gpichan',revision:chat.character!.revision,conversationId:chat.conversation!.id,requestId:'pending',epoch:chat.epoch,modelId:'E4B'}}
+ chat.conversation!.messages.push(message as any);vi.spyOn(window.service,'snapshot').mockReturnValue(chat)
+ await (window.voice as any).action({type:'ready'});win.emit('show');(window.service as any).notifyVoiceStart('pending');(window.service as any).emit();win.emit('hide');if(show)win.emit('show')
+ message.status='complete';(window.service as any).notifyVoice(message)
+ await new Promise(r=>setTimeout(r,30));expect(runtime.start).not.toHaveBeenCalled();expect(runtime.synthesize).not.toHaveBeenCalled();await window.dispose()
+})
 afterEach(async()=>{vi.restoreAllMocks();environment.windows.mockReset();environment.confirm.mockReset();for(const r of roots.splice(0))await rm(r,{recursive:true,force:true})})
 async function fixture(){
  environment.root=await mkdtemp(join(tmpdir(),'chat-window-lifecycle-'));roots.push(environment.root)
@@ -58,7 +76,7 @@ function mockWindows(){
  environment.windows.mockImplementation(function(){
   const win=new EventEmitter() as any
   let dead=false
-  win.webContents=new EventEmitter();win.webContents.send=vi.fn()
+  win.webContents=new EventEmitter();win.webContents.send=vi.fn();win.webContents.isDestroyed=()=>dead;win.isVisible=()=>true
   win.isDestroyed=()=>dead;win.show=vi.fn();win.focus=vi.fn();win.loadURL=vi.fn(async()=>{})
   win.destroy=()=>{dead=true;win.emit('closed')};win.close=win.destroy
   return win
@@ -103,4 +121,42 @@ it('R2: closing the bubble cancels an accepted queued send before runtime startu
  const start=vi.spyOn(window.service.runtime,'start'),verify=vi.spyOn(window.service.models,'verify'),generate=vi.spyOn(window.service.runtime,'generate')
  const send=window.service.send('queued');window.window!.close();await send;await (window.service as any).serial
  expect(verify).not.toHaveBeenCalled();expect(start).not.toHaveBeenCalled();expect(generate).not.toHaveBeenCalled();expect(window.service.snapshot().phase).toBe('idle');await window.dispose()
+})
+
+it('Voice F2: pending initial save crosses hide/show without automatic speech',async()=>{
+ const {window}=await savedFixture();mockWindows();await window.open();await (window.voice as any).action({type:'ready'})
+ let release!:()=>void;const gate=new Promise<void>(r=>{release=r});const original=(window.service as any).save.bind(window.service)
+ vi.spyOn(window.service as any,'save').mockImplementationOnce(async(...args:any[])=>{await gate;return original(...args)})
+ const start=vi.spyOn(window.service.runtime,'start').mockResolvedValue();vi.spyOn(window.service.models,'verify').mockResolvedValue('/synthetic');vi.spyOn(window.service.runtime,'count').mockResolvedValue(1)
+ vi.spyOn(window.service.runtime,'generate').mockResolvedValue({text:'응.',meaning:null} as any)
+ const voice=window.voice.service as any;voice.state.enabled=true
+ const read=vi.spyOn(voice,'read');const sending=window.service.send('새 질문');window.window!.emit('hide');window.window!.emit('show');release();await sending
+ await vi.waitFor(()=>expect(start).toHaveBeenCalled());await (window.service as any).job
+ expect(window.service.snapshot().conversation!.messages.at(-1)?.status).toBe('complete');expect(read).not.toHaveBeenCalled();await window.dispose()
+})
+it('Voice F3: throwing detach does not skip worker close or window destroy',async()=>{
+ const {window}=await fixture();const destroy=vi.fn();window.window={destroy} as any;(window as any).detach=()=>{throw Error('destroyed')}
+ const close=vi.spyOn(window.voice.service,'close').mockResolvedValue();(window.voice as any).detach.push(()=>{throw Error('detached')})
+ await expect(window.dispose()).rejects.toThrow('CHAT_CLOSE_FAILED');expect(close).toHaveBeenCalledTimes(1);expect(destroy).toHaveBeenCalledTimes(1)
+})
+
+it('Voice F2: renderer readiness and replacement are main-owned',async()=>{
+ const {window}=await savedFixture();mockWindows();await window.open()
+ const voice=window.voice.service as any,chat=window.service.snapshot();voice.state.enabled=true
+ const read=vi.spyOn(voice,'read').mockResolvedValue(undefined)
+ const message={id:'unready',role:'assistant',status:'complete',text:'응.',binding:{requestId:'unready',characterId:'gpichan'}}
+ ;(window.service as any).notifyVoiceStart('unready');(window.service as any).notifyVoice(message);expect(read).not.toHaveBeenCalled()
+ await (window.voice as any).action({type:'ready'});message.id='old';message.binding.requestId='old';(window.service as any).notifyVoiceStart('old')
+ window.window!.webContents.emit('did-start-loading');await (window.voice as any).action({type:'ready'});(window.service as any).notifyVoice(message);expect(read).not.toHaveBeenCalled()
+ message.id='fresh';message.binding.requestId='fresh';(window.service as any).notifyVoiceStart('fresh');(window.service as any).notifyVoice(message);expect(read).toHaveBeenCalledTimes(1)
+ expect(window.service.snapshot().conversation?.id).toBe(chat.conversation?.id);await window.dispose()
+})
+
+it('Voice F2: renderer reload rejects readiness IPC suspended in initialization',async()=>{
+ const {window}=await savedFixture();mockWindows();await window.open()
+ const calls=vi.mocked(ipcMain.handle).mock.calls;const handle=calls.filter(c=>c[0]===VOICE_IPC.action).at(-1)![1]
+ let release!:()=>void;vi.spyOn(window.voice,'initialize').mockImplementation(()=>new Promise<void>(r=>{release=r}))
+ const pending=handle({} as any,{type:'ready'});const check=expect(pending).rejects.toThrow('VOICE_OUTPUT_EXPIRED')
+ window.window!.webContents.emit('did-start-loading');release();await check
+ expect((window.voice.service as any).outputReady).toBe(false);await window.dispose()
 })

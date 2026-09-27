@@ -1,5 +1,88 @@
 # Voice integration verification — 2026-09-27
 
+## PR #28 stabilization — F1–F5
+
+Started from clean local/remote `cb43a8b9fb4afc199d049433dc6038eb256273e8`.
+PR #28 was OPEN; baseline Verify run `36307584593` had successful Ubuntu and
+Windows jobs. The results below are new executions, not copied baseline passes.
+
+Before production edits, repository-discovered tests recorded **12 TypeScript
+failures (31 passed)** and **1 Python failure (4 passed)**. The failures reproduce
+all five findings. Raw reports remain local and ignored.
+
+| Finding | Before fix | After automated regression | Latest native Windows app | Boundary |
+|---|---|---|---|---|
+| F1 missing suffix | FAIL: exact 180-character input lost `끝말`; 180/360 and oversized-grapheme tests failed | PASS: exact round trip, contiguous offsets, 179/180/181/359/360/361 cases, seeded Unicode corpus, explicit oversized-grapheme rejection | NOT_TESTED | No claim that physical speech of every segment was heard |
+| F2 late speech after hide | FAIL: actual window handlers + controller + service started the fake runtime after hide and hide/show | PASS: admission recorded synchronously before queued save; hide revokes request permission; loading/synthesis/WAV/decode boundaries, renderer replacement and explicit reread recovery | BLOCKED_ENVIRONMENT | Native tool returned mismatched input/capture targets; no hidden-window playback claim |
+| F3 skipped shutdown | FAIL: rejected chat close skipped voice close; each event/changed/diagnostic exception skipped worker stop | PASS: independent cleanup attempts, repeated close, detach exception, preserved worker-stop error/timeout, initialization/disposal coverage | BLOCKED_ENVIRONMENT | Candidate cleanup used exact owned PID after UI-tool failure; this is not normal UI-exit acceptance |
+| F4 deletion inconsistency | FAIL: second save ran after deletion and rollback resurrected the profile | PASS: single commit, failed-save preservation, file-failure tombstone, restart cleanup, repeated delete; settings/files/memory checked | NOT_TESTED | Synthetic package files only in fault-injection tests |
+| F5 wrong device error | FAIL: protocol returned `TTS_FAILED` for unsupported CUDA | PASS: explicit public-error allowlist; OS/CUDA/BF16 matrix; early device checks; precise service error and unchanged text | NOT_TESTED on unsupported hardware | Fake torch/device; supported RTX 4090 synthesis separately verified |
+
+The renderer and main both reject stale output. Main uses request admission IDs
+and a live visible output session, including requests still waiting for their
+initial save. The hide boundary does not delete or fail text replies. Cleanup
+notifications are best-effort; real worker termination errors remain failures.
+Deletion persists an unbound cleanup marker before touching package bytes, so a
+restart cannot silently restore a partially deleted profile.
+
+Automated commands executed: `npm run typecheck`, `npm test`,
+`npm run build:renderer`, `npm run build:electron`, and
+`npm run build:electron:production`; Python used the existing independent 3.11.15
+interpreter with `-B scripts/test-voice-worker.py` (**8 passed**, no GPU imports).
+The final full regression passed **2,049 / 0 failed / 74 skipped**. The final
+IPC/lifecycle/playback subset passed **57 tests**, including readiness IPC suspended
+across renderer reload. Typecheck, source check, final renderer/Electron production
+build and separate Windows packaging passed. The final package contained 229
+app.asar entries with no model weights, reference WAV, site-packages or private
+voice-lab/integration paths. Final CI results are recorded below once available.
+
+The first full run had one existing pack-update test exceed its 5-second budget
+while GPU smoke/build work was running (2,045 passed, 1 failed, 74 skipped).
+Its complete file then passed 24 tests, and the full rerun passed. No timeout was
+increased and no assertion was weakened. An initial package API invocation failed
+before packaging; the corrected local Forge invocation succeeded. A later
+production build correctly rejected mismatched renderer/source stamps, requiring
+a fresh renderer and Electron build from the same source.
+
+Actual RTX 4090 worker smoke reused the existing independent runtime and fixed
+selected package. CLI doctor passed; all 384 LoRA keys and pinned model/reference
+hashes matched. New Korean synthesis: load **22.0 s**, first **24.9 s**, warm
+**7.6 s**, each producing a **4.0 s** PCM16 mono 48kHz WAV (warm RTF **1.90**).
+Actual synthesis cancellation exited the owned tree in **264.9 ms**; restart
+produced a new **7.36 s** WAV. These are worker measurements, not app playback or
+audible-stop latency. No model settings or candidate were changed.
+
+A fresh unpacked Windows candidate was built in a separate ignored directory,
+preserving the existing running app's files. Worker SHA-256 matched source:
+`85be466c6020ad780d7ebeb726a8c7cec5742a4bd88da8a64ad637c6c66c814f`.
+Native capture of the candidate before the last IPC/error-state refinements showed
+the restored chat, selected adopted voice and ready state
+without history autoplay. The runtime picker opened, but its editable element
+was unavailable to the tool and reported focus disagreed with the screenshot.
+Later candidate input was rejected as targeting another app; fresh selection,
+activation, a uniquely named identical executable and tool reset did not recover
+reliable input/capture. No new native synthesis/playback completion was observed.
+The candidates were cleaned up by verified owned PID, with zero remaining owned
+candidate/voice processes and zero app/smoke voice cache files. This is forced test
+cleanup, not a normal-exit PASS. No unrelated PID was targeted; an earlier observed
+user-app PID was absent at the final check, so continued user-app execution is not
+claimed.
+
+Remaining: native picker completion, new E4B reply/playback on the final candidate,
+the ten-cycle transition/cancel/recovery matrix, real hide/show and exception-exit
+acceptance, physical speaker listening/quality, audible-stop timing, 12B,
+disconnected-network operation, long soak, installer/signing and runtime relocation.
+Mac/MPS/MLX and lip sync remain NOT_SUPPORTED. Older successful native checks below
+belong only to `cb43a8b`; they are not final-code acceptance evidence.
+
+Local evidence: `outputs/voice-integration/stabilization-{red,targeted,full,
+full-retry,last-boundaries,ipc-final,full-head}.json`, Python red log, `stabilization-smoke/diagnostics`,
+candidate logs and `stabilization-cleanup.json`. These contain private paths and
+must not be uploaded. Both CI jobs now explicitly prepare Python 3.11 and execute
+the eight GPU-free voice tests, independently of creator tests.
+
+## Initial integration baseline (`cb43a8b` only)
+
 This report separates synthetic tests, real CUDA synthesis, software audio
 playback, physical listening and packaged-app execution. It is not a release sign-off.
 
