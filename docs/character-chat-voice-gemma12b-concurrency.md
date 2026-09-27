@@ -116,3 +116,28 @@ full service F1–F5/R1/R2, hide/unload, real 12B conversations and Windows regr
 remain integration work. This measurement does not change those statuses, bypass
 runtime checks or declare a release. True overlapping generation needs additional
 scheduling/optimization work before it can claim RTF ≤ 1.
+
+## Follow-up: completed answer with 12B still resident
+
+A direct browser check resolved the distinction between unloading 12B and simply
+finishing its answer. The same verified supervisor generated a fresh actual
+Belle reply, passed it through the app parser, then kept the 12B model resident
+and idle while that entire reply was synthesized and played in the live review
+screen. The native LLM process was observed alive during playback (about 8 GiB
+RSS, negligible CPU); it was not unloaded to obtain the result.
+
+- 25.12s of generated audio; 157 received / 157 played chunks.
+- First scheduled playback: 1418ms.
+- **Scheduling gaps: 0; maximum gap: 0ms.**
+- Displayed generation/credit-wait RTF: 1.038. This includes initial fixed cost
+  and consumer pacing; it does not imply continuous chunk starvation.
+- The 12B generation slot was inspected as idle after playback. Only then was
+  the owned LLM process stopped. The voice worker remained the same.
+
+Use `--mode completed-live` instead of `--hold` in the reproduction command to
+run this check. It saves `reply.txt`, keeps the completed model resident for up
+to 90 seconds, and stops after a private `review-done` marker or the deadline.
+This is one independent live-player test of the whole completed reply, not a
+packaged-app conversation or app inter-sentence scheduling acceptance. It supports
+the measured conclusion that resident-but-idle 12B does not cause the observed
+concurrent-generation underruns.

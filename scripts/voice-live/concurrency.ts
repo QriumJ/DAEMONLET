@@ -4,7 +4,7 @@ import {CHAT_MODELS,CHAT_RUNTIME_COMMIT} from '../../electron/main/character-cha
 import {speechSegments} from '../../electron/shared/character-voice-contract'
 import {createHash,randomUUID} from 'node:crypto'
 import {createReadStream} from 'node:fs'
-import {readFile,writeFile,mkdir,stat} from 'node:fs/promises'
+import {readFile,writeFile,mkdir,stat,access} from 'node:fs/promises'
 import {resolve,join} from 'node:path'
 import {execFileSync} from 'node:child_process'
 const flags=Object.fromEntries(process.argv.slice(2).reduce<string[][]>((a,v,i,all)=>i%2?a:[...a,[v.replace(/^--/,''),all[i+1]]],[]))
@@ -54,6 +54,14 @@ try{
  const binding={...persona,name:chat.profile.displayName||'Belle',examples:chat.profile.examples.length?[]:persona.examples.slice(0,4),chatProfile:chat.profile}
  messages=[{role:'system',content:policy+'\n캐릭터 자료:\n'+JSON.stringify(binding)+'\n사용자가 명시적으로 저장한 사실(현재 대화와 구분):\n[]'}]
  report.personaSha256=await hashFile(join(flags.character,'persona.json'));report.memoryBefore=memory()
+ if(flags.mode==='completed-live'){
+  await phase('LOAD_GEMMA_12B');await runtime.start(flags.model);report.llmPid=(runtime as any).current.child.pid
+  const reply=await llm('completed-live-reply');if(!reply)throw Error('LLM reply failed')
+  await writeFile(join(out,'reply.txt'),reply.text);await phase('COMPLETED_REPLY_LLM_RESIDENT_IDLE')
+  const until=now()+90000;let reviewed=false
+  while(now()<until){try{await access(join(out,'review-done'));reviewed=true;break}catch{}await new Promise(r=>setTimeout(r,250))}
+  report.browserReviewSignalled=reviewed;report.llmSlotsAfterReview=await runtime.api('/slots')
+ }else{
  await phase('TTS_ONLY');await tts('tts-only-warmup',fixed[0]);for(let i=0;i<2;i++)await tts('tts-only-'+i,fixed[i])
  await phase('LOAD_GEMMA_12B');const load=now();await runtime.start(flags.model);report.llmLoadSeconds=(now()-load)/1000;report.llmProps=await runtime.api('/props');report.llmPid=(runtime as any).current.child.pid
  await phase('LLM_WARMUP');await llm('llm-warmup');
@@ -63,6 +71,7 @@ try{
  await phase('COMPLETED_REPLY_THEN_TTS');const reply=await llm('completed-reply');if(reply){for(const s of speechSegments(reply.text).slice(0,2))await tts('reply-segment-'+s.index,s.text)}
  const hold=Number(flags.hold||0)
  if(hold>0){await phase('LIVE_BROWSER_CONCURRENT_READY');const until=now()+Math.min(hold,90)*1000;while(now()<until)await llm('browser-live-overlap');}
+ }
  report.memoryAfter=memory();await writeFile(join(out,'llm-runtime.log'),(runtime as any).current?.log||'')
  report.status='PASS_MEASUREMENT_ONLY';await phase('MEASUREMENTS_COMPLETE')
 }catch(e){report.status='FAIL';report.error=String(e);console.error(e);await save();process.exitCode=1}
