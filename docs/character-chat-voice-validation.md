@@ -40,6 +40,23 @@ requirements, cache fingerprinting and tail-credit ordering. The existing Python
 dependencies. F1–F5 tests remain intact. The final full TypeScript regression
 passed **2,063 tests, 0 failed, 74 skipped**, including both new race regressions.
 
+Source commit `6c152373d048f36060a5bcc41481c666f1507c17` passed
+[PR Verify run 36316602930](https://github.com/ddol2ya/DAEMONLET/actions/runs/36316602930):
+Windows and Ubuntu jobs both succeeded and each log records **14 Python voice
+tests actually executed**. GPU/compile/listening are not CI assertions.
+
+A separate final Windows candidate was rebuilt from that exact source commit.
+Native voice-only stop during automatic preparation terminated its owned worker
+in **351 ms**, with no audio emitted. Explicit reread then loaded a fresh session
+and played **30/30 new chunks** (cold first playback 45.615 s). Warm reread played
+another **30/30 chunks**, first chunk 138.7 ms and first scheduled playback **389 ms**,
+before sentence completion; both runs had zero measured scheduling gaps.
+The warm stream's elapsed RTF was 1.038 including 2.213 s producer pacing, versus
+0.577 after subtracting that wait. Native normal Exit then removed all owned
+app/worker processes and windows; transient audio files were zero, worker stop
+331 ms. This final smoke confirms the last Main changes; the broader native
+matrix and fixed-text GPU benchmark above remain separately identified.
+
 Typecheck, source check, renderer/Electron production build, Windows packaging
 and `release:verify` passed. The measured package had 230 app.asar entries, no
 weights/reference WAV/site-packages/private runtime paths, and matching external

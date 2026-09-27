@@ -205,10 +205,10 @@ count, app window count and transient audio file count were all zero afterward.
 
 - PASS: actual selected-adapter CUDA loading, compiled execution of all four
   components, incremental synthesis, the measured native software-playback cases.
-- PASS: full TypeScript regression (2,060 passed, 74 skipped, 0 failed), Python
+- PASS: final full TypeScript regression (2,063 passed, 74 skipped, 0 failed), Python
   voice tests (14 passed), typecheck, source check and Windows production package.
-  Later review added prefetched-stream/hide, old-session rejection and explicit
-  preparation-stop regressions; final counts are in the verification report.
+  Includes prefetched-stream/hide, old-session rejection and explicit preparation
+  stop regressions. Both CI jobs executed the 14 Python tests on source `6c15237`.
 - NOT_TESTED: physical listening, loopback capture, phoneme/word completeness,
   long soak, missing-device UI, signed installer/distribution and relocated runtime.
 - BLOCKED_MISSING_ASSETS: 12B coexistence and a second external character voice.
@@ -226,3 +226,9 @@ worker audit. The final engine/worker bytes were unchanged after the measurement
 two late cancellation guards changed Main only. The full native matrix above
 preceded those guards; final candidate smoke is identified separately in the
 verification report. No historical result is presented as an unperformed rerun.
+
+Final source `6c15237` native smoke additionally verified preparation cancellation,
+fresh recovery and warm reread (389 ms first scheduled playback, 30/30 chunks,
+zero scheduling gaps), followed by normal exit with no owned processes/windows
+or transient audio files. Details and the successful CI run are in the verification
+report. Physical listening remains NOT_TESTED.
