@@ -1,5 +1,8 @@
 # Character voice performance
 
+This performance report predates [R2 active-stream cancellation](character-chat-voice-cancellation.md);
+its active-cancel kill/reload measurements are historical.
+
 This work continues PR #28 from `3575104`, preserving the F1–F5 stabilization.
 The adopted voice remains `belle_candidates_6000 / 0.5.0-selected-6000-e2 /
 step_0002660`. Original model, adapter, reference, training environment and the

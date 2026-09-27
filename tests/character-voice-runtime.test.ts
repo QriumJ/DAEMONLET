@@ -67,3 +67,11 @@ it.each(['cancel-timeout','cancel-wrong','cancel-crash'])('R2 %s falls back to o
  expect(await old).toBe(mode==='cancel-wrong'?'VOICE_PROTOCOL':mode==='cancel-crash'?'VOICE_WORKER_EXIT':'VOICE_CANCELLED')
  await w.start(root,'x');expect(w.sessionId).not.toBe(oldSession);expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)
 })
+it.each(['initialization','baseline'])('R2 %s keeps owned-process termination fallback',async mode=>{
+ const {w,root}=await worker()
+ if(mode==='baseline')await w.start(root,'x')
+ const pending=(mode==='baseline'?w.synthesize('hang',binding(w),0):w.start(root,'x')).catch(e=>e.message)
+ const result=await w.cancelSpeech()
+ expect(result.keptWarm).toBe(false);expect(result.fallback).toBe('non-streaming');expect(await pending).toBe('VOICE_CANCELLED');expect(w.running).toBe(false)
+ await w.start(root,'x');expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)
+})

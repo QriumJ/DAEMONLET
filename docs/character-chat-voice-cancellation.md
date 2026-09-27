@@ -43,8 +43,8 @@ controls, current-stream errors, terminal races, timeout/wrong-ack/crash fallbac
 unload during pending cancellation, generator-thread ownership, discarded
 post-next audio, bounded input, VAE/KV cleanup, cleanup failure and startup order.
 
-The Windows full suite passed 2,079 tests (74 skipped, zero failed). Targeted
-runtime/service ownership tests passed 32; typecheck and 22 standard-library
+The Windows full suite passed 2,081 tests (74 skipped, zero failed). Targeted
+runtime/service ownership tests passed 34; typecheck and 22 standard-library
 Python voice tests passed. Both Windows and Ubuntu CI run the Python suite;
 these synthetic regressions do not establish CUDA or physical playback.
 
@@ -69,7 +69,40 @@ The whole-WAV baseline was not rerun. Cold preparation still costs about
 43.1 seconds; R2 avoids that cost only for successful active-stream
 cooperative cancellation.
 
-Packaged native app verification is pending at this implementation checkpoint.
+The `1980bad` production candidate had matching clean renderer/Main source stamps;
+build, release structure checks and packaging passed, including `control.py`.
+Native actions used the existing isolated QA profile and actual GPU synthesis:
+
+| Native case | Observed software result |
+|---|---|
+| First prepared long read | First scheduled audio 1,077 ms; preserved as a cold-output observation |
+| Active voice-only stop | Renderer stop acknowledgement 2 ms; worker cleanup 4 ms at credit wait |
+| Next short reread | Same PID/session; first scheduled audio 421 ms; 30/30 chunks ended |
+| Direct reread while speaking | Same PID/session; cleanup 10 ms at chunk boundary; new first audio 409 ms; 30/30 ended |
+| Later warm long reads | First scheduled audio 391 / 393 ms |
+| Sentence scheduling | Maximum observed gap 0 ms, including transitions in the interrupted long reads |
+| Close chat while speaking | Owned worker exited in 486 ms; zero transient audio files; no later old playback scheduling |
+
+R1's historical active-stop recovery was **45.593 seconds** including model reload.
+The R2 421 / 409 ms values are measured from the new read action to scheduled audio,
+not from the earlier stop click and not acoustic loopback. Stopped sources lack
+normal end acknowledgements by design; they did not reappear in later epochs.
+
+The first CI attempt failed because `soundfile` was imported before the CUDA
+unsupported-device guard. Commit `cd717fd` moves that import after the guard;
+the no-CUDA test now explicitly makes `soundfile` unavailable. No dependency was
+added to CI. All 22 Python tests pass locally with this stricter condition.
+The final candidate was rebuilt from `cd717fd` with matching clean source stamps.
+A second native run confirmed same-PID/session cancellation (83 ms at a chunk
+boundary), next scheduled audio **385 ms**, and **30/30** recovery chunks ended.
+Its first prepared output was 1,111 ms. Normal app Exit stopped the warm worker
+in **319 ms**; the recorded owned process list, candidate windows and transient
+voice files were all empty afterward. The candidate is subsequently reopened
+and prepared for handoff; that intentional warm process is not a shutdown leak.
+
+Application HEAD `cd717fd` passed both [Windows and Ubuntu PR CI](https://github.com/ddol2ya/DAEMONLET/actions/runs/36326181729).
+Later changes add two explicit initialization/baseline fallback tests and update
+this evidence only; the packaged application source remains `cd717fd`.
 
 ## Reproduction
 
