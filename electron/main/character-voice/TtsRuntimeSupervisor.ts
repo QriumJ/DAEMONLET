@@ -2,9 +2,11 @@ import {spawn,type ChildProcessWithoutNullStreams,type SpawnOptionsWithoutStdio}
 import {randomUUID} from 'node:crypto'
 import {join,isAbsolute} from 'node:path'
 import {mkdir,mkdtemp,readFile,lstat,rm} from 'node:fs/promises'
-import type {SpeechBinding} from '../../shared/character-voice-contract'
+import type {SpeechBinding,ExecutionProfile} from '../../shared/character-voice-contract'
 
-export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:'baseline'|'cached'|'compiled';compilerCache?:string}
+import {verifyMacInterpreter} from './VoiceRuntimeProfile'
+
+export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string}
 export type SpawnWorker=(command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams
 export type AudioResult={audioId:string;bytes:Uint8Array;durationMs:number;generationMs:number;rtf:number;peakAllocatedBytes?:number;peakReservedBytes?:number}
 export type AudioChunk=AudioResult & {synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number;firstChunkReadyMs:number}
@@ -82,6 +84,7 @@ export class TtsRuntimeSupervisor {
  }
  private async launch(packagePath:string,fingerprint:string,revision:number) {
   for(const p of [this.config.python,this.config.model,this.config.worker,this.config.cacheRoot])if(!isAbsolute(p))throw Error('VOICE_RUNTIME_CONFIG')
+  if(this.config.executionProfile?.startsWith('mps-'))await verifyMacInterpreter(this.config.python)
   await mkdir(this.config.cacheRoot,{recursive:true});const cache=await mkdtemp(join(this.config.cacheRoot,'session-'))
   if(revision!==this.revision){await rm(cache,{recursive:true,force:true});throw Error('VOICE_CANCELLED')}
   this.cache=cache;this.sessionId=randomUUID()
@@ -175,6 +178,7 @@ export class TtsRuntimeSupervisor {
   this.retireSpeech()
   ++this.revision
   if(this.ending)return this.ending
+  const wasBusy=!!this.pending||!!this.starting
   this.fail(Error('VOICE_CANCELLED'));this.key=''
   const child=this.child,exited=this.exit,cache=this.cache
   const task=(async()=>{
@@ -186,6 +190,12 @@ export class TtsRuntimeSupervisor {
       killer.once('error',()=>reject(Error('VOICE_WORKER_STOP')))
       killer.once('exit',code=>{if(code===0||child.exitCode!==null)resolve();else reject(Error('VOICE_WORKER_STOP'))})
      })
+    }else if(process.platform==='darwin'){
+     // Ignore only this retiring worker's protocol. Keep draining its pipe.
+     child.stdout.removeAllListeners('data');child.stdout.resume()
+     const wait=async(ms:number)=>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([exited.then(()=>true),new Promise<false>(resolve=>{timer=setTimeout(()=>resolve(false),ms)})])}finally{clearTimeout(timer)}}
+     if(!wasBusy&&!child.stdin.destroyed){child.stdin.end(JSON.stringify({protocolVersion:1,type:'shutdown',requestId:randomUUID()})+'\n');await wait(500)}
+     if(child.exitCode===null&&child.signalCode==null){child.kill('SIGTERM');if(!await wait(1500)){child.kill('SIGKILL');if(!await wait(2000))throw Error('VOICE_WORKER_STOP_TIMEOUT')}}
     }else child.kill()
     let timer:ReturnType<typeof setTimeout>|undefined
     try{await Promise.race([exited,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('VOICE_WORKER_STOP_TIMEOUT')),5000)})])}finally{if(timer)clearTimeout(timer)}

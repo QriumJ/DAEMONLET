@@ -21,8 +21,8 @@ The original usage notes and licensing are preserved. Nothing is uploaded.
 
 ## Independent runtime setup
 
-Only Windows CUDA with BF16 is implemented in v1. Mac/MPS/MLX are not supported
-by this worker; existing Mac text chat remains usable. No automatic fallback or
+Windows CUDA/BF16 retains its original runtime contract. Native Apple Silicon
+MPS/FP32 is now experimental; see [Mac setup and measured limitations](character-chat-voice-macos.md). MLX is not enabled. No automatic fallback or
 model download occurs. The base model must already exist locally with its pinned
 `snapshot-provenance.json`; all listed files are hashed at worker initialization.
 

@@ -60,7 +60,7 @@ export class VoiceIpcController {
    case 'snapshot':return
    case 'stop':return this.service.stop(true,false)
    case 'prepare':return this.service.prepare()
-   case 'executionProfile':if(!['baseline','cached','compiled'].includes(v.value))throw Error('VOICE_ACTION');return this.service.executionProfile(v.value)
+   case 'executionProfile':if(!this.service.snapshot().availableProfiles?.includes(v.value))throw Error('VOICE_ACTION');return this.service.executionProfile(v.value)
    case 'enabled':case 'auto':if(typeof v.value!=='boolean')throw Error('VOICE_ACTION');return v.type==='enabled'?this.service.enabled(v.value):this.service.auto(v.value)
    case 'volume':if(!Number.isFinite(v.value)||v.value<0||v.value>1)throw Error('VOICE_ACTION');return this.service.volume(v.value)
    case 'bind':if(!character||v.profile!==null&&(typeof v.profile!=='string'||v.profile.length>170))throw Error('VOICE_ACTION');return this.service.bind(character.id,v.profile)
@@ -79,7 +79,7 @@ export class VoiceIpcController {
       const r=await dialog.showOpenDialog(win,{title:'채택된 음성 패키지 폴더 가져오기',properties:['openDirectory']})
       if(current()&&!r.canceled&&r.filePaths[0])await this.service.importPackage(r.filePaths[0])
      }else{
-      const python=await dialog.showOpenDialog(win,{title:'독립 TTS 환경의 Python 선택',properties:['openFile']})
+      const python=await dialog.showOpenDialog(win,{title:'독립 TTS 환경의 Python 선택',properties:process.platform==='darwin'?['openFile','noResolveAliases']:['openFile']})
       if(!current()||python.canceled||!python.filePaths[0])return
       const model=await dialog.showOpenDialog(win,{title:'고정 VoxCPM2 로컬 모델 폴더 선택',properties:['openDirectory']})
       if(current()&&!model.canceled&&model.filePaths[0])await this.service.configure(python.filePaths[0],model.filePaths[0])

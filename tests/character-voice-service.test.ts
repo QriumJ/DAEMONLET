@@ -39,7 +39,7 @@ async function fixture(){const root=await mkdtemp(join(tmpdir(),'voice-service-'
  const cancelSpeech=vi.fn(async()=>{await runtime.stop();return {keptWarm:false,elapsedMs:0}});Object.assign(runtime,{cancelSpeech})
  const events:VoiceEvent[]=[]
  const service=new CharacterVoiceService(root,'/worker',()=>chat,()=>{},e=>events.push(e),()=>runtime as unknown as TtsRuntimeSupervisor);services.push(service)
- await service.initialize();await service.configure('/python','/model');await service.enabled(true)
+ await service.initialize();(service as any).state.executionProfile='baseline';await service.configure('/python','/model');await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',name:'Synthetic',fingerprint:'fingerprint',adapterSha256:'adapter'}]
  await service.bind('actual-id','voice@1')
  service.setOutputReady(true);service.requestStarted(message.binding!.requestId)

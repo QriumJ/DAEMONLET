@@ -13,6 +13,7 @@ import time
 import wave
 import uuid
 from control import Inbox, StreamControl, StreamCancelled, stream_target, read_request
+from backend import WorkerError, CudaDevice, MpsDevice, select_backend
 
 PROTOCOL = sys.stdout
 MODEL = "openbmb/VoxCPM2"
@@ -52,12 +53,8 @@ def inside(root, name):
     return target
 
 
-class WorkerError(Exception):
-    """Expected public errors; never transmit arbitrary exception messages."""
-
-
 PUBLIC_ERRORS = {
-    "UNSUPPORTED_DEVICE", "JSON_LIMIT", "PATH", "LINK", "SELECTION_MISMATCH",
+    "RUNTIME_POLICY", "RUNTIME_TENSORS", "RUNTIME_RECEIPT", "UNSUPPORTED_DEVICE", "JSON_LIMIT", "PATH", "LINK", "SELECTION_MISMATCH",
     "PACKAGE_CHANGED", "MODEL_REVISION", "MODEL_MANIFEST", "MODEL_CHANGED",
     "RUNTIME_SOURCE", "RUNTIME_VERSION", "RUNTIME_SOURCE_CHANGED", "ADAPTER_MISMATCH",
     "LORA_TENSORS", "LORA_INCOMPLETE", "UNSUPPORTED_STYLE", "SYNTHESIS_INPUT",
@@ -70,26 +67,14 @@ def error_code(error):
     if isinstance(error, (WorkerError, ValueError)) and str(error) in PUBLIC_ERRORS:
         return str(error)
     if "out of memory" in str(error).lower():
-        return "CUDA_OOM"
+        return "MPS_OOM" if "mps" in str(error).lower() else "CUDA_OOM"
     return "TTS_FAILED"
-
-
-class CudaDevice:
-    @staticmethod
-    def require(torch):
-        CudaDevice.require_platform()
-        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
-            raise WorkerError("UNSUPPORTED_DEVICE")
-
-    @staticmethod
-    def require_platform():
-        if sys.platform != "win32":
-            raise WorkerError("UNSUPPORTED_DEVICE")
 
 
 class Worker:
     def initialize(self, request):
-        CudaDevice.require_platform()
+        profile = request.get("executionProfile", "baseline")
+        self.backend = select_backend(profile)
         started = time.perf_counter()
         phases = {}
         phase = started
@@ -100,7 +85,7 @@ class Worker:
                           HF_HOME=str(self.cache / "hf"), TORCH_HOME=str(self.cache / "torch"),
                           NUMBA_CACHE_DIR=str(self.cache / "numba"), PYTHONDONTWRITEBYTECODE="1")
         import torch
-        CudaDevice.require(torch)
+        self.backend.require(torch)
         import soundfile
         phases['torchImportMs'] = (time.perf_counter()-phase)*1000
         phase = time.perf_counter()
@@ -130,15 +115,19 @@ class Worker:
         receipt = read_json(Path(sys.prefix) / "voice-runtime.json")
         if receipt["source_commit"] != SOURCE:
             raise ValueError("RUNTIME_SOURCE")
-        for name, expected in self.voice["engine"]["runtime"].items():
-            if importlib.metadata.version(name) != expected:
-                raise ValueError("RUNTIME_VERSION")
+        if self.backend is MpsDevice:
+            from macos_runtime import verify_runtime
+            verify_runtime(receipt)
+        else:
+            for name, expected in self.voice["engine"]["runtime"].items():
+                if importlib.metadata.version(name) != expected:
+                    raise ValueError("RUNTIME_VERSION")
         from engine import Engine, runtime_fingerprint, PROFILES
         profile = request.get('executionProfile', 'baseline')
         if profile not in PROFILES:
             raise ValueError('EXECUTION_PROFILE')
         self.reference = inside(package, self.voice['reference'])
-        identity = dict(model=REVISION, source=SOURCE, adapter=ADAPTER, package=CHECKSUMS, reference=sha(self.reference), device=torch.cuda.get_device_name(), capability=torch.cuda.get_device_capability(), dtype='bfloat16', python=sys.version, engine=sha(Path(__file__).with_name('engine.py')))
+        identity = dict(model=REVISION, source=SOURCE, adapter=ADAPTER, package=CHECKSUMS, reference=sha(self.reference), **self.backend.identity(torch), python=sys.version, engine=sha(Path(__file__).with_name('engine.py')))
         fingerprint = runtime_fingerprint(profile, identity)
         if profile == 'compiled':
             compiler = Path(request['compilerCache']) / fingerprint
@@ -158,14 +147,15 @@ class Worker:
         if sha(lora / "lora_weights.safetensors") != ADAPTER:
             raise ValueError("ADAPTER_MISMATCH")
         config = read_json(lora / "lora_config.json")
-        self.model = VoxCPM.from_pretrained(str(base), device="cuda", optimize=False, load_denoiser=False,
+        self.model = VoxCPM.from_pretrained(str(base), device=self.backend.device, optimize=False, load_denoiser=False,
                                           local_files_only=True, lora_config=LoRAConfig(**config["lora_config"]))
-        torch.cuda.synchronize()
+        self.backend.synchronize(torch)
         phases['modelLoadMs'] = (time.perf_counter()-phase)*1000
         phase = time.perf_counter()
         tensors = load_file(str(lora / "lora_weights.safetensors"))
-        expected = {k for k, _ in self.model.tts_model.named_parameters() if "lora_" in k}
-        if len(tensors) != 384 or set(tensors) != expected or not all(torch.isfinite(v).all().item() for v in tensors.values()):
+        parameters = dict(self.model.tts_model.named_parameters())
+        expected = {k for k in parameters if "lora_" in k}
+        if len(tensors) != 384 or set(tensors) != expected or not all(v.shape == parameters[k].shape and torch.isfinite(v).all().item() for k, v in tensors.items()):
             raise ValueError("LORA_TENSORS")
         loaded, skipped = self.model.tts_model.load_lora_weights(str(lora))
         if skipped or expected != set(loaded):
@@ -173,14 +163,15 @@ class Worker:
         self.reference = inside(package, self.voice["reference"])
         self.settings = {k: self.voice["inference"][k] for k in ("cfg_value", "inference_timesteps", "normalize", "denoise", "retry_badcase", "max_len", "seed")}
         self.model.tts_model.eval()
-        torch.cuda.synchronize()
+        self.backend.synchronize(torch)
         phases['adapterAuditLoadMs'] = (time.perf_counter()-phase)*1000
-        self.engine = Engine(self.model, self.reference, self.settings, profile)
+        self.engine = Engine(self.model, self.reference, self.settings, profile, self.backend)
+        tensor_audit = self.backend.audit_model(self.model.tts_model, torch) if self.backend is MpsDevice else {}
         self.engine.prepare()
         if request.get('warmup', True):
             self.engine.warmup()
         self.vae_forwards = [(mod, mod.forward) for mod in self.model.tts_model.audio_vae.decoder.modules()]
-        return dict(workerPid=os.getpid(), loadMs=(time.perf_counter()-started)*1000, loadedKeys=len(loaded), adapterSha256=ADAPTER,
+        return dict(workerPid=os.getpid(), loadMs=(time.perf_counter()-started)*1000, loadedKeys=len(loaded), skippedKeys=len(skipped), missingKeys=len(expected-set(loaded)), tensorAudit=tensor_audit, backend=self.backend.device, dtype=self.backend.dtype, adapterSha256=ADAPTER,
                     modelRevision=REVISION, sourceCommit=SOURCE, referenceSha256=sha(self.reference), executionProfile=profile, runtimeFingerprint=fingerprint, phases=phases, compileWarningsCaptured=False, referenceCacheBuilds=self.engine.cache_builds, firstInferenceAfterCompileMs=self.engine.audit.get('warmupMs') if profile == 'compiled' else None, **self.engine.audit)
 
     def synthesize(self, request):
@@ -193,12 +184,12 @@ class Worker:
         audio_id = request["audioId"]
         if not isinstance(text, str) or not text.strip() or len(text) > 400 or not re.fullmatch(r"[a-f0-9-]{36}", audio_id):
             raise ValueError("SYNTHESIS_INPUT")
-        torch.cuda.synchronize()
-        torch.cuda.reset_peak_memory_stats()
+        self.backend.synchronize(torch)
+        self.backend.begin_measurement(torch)
         start = time.perf_counter()
         with contextlib.closing(self.engine.generate(text)) as generated:
             audio = next(generated)
-        torch.cuda.synchronize()
+        self.backend.synchronize(torch)
         elapsed = (time.perf_counter()-start)*1000
         audio = np.asarray(audio)
         sr = int(self.model.tts_model.sample_rate)
@@ -214,7 +205,7 @@ class Worker:
         duration = len(audio) / sr * 1000
         return dict(audioId=audio_id, binding=request["binding"], segmentIndex=request["segmentIndex"],
                     sampleRate=sr, durationMs=duration, generationMs=elapsed, rtf=elapsed/duration,
-                    peakAllocatedBytes=torch.cuda.max_memory_allocated(), peakReservedBytes=torch.cuda.max_memory_reserved())
+                    **self.backend.memory(torch))
 
     def stream(self, request, credit):
         import numpy as np
@@ -226,7 +217,7 @@ class Worker:
         if request.get('streamVersion') != 1 or not isinstance(text, str) or not text.strip() or len(text) > 400 or request.get('style') is not None:
             raise ValueError('SYNTHESIS_INPUT')
         start = time.perf_counter()
-        torch.cuda.reset_peak_memory_stats()
+        self.backend.begin_measurement(torch)
         total = chunks = 0
         peak = blocked = 0
         first = onset = None
@@ -262,11 +253,11 @@ class Worker:
                 emit('audio-chunk', request['requestId'], audioId=audio_id, binding=request['binding'], synthesisId=request['synthesisId'], segmentIndex=request['segmentIndex'], chunkIndex=chunks, sampleOffset=total, sampleCount=int(audio.size), sampleRate=48000, firstChunkReadyMs=first)
                 total += audio.size
                 chunks += 1
-        torch.cuda.synchronize()
+        self.backend.synchronize(torch)
         if peak < 1e-7 or not total:
             raise ValueError('INVALID_WAVEFORM')
         elapsed = (time.perf_counter()-start)*1000
-        return dict(synthesisId=request['synthesisId'], totalSamples=total, totalChunks=chunks, firstChunkReadyMs=first, firstSignalChunkReadyMs=onset, generationMs=elapsed, producerBlockedMs=blocked, rtf=elapsed/(total/48), peakAllocatedBytes=torch.cuda.max_memory_allocated(), peakReservedBytes=torch.cuda.max_memory_reserved())
+        return dict(synthesisId=request['synthesisId'], totalSamples=total, totalChunks=chunks, firstChunkReadyMs=first, firstSignalChunkReadyMs=onset, generationMs=elapsed, producerBlockedMs=blocked, rtf=elapsed/(total/48), **self.backend.memory(torch))
 
     def reuse_audit(self):
         return dict(referenceCacheBuilds=self.engine.cache_builds, compileCounts=self.engine.compile_counts)
@@ -283,7 +274,7 @@ class Worker:
             for lm in (self.model.tts_model.base_lm, self.model.tts_model.residual_lm):
                 lm.kv_cache.kv_cache.zero_()
                 lm.kv_cache.current_length = 0
-        torch.cuda.synchronize()
+        self.backend.synchronize(torch)
         for path in getattr(self, 'stream_files', []):
             path.unlink(missing_ok=True)
         self.stream_files = []

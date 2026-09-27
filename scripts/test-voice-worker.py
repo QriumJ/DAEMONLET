@@ -12,6 +12,7 @@ from unittest.mock import patch
 WORKER = Path(__file__).resolve().parents[1] / "electron/voice/worker.py"
 sys.path.insert(0, str(WORKER.parent))
 from engine import Engine, runtime_fingerprint
+from backend import CudaDevice, MpsDevice, select_backend
 from control import Inbox, StreamControl, StreamCancelled
 
 
@@ -242,6 +243,7 @@ class CacheTests(unittest.TestCase):
         sf = SimpleNamespace(write=lambda path, *args, **kwargs: path.touch())
         with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'numpy': np, 'torch': SimpleNamespace(cuda=cuda), 'soundfile': sf}):
             worker = module['Worker']()
+            worker.backend = CudaDevice
             worker.cache = Path(cache)
             worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
             worker.engine = SimpleNamespace(generate=lambda *a, **k: iter_chunks())
@@ -316,6 +318,7 @@ class CancellationTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'numpy': SimpleNamespace(asarray=lambda a: a), 'soundfile': SimpleNamespace(), 'torch': SimpleNamespace(cuda=SimpleNamespace(reset_peak_memory_stats=lambda: None))}):
                 worker = module['Worker']()
+                worker.backend = CudaDevice
                 worker.cache = Path(cache)
                 worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
                 worker.engine = SimpleNamespace(generate=generate)
@@ -343,6 +346,7 @@ class CancellationTests(unittest.TestCase):
         torch = SimpleNamespace(inference_mode=contextlib.nullcontext, cuda=SimpleNamespace(synchronize=lambda: events.append('sync')))
         with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'torch': torch}):
             worker = module['Worker']()
+            worker.backend = CudaDevice
             worker.model = SimpleNamespace(tts_model=SimpleNamespace(base_lm=SimpleNamespace(kv_cache=caches[0]), residual_lm=SimpleNamespace(kv_cache=caches[1])))
             worker.engine = SimpleNamespace(cache=reference)
             worker.vae_forwards = [(mod, mod.forward)]
@@ -369,6 +373,78 @@ class CancellationTests(unittest.TestCase):
                 StreamControl(inbox, request, lambda _: False)(3)
         finally:
             inbox.close()
+
+
+class MpsTests(unittest.TestCase):
+    def test_platform_arch_profile_and_override_matrix(self):
+        import os
+        for host, arch, profile, good in [
+            ('darwin','arm64','mps-fp32',True), ('darwin','arm64','mps-fp32-baseline',True),
+            ('darwin','x86_64','mps-fp32',False), ('win32','AMD64','mps-fp32',False),
+            ('darwin','arm64','compiled',False), ('linux','aarch64','mps-fp32',False),
+            ('win32','AMD64','compiled',True), ('win32','AMD64','cached',True),
+        ]:
+            with self.subTest(host=host,arch=arch,profile=profile), patch('sys.platform',host), patch('platform.machine',lambda:arch), patch.dict(os.environ,{},clear=True):
+                if good:
+                    self.assertEqual(select_backend(profile).device,'mps' if host=='darwin' else 'cuda')
+                else:
+                    with self.assertRaisesRegex(Exception,'UNSUPPORTED_DEVICE'):
+                        select_backend(profile)
+        for key,value in [('VOXCPM_MPS_DTYPE','bf16'),('VOXCPM_MPS_DTYPE','fp16'),('PYTORCH_ENABLE_MPS_FALLBACK','1')]:
+            with patch('sys.platform','darwin'), patch('platform.machine',lambda:'arm64'), patch.dict(os.environ,{key:value},clear=True):
+                with self.assertRaisesRegex(Exception,'RUNTIME_POLICY'):
+                    select_backend('mps-fp32')
+
+    def test_mps_availability_and_memory_never_use_cuda(self):
+        calls=[]
+        class Forbidden:
+            def __getattr__(self,name):
+                raise AssertionError('CUDA touched on MPS: '+name)
+        fake=SimpleNamespace(cuda=Forbidden(),backends=SimpleNamespace(mps=SimpleNamespace(is_built=lambda:True,is_available=lambda:True)),mps=SimpleNamespace(synchronize=lambda:calls.append('mps-sync'),current_allocated_memory=lambda:123,driver_allocated_memory=lambda:456))
+        with patch('sys.platform','darwin'),patch('platform.machine',lambda:'arm64'),patch.dict('os.environ',{},clear=True):
+            MpsDevice.require(fake)
+            MpsDevice.synchronize(fake)
+            MpsDevice.begin_measurement(fake)
+            self.assertEqual(MpsDevice.memory(fake),dict(mpsCurrentAllocatedBytes=123,mpsDriverAllocatedBytes=456))
+            fake.backends.mps.is_available=lambda:False
+            with self.assertRaisesRegex(Exception,'UNSUPPORTED_DEVICE'):
+                MpsDevice.require(fake)
+        self.assertEqual(calls,['mps-sync'])
+
+    def test_mps_cached_engine_uses_mps_sync_and_no_compile(self):
+        engine,calls,tts,_=CacheTests().engine('mps-fp32')
+        engine.backend=MpsDevice
+        sync=[]
+        with patch.dict('sys.modules',{'torch':SimpleNamespace(mps=SimpleNamespace(synchronize=lambda:sync.append('mps')))}):
+            engine.prepare();engine.warmup()
+        self.assertEqual(sync,['mps','mps'])
+        self.assertEqual(engine.cache_builds,1)
+        self.assertEqual(engine.compile_counts,{})
+        self.assertFalse(engine.audit['compileRequested'])
+
+    def test_mps_dtype_audit_and_oom_classification(self):
+        tensor=SimpleNamespace(device=SimpleNamespace(type='mps'),dtype='fp32',is_floating_point=lambda:True)
+        model=SimpleNamespace(parameters=lambda:[tensor])
+        self.assertEqual(MpsDevice.audit_model(model,SimpleNamespace(float32='fp32'))['effectiveDevice'],'mps')
+        tensor.dtype='bf16'
+        with self.assertRaisesRegex(Exception,'RUNTIME_TENSORS'):
+            MpsDevice.audit_model(model,SimpleNamespace(float32='fp32'))
+        module=runpy.run_path(str(WORKER))
+        self.assertEqual(module['error_code'](RuntimeError('MPS backend out of memory')),'MPS_OOM')
+
+    def test_mac_receipt_rejects_tampering_without_relaxing_windows_provenance(self):
+        import macos_runtime as runtime
+        expected=runtime.policy()
+        receipt=dict(schemaVersion=2,profile=expected['id'],policy_sha256='policy',lock_sha256=expected['lock_sha256'],source_commit=expected['source_commit'],source_files=expected['source_files'],dependencies=expected['dependencies'],interpreter=str(Path(sys.executable).resolve()),interpreter_sha256='exe',prefix=str(Path(sys.prefix).resolve()))
+        with patch('sys.platform','darwin'),patch('platform.machine',lambda:'arm64'),patch('platform.python_version',lambda:expected['python']),patch.object(runtime,'sha',lambda p:'policy' if p.name=='runtime-macos.json' else 'exe'):
+            broken=dict(receipt,lock_sha256='modified')
+            with self.assertRaisesRegex(ValueError,'RUNTIME_RECEIPT'):runtime.verify_runtime(broken)
+            broken=dict(receipt,source_files={})
+            with self.assertRaisesRegex(ValueError,'RUNTIME_SOURCE'):runtime.verify_runtime(broken)
+            broken=dict(receipt,interpreter='/other/python')
+            with self.assertRaisesRegex(ValueError,'RUNTIME_RECEIPT'):runtime.verify_runtime(broken)
+            with patch.object(runtime.metadata,'version',lambda name:'unexpected'):
+                with self.assertRaisesRegex(ValueError,'RUNTIME_VERSION'):runtime.verify_runtime(receipt)
 
 if __name__ == "__main__":
     unittest.main()

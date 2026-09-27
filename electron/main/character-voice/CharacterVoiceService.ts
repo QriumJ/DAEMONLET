@@ -2,13 +2,14 @@ import {mkdir,readdir,readFile,rm,writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {randomUUID} from 'node:crypto'
 import type {ChatMessage,LocalChatSnapshot} from '../../shared/character-chat-contract'
-import {speechSegments,type SpeechBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
+import {speechSegments,isStreamingProfile,voiceCapabilities,type SpeechBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
 import {importVoicePackage,profileKey,SELECTED_VOICE,verifyVoicePackage} from './VoicePackage'
 import {TtsRuntimeSupervisor,type TtsConfig,type AudioChunk} from './TtsRuntimeSupervisor'
+import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 import {replaceFile} from '../character-chat/replaceFile'
 
 export class CharacterVoiceService {
- private state:VoiceSnapshot={epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false}
+ private state:VoiceSnapshot={epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'mps-fp32-baseline':'baseline'}
  private config:{python:string;model:string}|null=null
  private runtime:TtsRuntimeSupervisor|null=null
  private serial:Promise<unknown>=Promise.resolve()
@@ -50,7 +51,9 @@ export class CharacterVoiceService {
     if(saved.version!==1||typeof saved.enabled!=='boolean'||typeof saved.autoRead!=='boolean'||!Number.isFinite(saved.volume)||saved.volume<0||saved.volume>1||!saved.bindings||typeof saved.bindings!=='object'||Array.isArray(saved.bindings))throw Error('VOICE_SETTINGS')
     this.pendingRemoval=new Set(Array.isArray(saved.pendingRemoval)?saved.pendingRemoval.filter((v:unknown)=>typeof v==='string'&&/^[a-z0-9_-]+@[a-zA-Z0-9._-]+$/.test(v)):[])
     this.state.enabled=saved.enabled;this.state.autoRead=saved.autoRead;this.state.volume=saved.volume
-    this.state.executionProfile=['baseline','cached','compiled'].includes(saved.executionProfile)?saved.executionProfile:'baseline'
+    const supported=this.state.availableProfiles||[], selected=saved.executionProfile||'baseline'
+    if(supported.includes(selected))this.state.executionProfile=selected
+    else {this.state.executionProfile=supported[0];this.state.enabled=false;this.state.error='VOICE_PLATFORM_PROFILE'}
     this.state.bindings=Object.fromEntries(Object.entries(saved.bindings).filter(([k,v])=>k.length<=80&&typeof v==='string'&&v.length<=170)) as Record<string,string>
     if(saved.runtime&&typeof saved.runtime.python==='string'&&typeof saved.runtime.model==='string'){this.config=saved.runtime;this.state.runtimeConfigured=true}
    }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw Error('VOICE_SETTINGS')}
@@ -72,7 +75,7 @@ export class CharacterVoiceService {
  private mutate(work:()=>Promise<void>){const task=this.serial.then(async()=>{if(this.disposed)return;const previous=this.snapshot(),config=this.config,removals=new Set(this.pendingRemoval);try{await work();await this.save();this.emit()}catch(e){this.state={...previous,epoch:this.state.epoch};this.config=config;this.pendingRemoval=removals;this.error(e)}});this.serial=task.catch(()=>{});return task}
  error(e:unknown){this.state.error=e instanceof Error&&/^[A-Z_]{1,80}$/.test(e.message)?e.message:'VOICE_ERROR';this.state.status='error';this.emit()}
  async importPackage(path:string){return this.mutate(async()=>{const p=await importVoicePackage(path,join(this.root,'profiles'),SELECTED_VOICE);if(!this.state.profiles.some(v=>profileKey(v)===profileKey(p.profile)))this.state.profiles.push(p.profile);this.pendingRemoval.delete(profileKey(p.profile));this.state.error=null})}
- configure(python:string,model:string){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
+ configure(python:string,model:string){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-'))await verifyMacInterpreter(python);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
  enabled(value:boolean){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.state.enabled=value;this.state.status=value?'idle':'off';this.state.error=null})}
  auto(value:boolean){return this.mutate(async()=>{this.state.autoRead=value})}
  volume(value:number){return this.mutate(async()=>{this.state.volume=value})}
@@ -81,7 +84,7 @@ export class CharacterVoiceService {
  prepare():Promise<void>{
   if(this.preparing)return this.preparing
   const profile=this.state.profiles.find(p=>profileKey(p)===this.state.bindings[this.chat().character?.id||''])
-  if(this.disposed||!this.outputReady||!this.state.enabled||!this.config||!profile||!this.state.executionProfile||this.state.executionProfile==='baseline'||this.currentSpeech)return Promise.resolve()
+  if(this.disposed||!this.outputReady||!this.state.enabled||!this.config||!profile||!isStreamingProfile(this.state.executionProfile)||this.currentSpeech)return Promise.resolve()
   const operation=this.operation,runtime=this.getRuntime()
   this.state.status='loading';this.emit()
   const task=runtime.start(join(this.root,'profiles',profileKey(profile)),profile.fingerprint+':'+this.state.executionProfile).then(()=>{
@@ -152,7 +155,7 @@ export class CharacterVoiceService {
    if(!current())return
    this.diagnose({type:'runtime-ready',at:Date.now(),session:runtime.sessionId,audit:runtime.audit})
    const binding:SpeechBinding={...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,runtimeSessionId:runtime.sessionId,executionProfile:this.state.executionProfile||'baseline'}
-   if(binding.executionProfile!=='baseline'){
+   if(isStreamingProfile(binding.executionProfile)){
     let previous=Promise.resolve()
     for(const segment of segments){
      if(!current())return
