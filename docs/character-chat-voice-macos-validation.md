@@ -102,7 +102,8 @@ inference dependencies independent.
   original base matrices with matching shapes. MLX tensor loading, conversion,
   synthesis, lazy-completion timing and cancellation: NOT_TESTED. No MLX success
   or reference-only LoRA claim. See the setup document for concrete contract gaps.
-- NOT_TESTED: physical 44.1/48kHz output switching, suspended AudioContext on real
+- NOT_TESTED: native hide/re-show and deliberate worker-crash recovery (covered
+  by logical tests only here), physical 44.1/48kHz output switching, suspended AudioContext on real
   hardware, system suspend/resume, long soak, second-character/12B combinations,
   signing/notarization/installer. Hardware swap was 2.72GiB in one late snapshot;
   no before/after baseline exists, so no swap-growth claim is made.
