@@ -76,7 +76,7 @@ export class VoiceIpcController {
     const current=()=>this.window()===win&&!win.isDestroyed()
     try{
      if(v.type==='import'){
-      const r=await dialog.showOpenDialog(win,{title:'채택된 음성 패키지 폴더 가져오기',properties:['openDirectory']})
+      const r=await dialog.showOpenDialog(win,{title:process.platform==='darwin'?'LoRA 음성 패키지 폴더 가져오기':'채택된 음성 패키지 폴더 가져오기',properties:['openDirectory']})
       if(current()&&!r.canceled&&r.filePaths[0])await this.service.importPackage(r.filePaths[0])
      }else{
       const python=await dialog.showOpenDialog(win,{title:'독립 TTS 환경의 Python 선택',properties:process.platform==='darwin'?['openFile','noResolveAliases']:['openFile']})

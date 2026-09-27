@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import sys
 import time
 import wave
@@ -54,6 +55,7 @@ def inside(root, name):
 
 
 PUBLIC_ERRORS = {
+    "GGUF_CONVERSION_FAILED", "GGUF_CACHE_CHANGED", "GGUF_DISK_SPACE",
     "RUNTIME_POLICY", "RUNTIME_TENSORS", "RUNTIME_RECEIPT", "UNSUPPORTED_DEVICE", "JSON_LIMIT", "PATH", "LINK", "SELECTION_MISMATCH",
     "PACKAGE_CHANGED", "MODEL_REVISION", "MODEL_MANIFEST", "MODEL_CHANGED",
     "RUNTIME_SOURCE", "RUNTIME_VERSION", "RUNTIME_SOURCE_CHANGED", "ADAPTER_MISMATCH",
@@ -311,8 +313,17 @@ def main():
                 if kind == 'init':
                     if worker:
                         raise ValueError('ALREADY_INITIALIZED')
-                    candidate = Worker()
-                    audit = candidate.initialize(request)
+                    if request.get('executionProfile') == 'gguf-metal-f16':
+                        from gguf_worker import GgufWorker
+                        candidate = GgufWorker(emit)
+                    else:
+                        candidate = Worker()
+                    try:
+                        audit = candidate.initialize(request)
+                    except BaseException:
+                        if hasattr(candidate, 'close'):
+                            candidate.close()
+                        raise
                     worker = candidate
                     # NumPy's Windows native import can block behind a reader's
                     # CRT stdin lock. Load/warm native dependencies before the
@@ -362,6 +373,8 @@ def main():
     finally:
         if inbox:
             inbox.close()
+        if worker and hasattr(worker, "close"):
+            worker.close()
 
 
 if __name__ == "__main__":
@@ -369,4 +382,8 @@ if __name__ == "__main__":
     # Redirect file descriptor 1 as well, retaining a dedicated protocol handle.
     PROTOCOL = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
     os.dup2(2, 1)
+    if sys.platform == "darwin":
+        def terminate(*_):
+            raise SystemExit(0)
+        signal.signal(signal.SIGTERM, terminate)
     main()

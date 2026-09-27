@@ -44,7 +44,7 @@ else if(command==='import'){
   await writeFile(join(data,'diagnostics','worker-result.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2))
  }finally{await worker.stop()}
 }else if(command==='stream'){
- const profile=value('profile',process.platform==='darwin'?'mps-fp32':'cached') as ExecutionProfile;if(!['cached','compiled','mps-fp32'].includes(profile))throw Error('EXECUTION_PROFILE')
+ const profile=value('profile',process.platform==='darwin'?'gguf-metal-f16':'cached') as ExecutionProfile;if(!['cached','compiled','mps-fp32','gguf-metal-f16'].includes(profile))throw Error('EXECUTION_PROFILE')
  const data=option('data');await mkdir(data,{recursive:true})
  const worker=new TtsRuntimeSupervisor({python:option('python'),model:option('model'),worker:resolve('electron/voice/worker.py'),cacheRoot:join(data,'cache'),compilerCache:args.includes('--compiler-cache')?option('compiler-cache'):join(data,'compiler-cache'),executionProfile:profile},300_000)
  const report:any={profile,scope:'worker-stream-with-immediate-credit',appPlayback:'NOT_TESTED',physicalListening:'NOT_TESTED',measurements:[]}

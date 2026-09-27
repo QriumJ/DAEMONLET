@@ -9,7 +9,7 @@ import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 import {replaceFile} from '../character-chat/replaceFile'
 
 export class CharacterVoiceService {
- private state:VoiceSnapshot={epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'mps-fp32-baseline':'baseline'}
+ private state:VoiceSnapshot={epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'gguf-metal-f16':'baseline'}
  private config:{python:string;model:string}|null=null
  private runtime:TtsRuntimeSupervisor|null=null
  private serial:Promise<unknown>=Promise.resolve()
@@ -57,9 +57,10 @@ export class CharacterVoiceService {
     this.state.bindings=Object.fromEntries(Object.entries(saved.bindings).filter(([k,v])=>k.length<=80&&typeof v==='string'&&v.length<=170)) as Record<string,string>
     if(saved.runtime&&typeof saved.runtime.python==='string'&&typeof saved.runtime.model==='string'){this.config=saved.runtime;this.state.runtimeConfigured=true}
    }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw Error('VOICE_SETTINGS')}
+   for(const key of this.pendingRemoval)await this.removeFiles(key).catch(()=>{this.state.error='VOICE_CLEANUP_PENDING'})
    for(const entry of await readdir(join(this.root,'profiles'),{withFileTypes:true}))if(entry.isDirectory()&&!entry.name.startsWith('.')){
     if(this.pendingRemoval.has(entry.name)){await this.removeFiles(entry.name).catch(()=>{this.state.error='VOICE_CLEANUP_PENDING'});continue}
-    const p=await verifyVoicePackage(join(this.root,'profiles',entry.name),SELECTED_VOICE)
+    const p=await verifyVoicePackage(join(this.root,'profiles',entry.name),process.platform==='darwin'?undefined:SELECTED_VOICE)
     if(entry.name!==profileKey(p.profile))throw Error('VOICE_PROFILE_PATH')
     this.state.profiles.push(p.profile)
    }
@@ -74,8 +75,8 @@ export class CharacterVoiceService {
  }
  private mutate(work:()=>Promise<void>){const task=this.serial.then(async()=>{if(this.disposed)return;const previous=this.snapshot(),config=this.config,removals=new Set(this.pendingRemoval);try{await work();await this.save();this.emit()}catch(e){this.state={...previous,epoch:this.state.epoch};this.config=config;this.pendingRemoval=removals;this.error(e)}});this.serial=task.catch(()=>{});return task}
  error(e:unknown){this.state.error=e instanceof Error&&/^[A-Z_]{1,80}$/.test(e.message)?e.message:'VOICE_ERROR';this.state.status='error';this.emit()}
- async importPackage(path:string){return this.mutate(async()=>{const p=await importVoicePackage(path,join(this.root,'profiles'),SELECTED_VOICE);if(!this.state.profiles.some(v=>profileKey(v)===profileKey(p.profile)))this.state.profiles.push(p.profile);this.pendingRemoval.delete(profileKey(p.profile));this.state.error=null})}
- configure(python:string,model:string){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-'))await verifyMacInterpreter(python);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
+ async importPackage(path:string){return this.mutate(async()=>{const p=await importVoicePackage(path,join(this.root,'profiles'),process.platform==='darwin'?undefined:SELECTED_VOICE);if(!this.state.profiles.some(v=>profileKey(v)===profileKey(p.profile)))this.state.profiles.push(p.profile);this.pendingRemoval.delete(profileKey(p.profile));this.state.error=null})}
+ configure(python:string,model:string){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-')||this.state.executionProfile==='gguf-metal-f16')await verifyMacInterpreter(python,this.state.executionProfile);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
  enabled(value:boolean){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.state.enabled=value;this.state.status=value?'idle':'off';this.state.error=null})}
  auto(value:boolean){return this.mutate(async()=>{this.state.autoRead=value})}
  volume(value:number){return this.mutate(async()=>{this.state.volume=value})}
@@ -93,7 +94,7 @@ export class CharacterVoiceService {
   this.preparing=task;return task
  }
  bind(characterId:string,profile:string|null){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(profile&&!this.state.profiles.some(p=>profileKey(p)===profile))throw Error('VOICE_PROFILE');if(profile)this.state.bindings[characterId]=profile;else delete this.state.bindings[characterId];this.state.error=null})}
- private removeFiles(profile:string){return rm(join(this.root,'profiles',profile),{recursive:true,force:true,maxRetries:3})}
+ private async removeFiles(profile:string){await rm(join(this.root,'gguf-cache',profile),{recursive:true,force:true,maxRetries:3});await rm(join(this.root,'profiles',profile),{recursive:true,force:true,maxRetries:3})}
  remove(profile:string){
   void this.stop().catch(e=>this.error(e))
   const task=this.serial.then(async()=>{

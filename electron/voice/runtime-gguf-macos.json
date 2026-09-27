@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "profile": "macos-arm64-gguf-f16-v1",
+  "sourceCommit": "873056743b74e1a4ce5dcf7290e2298428e214db",
+  "nativeSourceSha256": "64e7205890ed9061d37cbaa0dd6632e28061353afcc6dda569c53f779ff585b1",
+  "originalBaseSha256": "f7f964cfa9da23653baec6e6f7750719977ad944ed9f95fe52fe3a620506891d",
+  "nativeFiles": {
+    "native/daemonlet-voice-engine": "71e1af4d880454f75b53f32674f43123a8c715a73a99aa2be448a61b5f8becd0",
+    "native/ggml-metal.metal": "1345fbb9c42d3db8813fbaee5c0714407d2fc8cac867e380f6b5c1261db7dc4c",
+    "native/ggml-common.h": "33667042e675da25d8ea0c6d5d0999506f1edfce2b7d97c2d78830ac5fb3fa46",
+    "native/ggml-metal-impl.h": "f740a962b4e23b3c5d946d5da9351ba14a4d124c67f2f3cda54350b3e55e003e",
+    "native/licenses/llama-cpp-MIT.txt": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "native/licenses/VoxCPM-LICENSE": "cecbfbf54d0089e8d70b479fd2401964b8cfc7d0b1170418f0142da56f3aeae8"
+  },
+  "originalRuntimeSha256": "877cdf6819268877669bfbf6837ed2fe85f009fb80b0bae502c35bb962d1e174",
+  "cachedRuntimeSha256": "993c1afcf88cade33d5e8759c54e7c8daaadb4c5929489829d8f0486de8b5b6d",
+  "cacheRecipeSha256": "48045edac60db9ea39fc45463f794475b0a0f71a4d888da6b71ead469388351b",
+  "selectedRegressionGGUF": {
+    "VoxCPM2-BaseLM-F16.gguf": "9cec912d8961f0fe9a43187e6cc6b717eb5e3adf0be6ad5921e531f47e50213d",
+    "VoxCPM2-Acoustic-F16.gguf": "38cdeef9dbf11bd48090ec862cf725a99475afdf5d7f1727bbe28381fef6d09d"
+  },
+  "converterFiles": {
+    "LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "gguf-py/gguf/__init__.py": "3ccfc0104cd7ea88c6028743b7bf3f2c89b5f474425de03a217a6072320d7c2f",
+    "gguf-py/gguf/constants.py": "d457c3ffb8932e50c01f34bdb61253761b68d673fe61bcc00175d7b0a9b4a231",
+    "gguf-py/gguf/gguf.py": "f0c0eeedad0911784b52ffed8e162a0eb5ae6d535ce35705bc16196e46597a72",
+    "gguf-py/gguf/gguf_reader.py": "91cb9e81f1a67f5856f012cf3f526ad9ffdb6b887d2aa66e2593ee6f63764aad",
+    "gguf-py/gguf/gguf_writer.py": "797833ee737f84b2c980c71682e2bef3d0cbb7411dc7721db184b448c94c9a70",
+    "gguf-py/gguf/lazy.py": "ec35541320443e1bdc293e39c699fa5d1adb7fb594f3f87af093b4c756a4ebe2",
+    "gguf-py/gguf/metadata.py": "c871748f49f7fb8e67aa9a18867adf8a8ba862f0f1f4a89a0a0e285daa52a312",
+    "gguf-py/gguf/py.typed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gguf-py/gguf/quants.py": "2c927a1b3d9f0920dcf4007fb686e1b0999333e9f65ce43dcc689900c0beae8b",
+    "gguf-py/gguf/scripts/gguf_convert_endian.py": "72e3085bb4e53a6fc8fa1f66ecdd9bcfb1227d5bef70aa777d2a31f488462901",
+    "gguf-py/gguf/scripts/gguf_dump.py": "d8b8fc28e96d15d8a4d6f05cdff4a747f5a06f31172efee9dfc971998ed0203f",
+    "gguf-py/gguf/scripts/gguf_editor_gui.py": "6e9d70e850268fff5d4108d9ecbc2b4d90e70b61f08e71f7d37ac20916d854bb",
+    "gguf-py/gguf/scripts/gguf_hash.py": "9f277c9338d12a73857a4e54683d7da4d5de01531751f14401267c9289e4197f",
+    "gguf-py/gguf/scripts/gguf_new_metadata.py": "972499d35957b4721b9243828d5547d1c84def8d4e6fc641887c6578bf765255",
+    "gguf-py/gguf/scripts/gguf_set_metadata.py": "c8612a7109428a677ea55976dd5eeed6088934ddef7ef01246a5bc7a6e585b3b",
+    "gguf-py/gguf/tensor_mapping.py": "25db8155ea4766a6fb6ce4fce0d1e4c4408c677a043d324115f4e00658eedb8a",
+    "gguf-py/gguf/utility.py": "da920e2c62166ec9f30e407e9fb35ec29fda671310ffbf0f8ce856b62f1c70d7",
+    "gguf-py/gguf/vocab.py": "c3a6ddea051579d48e1a591c1cb481bddd4439b756952531a25c4cddf6382b97",
+    "tools/omni/voxcpm2/convert_voxcpm2_to_gguf.py": "dfd9c199b2b1fab207d1f0127905224d7cefa3dca773f3e5de2782310bf4ba66"
+  }
+}

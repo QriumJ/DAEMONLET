@@ -9,7 +9,7 @@ import {CharacterVoiceService} from '../electron/main/character-voice/CharacterV
 const roots:string[]=[]
 afterEach(async()=>{vi.restoreAllMocks();for(const p of roots.splice(0))await rm(p,{recursive:true,force:true})})
 it('exposes only the platform profiles and retains baseline/stream semantics',()=>{
- expect(voiceCapabilities('darwin','arm64')).toEqual(['mps-fp32-baseline','mps-fp32'])
+ expect(voiceCapabilities('darwin','arm64')).toEqual(['gguf-metal-f16','mps-fp32-baseline','mps-fp32'])
  expect(voiceCapabilities('darwin','x64')).toEqual([])
  expect(voiceCapabilities('linux','arm64')).toEqual([])
  expect(voiceCapabilities('win32','x64')).toEqual(['baseline','cached','compiled'])
@@ -33,6 +33,6 @@ it.skipIf(process.platform!=='darwin')('disables imported Windows profile and as
  const root=await mkdtemp(join(tmpdir(),'voice-settings-'));roots.push(root)
  await writeFile(join(root,'settings.json'),JSON.stringify({version:1,enabled:true,autoRead:true,volume:0.8,bindings:{},executionProfile:'compiled'}))
  const service=new CharacterVoiceService(root,'/worker',()=>({}) as any,()=>{},()=>{})
- await service.initialize();expect(service.snapshot()).toMatchObject({enabled:false,executionProfile:'mps-fp32-baseline',error:'VOICE_PLATFORM_PROFILE'})
+ await service.initialize();expect(service.snapshot()).toMatchObject({enabled:false,executionProfile:'gguf-metal-f16',error:'VOICE_PLATFORM_PROFILE'})
  await service.close()
 })

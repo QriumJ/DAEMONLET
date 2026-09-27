@@ -48,7 +48,7 @@ export class TtsRuntimeSupervisor {
  private call(type:string,expected:string,data:object={},chunk?:(v:any)=>void) {
   if(!this.child||this.pending||this.cancellation)return Promise.reject(Error('VOICE_WORKER_BUSY'))
   return new Promise<any>((resolve,reject)=>{
-   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&this.config.executionProfile==='compiled'?900_000:this.timeoutMs)
+   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&['compiled','gguf-metal-f16'].includes(this.config.executionProfile||'')?900_000:this.timeoutMs)
    const stream=data as {synthesisId:string;binding:SpeechBinding}
    const target=type==='stream'?{requestId:id,synthesisId:stream.synthesisId,runtimeSessionId:stream.binding.runtimeSessionId,speechEpoch:stream.binding.speechEpoch}:undefined
    this.pending={id,expected,target,resolve,reject,timer,chunk}
@@ -84,7 +84,7 @@ export class TtsRuntimeSupervisor {
  }
  private async launch(packagePath:string,fingerprint:string,revision:number) {
   for(const p of [this.config.python,this.config.model,this.config.worker,this.config.cacheRoot])if(!isAbsolute(p))throw Error('VOICE_RUNTIME_CONFIG')
-  if(this.config.executionProfile?.startsWith('mps-'))await verifyMacInterpreter(this.config.python)
+  if(this.config.executionProfile?.startsWith('mps-')||this.config.executionProfile==='gguf-metal-f16')await verifyMacInterpreter(this.config.python,this.config.executionProfile)
   await mkdir(this.config.cacheRoot,{recursive:true});const cache=await mkdtemp(join(this.config.cacheRoot,'session-'))
   if(revision!==this.revision){await rm(cache,{recursive:true,force:true});throw Error('VOICE_CANCELLED')}
   this.cache=cache;this.sessionId=randomUUID()
@@ -114,7 +114,7 @@ export class TtsRuntimeSupervisor {
   })
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
-  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile||'baseline',compilerCache:this.config.compilerCache});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
+  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile||'baseline',compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
   catch(e){await this.stop();throw e}
  }
  async synthesize(text:string,binding:SpeechBinding,segmentIndex:number):Promise<AudioResult> {

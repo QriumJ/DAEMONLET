@@ -138,3 +138,9 @@ it('voice-only stop cancels an explicit preparation even before speech exists',a
  await f.service.stop(true,false);expect(f.runtime.stop).toHaveBeenCalledOnce()
  release();await ready;expect(f.service.snapshot().status).toBe('stopped')
 })
+
+it('removal deletes only the selected voice derivative and preserves another voice cache',async()=>{
+ const f=await fixture(),own=join(f.root,'gguf-cache','voice@1'),other=join(f.root,'gguf-cache','other@1')
+ await mkdir(own,{recursive:true});await mkdir(other,{recursive:true});await writeFile(join(own,'derived'),'own');await writeFile(join(other,'derived'),'other')
+ await f.service.remove('voice@1');await expect(stat(own)).rejects.toThrow();expect(await readFile(join(other,'derived'),'utf8')).toBe('other')
+})

@@ -54,6 +54,8 @@ export async function verifyVoicePackage(root:string,selected?:typeof SELECTED_V
  const adapter=listed.get(v.lora+'/lora_weights.safetensors')!
  const provenance=await boundedJson(join(root,'provenance.json'))
  if(provenance.adapter_sha256!==adapter||provenance.checkpoint!==v.checkpoint||provenance.condition?.reference_sha256!==listed.get(v.reference))throw Error('VOICE_PROVENANCE')
+ if(v.voice_id===SELECTED_VOICE.id&&v.version===SELECTED_VOICE.version)selected=SELECTED_VOICE
+ if(typeof v.checkpoint!=='string'||!v.checkpoint||v.checkpoint.length>120)throw Error('VOICE_SCHEMA')
  if(selected&&(v.voice_id!==selected.id||v.version!==selected.version||v.checkpoint!==selected.checkpoint||adapter!==selected.adapter||digest!==selected.checksums))throw Error('VOICE_SELECTION_MISMATCH')
  return {manifest:v,profile:{id:v.voice_id,version:v.version,name:v.display_name,fingerprint:digest,adapterSha256:adapter}}
 }

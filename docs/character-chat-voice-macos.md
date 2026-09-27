@@ -1,22 +1,112 @@
 # macOS voice (experimental)
 
 The selected Belle package is unchanged: `belle_candidates_6000 /
-0.5.0-selected-6000-e2 / step_0002660`. This adds native Apple Silicon MPS FP32
-inference to the existing chat, queue, IPC and Web Audio player. It does not
-train, substitute a speaker, download models, or enable voice by default.
+0.5.0-selected-6000-e2 / step_0002660`. The adopted Mac profile is now
+**`gguf-metal-f16`**, connected to the existing character chat, completed-answer
+policy, queue, IPC and Web Audio player. Windows keeps its CUDA profiles. The
+older MPS profiles remain available as explicit experimental fallbacks.
 
-**Performance limitation:** the measured M5 Max FP32 warm RTF exceeds 1;
-streaming can have audible gaps. This is an experimental functional port, not
-an accepted real-time release. See [measured boundaries](character-chat-voice-macos-validation.md).
+No model weights, native TTS engine or Python installation are bundled in the app.
+A separately approved, hash-pinned arm64 runtime and the original base snapshot
+are required. Compatible voice packages are prepared locally on first use. The app does not download, train, replace the speaker or enable voice
+by default. [Gemma4 12B concurrency measurements](character-chat-voice-gemma12b-concurrency.md)
+failed the simultaneous real-time gate; keep completed-answer → voice sequencing.
 
-## Selected next backend
+## Adopted GGUF runtime setup
 
-Following the user's successful listening and live review, **GGUF / Metal F16**
-with the fully merged selected LoRA is adopted for the next Mac app integration.
-[Gemma4 12B concurrency measurements](character-chat-voice-gemma12b-concurrency.md)
-show that active simultaneous LLM/TTS generation fails the real-time gate;
-retain completed-answer → voice sequencing. The instructions below describe the
-existing packaged MPS candidate, not a completed GGUF app switch.
+The setup uses the existing approved native Python 3.11.15 and pinned C++ checkout
+with its already-built static libraries. No pip installation is needed in this
+new stdlib-only application adapter environment. Do not update an existing runtime
+in place. Build/install into new private destinations:
+
+```sh
+python3 -B scripts/build-voice-gguf-native.py \
+  --source '<PINNED_CPP_SOURCE>' --package '<SELECTED_PACKAGE>' \
+  --output '<NEW_PRIVATE_NATIVE_BUILD>'
+python3 -B scripts/prepare-voice-gguf-runtime.py \
+  --python '<APPROVED_NATIVE_PYTHON_3_11_15>' \
+  --native '<REVIEWED_NATIVE_BUILD>' \
+  --converter-source '<PINNED_CPP_SOURCE>' \
+  --converter-python '<APPROVED_MPS_ENV>/bin/python' \
+  --destination '<NEW_PRIVATE_GGUF_RUNTIME>'
+```
+
+`runtime-gguf-macos.json` pins the reviewed native binary, shader resources,
+licenses and the exact offline converter sources. The existing approved full Python
+environment is validated against its separate MPS dependency/source receipt before
+CPU conversion; the live adapter remains stdlib-only. The installer refuses a
+build that differs from that policy; do not rewrite receipts/hashes to bypass it.
+A different compiler/toolchain build requires explicit review and a policy update.
+The C++ checkout is not edited. A private copy adds a bounded owner-thread reference
+feature cache keyed by runtime instance, full reference samples and sample rate;
+`free()` invalidates it. The build receipt records original/cached source hashes.
+Only system dynamic libraries are linked; no Homebrew runtime dependency is needed.
+
+In the actual app, select **Mac Metal FP16 · 청크 재생**, choose the new runtime's
+`bin/python` and the **original pinned VoxCPM2 snapshot** as model folder. The
+runtime receipt separately locates the approved converter Python and copied converter
+sources. Original
+`voice.json`, package checksums, LoRA and snapshot checks remain mandatory.
+
+### Selecting a trained LoRA
+
+Import the entire voice package folder, then choose it in **캐릭터 음성** for the
+current character. The existing **음성 엔진 미리 준비** button starts preparation;
+otherwise the next reading prepares it automatically. A bare safetensors file is
+insufficient: the package must include its unchanged `voice.json`, complete checksums,
+LoRA configuration/weights, reference/preview, provenance and license notes.
+
+This is a bounded compatibility path: the pinned VoxCPM2 revision, rank/alpha 32,
+BaseLM + ResidualLM + LocDiT q/k/v/o adapters (384 keys, 192 matrices), and the existing
+inference settings. Training on a 4090 does not require retraining for Mac. Other base
+revisions, projection adapters or arbitrary LoRA architectures are rejected. The
+original Belle ID/version additionally retains its exact adopted checksum/step pins.
+Selectable packages apply to the Mac Metal profile; the MPS diagnostics and Windows
+CUDA path retain the original selected-package policy.
+
+For each package, start from the original full-precision base, apply every LoRA matrix
+once in FP32, then export F16 and compare every adapted matrix against the expected
+cast bytes. Never merge another adapter into a previous speaker's derivative. This is
+cached preparation, not native hot-loading of the original LoRA into a common GGUF.
+It uses more disk per voice, but subsequent starts reuse the generated GGUF.
+
+Persistent `voice/gguf-cache/<voice-id>@<version>/<identity>` entries bind the complete
+package, adapter, base/revision, converter and merge recipe. A local signed receipt
+and full file hashes are checked on every cache hit. Preparation is locked per key,
+published by atomic rename only after validation, and removes intermediate full-size
+weights. It requires 30 GiB free temporary space and has a bounded initialization
+budget. Stop/close also terminates an in-progress converter; its parent watchdog
+handles abrupt parent death, and the inherited lock protects abandoned-stage cleanup.
+Removing a voice removes its derived cache under the same persisted removal tombstone.
+Shared base files and user import sources are preserved. No download/upload is involved.
+
+The existing supervisor controls the Python adapter and exact request-bound R2
+acknowledgments. The adapter owns one Metal child; it polls cancellation while
+waiting for each native patch, waits for VAE/KV cleanup, removes cancelled WAVs and
+only then reports warm reuse. EOF/shutdown/SIGTERM closes the child; an orphan
+watcher exits the child when its adapter disappears. Native startup/cleanup failures
+retain the existing supervisor's process termination fallback.
+
+Three native 160ms patches are delivered as one 480ms application chunk, with
+the final smaller tail preserved. The original three producer credits, one successor
+sentence, sample/byte/duration limits and renderer ownership checks remain. The producer
+window is at most 1.44 seconds of generated audio. This
+provides more queued audio for successor sentence prefill without collecting the
+whole utterance or changing its PCM. Initial playback margin remains 240ms.
+
+```sh
+node scripts/voice.mjs stream --package '<SELECTED_PACKAGE>' \
+  --python '<GGUF_RUNTIME>/bin/python' --model '<PINNED_MODEL>' \
+  --data '<PRIVATE_RESULTS>' --profile gguf-metal-f16 --quick --repeats 1 \
+  --cooperative-cancel
+python3 -B scripts/test-voice-gguf.py
+```
+
+## MPS fallback setup (historical functional port)
+
+The measured MPS FP32 warm RTF exceeds one, so audible gaps are possible. These
+profiles are not the adopted real-time path. Their setup and verification remain
+below for diagnosis and rollback; see [measured boundaries](character-chat-voice-macos-validation.md).
 
 ## Assets and approved installation
 

@@ -3,8 +3,8 @@
 **Decision:** adopt the selected-LoRA GGUF / Metal F16 approach for the Mac voice
 integration. The user accepted the saved voice comparison and the live streaming
 review. MPS BF16/FP16 are rejected; the original selected 6000-e2 / step_0002660
-voice identity remains unchanged. This is a backend selection and listening
-acceptance, not a claim that the packaged app has already switched engines.
+voice identity remains unchanged. This records the backend selection and listening acceptance. The subsequent
+[Mac app integration](character-chat-voice-macos.md) adds the actual GGUF profile.
 
 **Concurrent real-time gate: FAIL at the tested settings.** Actual Gemma4 12B
 answer generation and native voice generation can execute together, but TTS cannot
@@ -110,10 +110,10 @@ fetch anything and refuses a wrong 12B hash. `--hold` is bounded to 90 seconds
 and allows actual browser playback during LLM generation; do not run during an
 unrelated user's listening/job session. It shuts down only its owned LLM server.
 
-The selected next app backend is GGUF/Metal F16. The currently packaged candidate
-still uses the earlier MPS implementation; replacing that app path and verifying
-full service F1–F5/R1/R2, hide/unload, real 12B conversations and Windows regression
-remain integration work. This measurement does not change those statuses, bypass
+The selected next app backend is GGUF/Metal F16. The packaged candidate at the time of this concurrency measurement still used
+MPS. Subsequent GGUF app integration is recorded separately in the Mac voice
+validation report; these raw concurrency measurements are not retroactively
+relabelled as packaged-app tests. This measurement does not change those statuses, bypass
 runtime checks or declare a release. True overlapping generation needs additional
 scheduling/optimization work before it can claim RTF ≤ 1.
 
@@ -141,3 +141,12 @@ This is one independent live-player test of the whole completed reply, not a
 packaged-app conversation or app inter-sentence scheduling acceptance. It supports
 the measured conclusion that resident-but-idle 12B does not cause the observed
 concurrent-generation underruns.
+
+### Selectable package integration
+
+The adopted Mac application now prepares each compatible LoRA from the original base
+and reuses a verified per-package F16 GGUF cache. This does not change the scheduling
+conclusion above: Gemma4 12B finishes its answer before speech starts; only adjacent
+completed-answer sentences overlap. A cache hit does not imply simultaneous LLM+TTS
+RTF <= 1. The initial Belle automatic conversion reproduced both previously auditioned
+GGUF files byte-for-byte.
