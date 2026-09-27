@@ -8,7 +8,9 @@ import type {SpeechBinding} from '../electron/shared/character-voice-contract'
 const roots:string[]=[],workers:TtsRuntimeSupervisor[]=[]
 afterEach(async()=>{for(const w of workers.splice(0))await w.stop();for(const root of roots.splice(0))await rm(root,{recursive:true,force:true})})
 async function worker(){const root=await mkdtemp(join(tmpdir(),'tts-runtime-'));roots.push(root)
- const w=new TtsRuntimeSupervisor({python:process.execPath,model:root,worker:resolve('tests/fixtures/voice-worker.cjs'),cacheRoot:root},500,(_exe,_args,options)=>spawn(process.execPath,[resolve('tests/fixtures/voice-worker.cjs')],options));workers.push(w);return{w,root}}
+ // Hosted Windows startup can exceed 500 ms under the full suite. Keep a bounded
+ // failure deadline without turning process scheduling into a cancellation race.
+ const w=new TtsRuntimeSupervisor({python:process.execPath,model:root,worker:resolve('tests/fixtures/voice-worker.cjs'),cacheRoot:root},2000,(_exe,_args,options)=>spawn(process.execPath,[resolve('tests/fixtures/voice-worker.cjs')],options));workers.push(w);return{w,root}}
 const binding=(w:TtsRuntimeSupervisor)=>({runtimeSessionId:w.sessionId,characterId:'test',requestId:'request',speechEpoch:1}) as SpeechBinding
 it('reuses a ready worker, validates WAV bytes and deletes generated files',async()=>{const {w,root}=await worker();await w.start(root,'fingerprint');const id=w.sessionId;await w.start(root,'fingerprint');expect(w.sessionId).toBe(id);const audio=await w.synthesize('synthetic',binding(w),0);expect(audio.durationMs).toBe(100);expect(audio.bytes.byteLength).toBe(9644);await w.stop();expect(w.running).toBe(false);expect(await readdir(root)).toEqual([])})
 it.each(['crash','contaminate','partial'])('rejects %s without leaving an owned worker',async mode=>{const {w,root}=await worker();await expect(w.start(join(root,mode),'x')).rejects.toThrow();await w.stop();expect(w.running).toBe(false)})

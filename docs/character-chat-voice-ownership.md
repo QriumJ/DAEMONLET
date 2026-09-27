@@ -63,6 +63,12 @@ stamps match. Production builds, packaging and release structure verification
 passed. [PR CI 36319997661](https://github.com/ddol2ya/DAEMONLET/actions/runs/36319997661)
 passed Windows and Ubuntu, and both logs explicitly show the 15 Python tests.
 
+A later documentation-only PR CI attempt (`36320434634`) hit `VOICE_TIMEOUT`
+in the existing process cancellation/restart fixture with its 500 ms deadline;
+the same HEAD's push CI passed. The fixture deadline was raised to 2 s for hosted
+Windows process startup. Production timeouts and cancellation semantics are
+unchanged; the bounded hang/partial-protocol rejection checks remain enabled.
+
 The same RTX 4090, selected adapter/reference and existing compiled runtime were
 used. Six fixed worker texts, twice each, produced median RTF **0.501** and median
 first-chunk receipt **117 ms** (historical comparator: 0.502 and 114 ms). All four
