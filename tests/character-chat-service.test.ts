@@ -11,6 +11,18 @@ import type {CharacterRegistry} from '../electron/main/CharacterRegistry'
 
 const roots: string[] = []
 const services: CharacterChatService[] = []
+
+it('voice receives only durable final dialogue, never stream snapshots or failed writes',async()=>{
+ const {service,store}=await fixture();const events:Array<any>=[];service.subscribeVoice(m=>events.push(m))
+ vi.spyOn(service.runtime,'generate').mockImplementation(async(_m,onText)=>{onText('partial');return{text:'확정 대사',meaning:neutralMeaning()}})
+ await service.send('hello');await vi.waitFor(()=>expect(events.some(e=>e?.text==='확정 대사')).toBe(true))
+ expect(events.filter(Boolean)).toHaveLength(1);expect(events.filter(Boolean)[0].status).toBe('complete')
+ const saved=await store.load();expect(saved.value!.conversations[0].messages.at(-1)?.text).toBe('확정 대사')
+ await service.stop();events.length=0
+ const original=store.save.bind(store);let writes=0;vi.spyOn(store,'save').mockImplementation(async data=>{if(++writes>1)throw Error('disk full');await original(data)})
+ await service.send('second');await vi.waitFor(()=>expect(service.snapshot().error).toContain('저장'))
+ expect(events.filter(Boolean)).toEqual([])
+})
 afterEach(async () => {
   for (const service of services.splice(0)) await service.close()
   for (const root of roots.splice(0)) await rm(root, {recursive: true, force: true})

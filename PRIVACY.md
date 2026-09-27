@@ -60,6 +60,24 @@ Native Codex authenticates using the existing supported ChatGPT credential path 
 
 Persona data and file contents are untrusted descriptive material. They cannot grant permissions. The default app still contains only Gpichan; existing external packs, illustrations and rigs are preserved. Production builds exclude QA imports, fixture providers, live preapproval hooks and raw-answer sinks. Tests and externally captured review evidence remain separate from the product. No old model-call budget authorizes a new run. See [usage and compatibility](docs/side-chat.md); historical implementations and evidence are recoverable from Git history.
 
+## Optional local character voices
+
+Character-chat voice is off by default. When enabled, only a newly completed and
+successfully saved assistant dialogue (or an explicitly requested reread/test)
+is sent to an app-owned local Python worker. No cloud TTS, microphone access,
+training, or model download is involved. Imported voice profiles, character
+bindings, volume preferences and explicitly chosen runtime/model paths are stored
+under the app's local `voice` directory. Voice packages and models remain optional
+external assets; they are not bundled or uploaded.
+
+Generated WAVs use a private session cache. Main reads one validated WAV into a
+bounded buffer and removes the file; playback completion/cancellation releases
+the buffer. Worker shutdown and the next startup retry cache cleanup, including
+files previously locked on Windows. Diagnostic CLI smoke runs explicitly retain
+two generated samples under the selected test data directory. Normal logs exclude
+dialogue text, reference transcripts and personal paths. Voice failures preserve
+text chat. See [voice setup and rollback](docs/character-chat-voice.md).
+
 ## Optional character pack updates
 
 For an installed external pack with an HF update source, a manual check or individually enabled automatic check makes an anonymous HTTPS request to its declared public Hugging Face Dataset. Hugging Face and its delivery providers receive ordinary network metadata such as the request path and IP address. The app sends no HF/Codex token, cookies, chat, persona or local path with these requests. Automatic checks default off; download and apply are always manual. Source consent, skip choice, last feed/ETag and check time are stored locally, separately from pack payloads. This does not enable a marketplace, search, LLM call or app executable update. See [the update workflow](docs/character-pack-updates.md).

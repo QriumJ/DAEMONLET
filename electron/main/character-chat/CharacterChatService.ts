@@ -33,6 +33,7 @@ export class CharacterChatService {
   private requestAbort: AbortController | null = null
   private requestVersion = 0
   private listeners = new Set<() => void>()
+  private voiceListeners = new Set<(message:ChatMessage|null)=>void>()
   private job: Promise<void> | null = null
   private serial: Promise<unknown> = Promise.resolve()
   private pendingChanges = 0
@@ -47,6 +48,8 @@ export class CharacterChatService {
     this.models = new ModelManager(join(root,'models'), value => {this.state.download=value;this.emit()})
   }
   subscribe(fn: () => void) {this.listeners.add(fn);return () => this.listeners.delete(fn)}
+  subscribeVoice(fn:(message:ChatMessage|null)=>void){this.voiceListeners.add(fn);return()=>this.voiceListeners.delete(fn)}
+  private notifyVoice(message:ChatMessage|null){for(const fn of this.voiceListeners){try{fn(message?structuredClone(message):null)}catch{/* TTS must never fail text chat. */}}}
   snapshot() {return structuredClone(this.state)}
   private emit() {
     this.state.memories = this.data.memories[this.state.character?.id || ''] || []
@@ -163,6 +166,7 @@ export class CharacterChatService {
     data.conversations.unshift(c);data.current=c.id
   }
   private async cancelGeneration() {
+    this.notifyVoice(null)
     const job=this.job
     ++this.requestVersion
     this.requestAbort?.abort();++this.state.epoch
@@ -191,6 +195,7 @@ export class CharacterChatService {
     return result
   }
   private change(action: (data: StoredChats) => Promise<PreparedCharacter | void>) {
+    this.notifyVoice(null)
     this.requireLoaded();this.pendingChanges++;++this.requestVersion
     return this.enqueue(async () => {
       this.requireLoaded()
@@ -274,6 +279,7 @@ export class CharacterChatService {
   send(text: string) {return this.submit(text)}
   private submit(text: string | undefined): Promise<void> {
     try {this.requireRequest()} catch(e) {return Promise.reject(e)}
+    this.notifyVoice(null)
     const acceptedVersion=this.requestVersion
     return this.enqueue(async () => {
       if(acceptedVersion!==this.requestVersion)return
@@ -353,7 +359,7 @@ export class CharacterChatService {
     } finally {
       if (assistant.status==='streaming') {assistant.status='stopped';this.dirty=true}
       if (epoch===this.state.epoch && this.state.phase!=='idle') this.state.phase='idle'
-      try {await this.persistLive()} catch (e) {this.state.error=storageError(e).message}
+      try {await this.persistLive();if(current()&&assistant.status==='complete')this.notifyVoice(assistant)} catch (e) {this.state.error=storageError(e).message}
       this.emit()
     }
   }
