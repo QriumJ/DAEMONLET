@@ -29,10 +29,16 @@ export class TtsRuntimeSupervisor {
  private pending:{id:string;expected:string;resolve:(v:any)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>;chunk?:(v:any)=>void}|null=null
  private starting:Promise<void>|null=null
  private revision=0
+ private streams=new Set<{retire:()=>void}>()
+ private deliveries=0
  audit:Record<string,unknown>|null=null
  constructor(readonly config:TtsConfig,private timeoutMs=180_000,private spawnProcess:SpawnWorker=spawn){}
  get running(){return !!this.child}
+ // Protocol/GPU activity ends at the terminal response, before file delivery and
+ // playback necessarily finish. An idle model can still have retiring callbacks.
  get busy(){return !!this.pending||!!this.starting}
+ get deliveryPending(){return this.deliveries>0}
+ retireSpeech(){for(const stream of this.streams)stream.retire()}
  private call(type:string,expected:string,data:object={},chunk?:(v:any)=>void) {
   if(!this.child||this.pending)return Promise.reject(Error('VOICE_WORKER_BUSY'))
   return new Promise<any>((resolve,reject)=>{
@@ -91,32 +97,51 @@ export class TtsRuntimeSupervisor {
  async stream(text:string,binding:SpeechBinding,segmentIndex:number,accept:(audio:AudioChunk)=>Promise<void>) {
   const synthesisId=randomUUID(),cache=this.cache,child=this.child
   if(!cache||!child||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
-  let index=0,offset=0,reads=Promise.resolve(),failure:Error|null=null
-  const failStream=(error:Error)=>{failure=error;if(this.child===child){this.fail(error);void this.stop().catch(()=>{})}}
+  let index=0,offset=0,reads=Promise.resolve(),failure:Error|null=null,retired=false,delivered=false,nextCredit=0
+  const credits:Array<{requestId:string;ready:boolean}>=[]
+  const flushCredits=()=>{
+   while(credits[nextCredit]?.ready){const chunkIndex=nextCredit++,credit=credits[chunkIndex]
+    if(this.child===child)child.stdin.write(JSON.stringify({protocolVersion:1,type:'credit',requestId:credit.requestId,chunkIndex})+'\n',()=>{})
+   }
+   if(delivered&&nextCredit===index)this.streams.delete(owner)
+  }
+  // Retiring a speech is independent of child identity or the pending request.
+  // A previous sentence still owns its playback errors until the service retires
+  // the entire speech. Returning each discarded credit once drains worker tails.
+  const owner={retire:()=>{retired=true;for(const credit of credits)credit.ready=true;flushCredits();this.streams.delete(owner)}}
+  this.streams.add(owner)
+  const failStream=(error:Error)=>{failure=error;if(!retired&&this.child===child){this.fail(error);void this.stop().catch(()=>{})}}
   const ids=new Set<string>()
+  try{
   const result=await this.call('stream','synthesis-finished',{streamVersion:1,synthesisId,text,binding,segmentIndex,style:null},v=>{
    if(v.synthesisId!==synthesisId||v.segmentIndex!==segmentIndex||JSON.stringify(v.binding)!==JSON.stringify(binding)||v.chunkIndex!==index||v.sampleOffset!==offset||!Number.isSafeInteger(v.sampleCount)||v.sampleCount<1||v.sampleCount>48000||v.sampleRate!==48000||!/^[-a-f0-9]{36}$/.test(v.audioId)||offset+v.sampleCount>48000*60)throw Error('VOICE_STREAM_SEQUENCE')
    if(ids.has(v.audioId))throw Error('VOICE_STREAM_SEQUENCE')
    ids.add(v.audioId);++index;offset+=v.sampleCount
+   const credit={requestId:v.requestId,ready:retired};credits.push(credit);if(retired)flushCredits()
+   ++this.deliveries
    reads=reads.then(async()=>{
-    if(this.cache!==cache||this.child!==child)throw Error('VOICE_CANCELLED')
     const path=join(cache,v.audioId+'.wav')
     let bytes:Buffer
-    try{const stat=await lstat(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>96044)throw Error('VOICE_INVALID_WAV');bytes=await readFile(path);if(verifyWav(bytes)!==v.sampleCount/48)throw Error('VOICE_INVALID_WAV')}
+    try{if(retired||this.cache!==cache||this.child!==child)throw Error('VOICE_CANCELLED');const stat=await lstat(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>96044)throw Error('VOICE_INVALID_WAV');bytes=await readFile(path);if(verifyWav(bytes)!==v.sampleCount/48)throw Error('VOICE_INVALID_WAV')}
     finally{await rm(path,{force:true}).catch(()=>{})}
+    if(retired||this.cache!==cache||this.child!==child)throw Error('VOICE_CANCELLED')
     // Dispatch ordered chunks without awaiting playback. Three producer credits
     // bound bytes and scheduled audio; consumption returns each credit separately.
     void accept({audioId:v.audioId,bytes,durationMs:v.sampleCount/48,generationMs:0,rtf:0,synthesisId,chunkIndex:v.chunkIndex,sampleOffset:v.sampleOffset,sampleCount:v.sampleCount,firstChunkReadyMs:v.firstChunkReadyMs}).then(()=>{
-     if(this.child===child)child.stdin.write(JSON.stringify({protocolVersion:1,type:'credit',requestId:v.requestId,chunkIndex:v.chunkIndex})+'\n',()=>{})
+     credit.ready=true;flushCredits()
     }).catch(failStream)
-   }).catch(failStream)
+   }).catch(failStream).finally(()=>{--this.deliveries})
   })
   await reads
+  if(retired)throw Error('VOICE_CANCELLED')
   if(failure)throw failure
   if(result.synthesisId!==synthesisId||result.totalSamples!==offset||result.totalChunks!==index||!index)throw Error('VOICE_STREAM_TOTAL')
   return result
+  }catch(e){failStream(e as Error);throw e}
+  finally{delivered=true;flushCredits()}
  }
  stop():Promise<void> {
+  this.retireSpeech()
   ++this.revision
   if(this.ending)return this.ending
   this.fail(Error('VOICE_CANCELLED'));this.key=''

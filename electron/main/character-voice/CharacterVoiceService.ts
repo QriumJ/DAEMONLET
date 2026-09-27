@@ -213,6 +213,9 @@ export class CharacterVoiceService {
   const hadSpeech=!!this.currentSpeech
   if(invalidate)++this.operation
   ++this.state.epoch;this.currentSpeech=null
+  // Revoke producer callbacks before resolving consumers. The same warm child
+  // may already accept a new speech while retired final-chunk IO is completing.
+  this.runtime?.retireSpeech()
   this.notify({type:'stop',epoch:this.state.epoch,requestedAt:stopStartedAt})
   this.diagnose({type:'speech-invalidated',at:Date.now(),epoch:this.state.epoch})
   if(this.active){clearTimeout(this.active.timer);this.active.resolve();this.active=null}

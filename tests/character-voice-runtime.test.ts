@@ -38,3 +38,14 @@ it('late playback rejection from an old session cannot stop its replacement',asy
  expect(stop).not.toHaveBeenCalled();expect(w.running).toBe(true);expect(w.sessionId).toBe(replacement)
  expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)
 })
+it('retired same-session playback rejections cannot cancel repeated warm replacements',async()=>{
+ const {w,root}=await worker();await w.start(root,'x');const session=w.sessionId,stop=vi.spyOn(w,'stop')
+ for(let epoch=1;epoch<=3;epoch++){
+  let rejectOld!:(e:Error)=>void
+  await w.stream('stream',{...binding(w),speechEpoch:epoch},0,chunk=>chunk.chunkIndex===3?new Promise<void>((_r,reject)=>{rejectOld=reject}):Promise.resolve())
+  w.retireSpeech()
+  const next=w.synthesize('valid',{...binding(w),speechEpoch:epoch+1},0)
+  rejectOld(Error('VOICE_PLAYBACK'));expect((await next).durationMs).toBe(100)
+  expect(w.sessionId).toBe(session);expect(w.running).toBe(true);expect(stop).not.toHaveBeenCalled()
+ }
+})

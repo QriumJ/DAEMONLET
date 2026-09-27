@@ -193,6 +193,30 @@ class CacheTests(unittest.TestCase):
         self.assertEqual([v['sampleCount'] for v in emitted], [7680, 13])
         self.assertGreaterEqual(result['firstSignalChunkReadyMs'], result['firstChunkReadyMs'])
 
+    def test_retired_tail_credits_interleave_with_new_stream_repeatedly(self):
+        # Real worker main/credit parser; only inference is synthetic. Retired
+        # terminal streams have two outstanding credits while a successor runs.
+        module = runpy.run_path(str(WORKER))
+        def stream(self, request, credit):
+            count = request['count']
+            for i in range(count + 1):
+                credit(i)
+            return dict(totalChunks=count, totalSamples=count * 4800)
+        requests = [dict(type='init', requestId='init')]
+        for cycle in range(3):
+            old, new = f'old-{cycle}', f'new-{cycle}'
+            requests += [dict(type='stream', requestId=old, count=2), dict(type='stream', requestId=new, count=5)]
+            requests += [dict(type='credit', requestId=old, chunkIndex=i) for i in range(2)]
+            requests += [dict(type='credit', requestId=new, chunkIndex=i) for i in range(5)]
+        requests += [dict(type='health', requestId='end')]
+        output = io.StringIO()
+        module['emit'].__globals__['PROTOCOL'] = output
+        with patch.object(module['Worker'], 'initialize', lambda self, request: {}), patch.object(module['Worker'], 'stream', stream), patch('sys.stdin', io.StringIO(''.join(json.dumps(dict(protocolVersion=1, **r))+'\n' for r in requests))):
+            module['main']()
+        replies = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([v['type'] for v in replies], ['ready'] + ['synthesis-started', 'synthesis-finished'] * 6 + ['ready'])
+        self.assertEqual(replies[-1]['requestId'], 'end')
+
 
 if __name__ == "__main__":
     unittest.main()
