@@ -13,8 +13,8 @@ all five findings. Raw reports remain local and ignored.
 | Finding | Before fix | After automated regression | Latest native Windows app | Boundary |
 |---|---|---|---|---|
 | F1 missing suffix | FAIL: exact 180-character input lost `끝말`; 180/360 and oversized-grapheme tests failed | PASS: exact round trip, contiguous offsets, 179/180/181/359/360/361 cases, seeded Unicode corpus, explicit oversized-grapheme rejection | NOT_TESTED | No claim that physical speech of every segment was heard |
-| F2 late speech after hide | FAIL: actual window handlers + controller + service started the fake runtime after hide and hide/show | PASS: admission recorded synchronously before queued save; hide revokes request permission; loading/synthesis/WAV/decode boundaries, renderer replacement and explicit reread recovery | BLOCKED_ENVIRONMENT | Native tool returned mismatched input/capture targets; no hidden-window playback claim |
-| F3 skipped shutdown | FAIL: rejected chat close skipped voice close; each event/changed/diagnostic exception skipped worker stop | PASS: independent cleanup attempts, repeated close, detach exception, preserved worker-stop error/timeout, initialization/disposal coverage | BLOCKED_ENVIRONMENT | Candidate cleanup used exact owned PID after UI-tool failure; this is not normal UI-exit acceptance |
+| F2 late speech after hide | FAIL: actual window handlers + controller + service started the fake runtime after hide and hide/show | PASS: admission recorded synchronously before queued save; hide revokes request permission; loading/synthesis/WAV/decode boundaries, renderer replacement and explicit reread recovery | PASS for observed cases | Actual hidden E4B completion preserved text without TTS; show did not autoplay; native hide during synthesis stopped the worker. Full phase matrix remains automated-only |
+| F3 skipped shutdown | FAIL: rejected chat close skipped voice close; each event/changed/diagnostic exception skipped worker stop | PASS: independent cleanup attempts, repeated close, detach exception, preserved worker-stop error/timeout, initialization/disposal coverage | PASS for normal UI exit | Native menu exit during software playback removed owned app/worker processes and cache; exception injection remains automated-only |
 | F4 deletion inconsistency | FAIL: second save ran after deletion and rollback resurrected the profile | PASS: single commit, failed-save preservation, file-failure tombstone, restart cleanup, repeated delete; settings/files/memory checked | NOT_TESTED | Synthetic package files only in fault-injection tests |
 | F5 wrong device error | FAIL: protocol returned `TTS_FAILED` for unsupported CUDA | PASS: explicit public-error allowlist; OS/CUDA/BF16 matrix; early device checks; precise service error and unchanged text | NOT_TESTED on unsupported hardware | Fake torch/device; supported RTX 4090 synthesis separately verified |
 
@@ -34,7 +34,9 @@ IPC/lifecycle/playback subset passed **57 tests**, including readiness IPC suspe
 across renderer reload. Typecheck, source check, final renderer/Electron production
 build and separate Windows packaging passed. The final package contained 229
 app.asar entries with no model weights, reference WAV, site-packages or private
-voice-lab/integration paths. Final CI results are recorded below once available.
+voice-lab/integration paths. Source commit `5d0b2bbe98f4a46d071433182290f445eed42a41`
+passed [Verify run 36310100293](https://github.com/ddol2ya/DAEMONLET/actions/runs/36310100293):
+both Windows and Ubuntu jobs, including each explicit Python voice test step.
 
 The first full run had one existing pack-update test exceed its 5-second budget
 while GPU smoke/build work was running (2,045 passed, 1 failed, 74 skipped).
@@ -61,23 +63,47 @@ without history autoplay. The runtime picker opened, but its editable element
 was unavailable to the tool and reported focus disagreed with the screenshot.
 Later candidate input was rejected as targeting another app; fresh selection,
 activation, a uniquely named identical executable and tool reset did not recover
-reliable input/capture. No new native synthesis/playback completion was observed.
+reliable input/capture in that first attempt. No new native synthesis/playback completion was observed then.
 The candidates were cleaned up by verified owned PID, with zero remaining owned
 candidate/voice processes and zero app/smoke voice cache files. This is forced test
 cleanup, not a normal-exit PASS. No unrelated PID was targeted; an earlier observed
 user-app PID was absent at the final check, so continued user-app execution is not
 claimed.
 
-Remaining: native picker completion, new E4B reply/playback on the final candidate,
-the ten-cycle transition/cancel/recovery matrix, real hide/show and exception-exit
-acceptance, physical speaker listening/quality, audible-stop timing, 12B,
-disconnected-network operation, long soak, installer/signing and runtime relocation.
-Mac/MPS/MLX and lip sync remain NOT_SUPPORTED. Older successful native checks below
-belong only to `cb43a8b`; they are not final-code acceptance evidence.
+### Native retry on final source `5d0b2bb`
+
+At the user's request, a fresh launch of the same isolated packaged candidate
+recovered native control. Fresh screenshot coordinates and keyboard input avoided
+the inconsistent multi-window accessibility indexes. Actual UI observations were
+cross-checked against that candidate's new logs; this was not a synthetic renderer.
+
+| Native operation | Result | Evidence / limits |
+|---|---|---|
+| Runtime configuration | PASS | Python executable picker and model-folder picker both completed through native UI; persisted paths still point to the existing independent runtime/model |
+| Explicit reread | PASS, software playback | Two ordered audio-ready/playback-ended pairs; 1.76 s and 3.68 s WAVs, selected 384-key adapter |
+| Hide during E4B generation | PASS for observed request | Settings visibility switch OFF while assistant was streaming; text subsequently saved complete, without a new runtime/audio event; show retained text without autoplay |
+| Repeated preparation cancellation | PASS, 10 consecutive cycles | Native reread then voice-only stop showed preparing/stopped each time; ten worker-stopped events, no audio-ready from those cancelled epochs |
+| New response after ten cancellations | PASS, software playback | Native prompt produced a new durable E4B response; both segments synthesized and acknowledged in order, returning UI to ready |
+| Hide during real TTS synthesis | PASS for observed request | UI showed synthesizing; visibility switch OFF invalidated the epoch, stopped the owned worker, and no audio-ready followed for that epoch; show did not restart it |
+| Explicit recovery after synthesis hide | PASS, software playback | Reread launched a fresh audited worker; first segment completed, second segment was cancelled by app exit |
+| Normal app exit during software playback | PASS | Native pet menu Exit during the second segment; no end acknowledgement for that segment, worker-stopped recorded, candidate windows/processes and independent Python processes absent, voice cache contained zero files |
+
+The ten repetitions cover preparation/cancellation, not ten complete executions
+of every lifecycle boundary. Hide/show before the same LLM request finishes,
+WAV/decode races, exception injection and character/revision switches are covered
+by automated tests but have not all been exercised natively. Only Gpichan/E4B is
+available in the isolated profile; two-character and 12B acceptance remain unrun.
+
+Remaining: full native phase/transition matrix and exception-exit acceptance,
+physical speaker listening/quality, audible-stop timing, disconnected-network
+operation, long soak, installer/signing and runtime relocation. Mac/MPS/MLX and
+lip sync remain NOT_SUPPORTED. Older successful native checks below belong only
+to `cb43a8b`; the native retry above is independent final-code evidence.
 
 Local evidence: `outputs/voice-integration/stabilization-{red,targeted,full,
 full-retry,last-boundaries,ipc-final,full-head}.json`, Python red log, `stabilization-smoke/diagnostics`,
-candidate logs and `stabilization-cleanup.json`. These contain private paths and
+candidate logs, `stabilization-app-retry.stdout.log`, `stabilization-cleanup.json`
+and `stabilization-native-retry-cleanup.json`. These contain private paths and
 must not be uploaded. Both CI jobs now explicitly prepare Python 3.11 and execute
 the eight GPU-free voice tests, independently of creator tests.
 
