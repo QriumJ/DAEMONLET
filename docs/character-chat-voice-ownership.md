@@ -56,6 +56,49 @@ bounded producer flow and one-sentence lookahead remain unchanged.
   inference. Both CI jobs already execute this suite; GPU/native execution is
   not implied by CI.
 
+## Fresh Windows/CUDA verification
+
+The clean source candidate was built from `f33643b`; renderer and Main source
+stamps match. Production builds, packaging and release structure verification
+passed. [PR CI 36319997661](https://github.com/ddol2ya/DAEMONLET/actions/runs/36319997661)
+passed Windows and Ubuntu, and both logs explicitly show the 15 Python tests.
+
+The same RTX 4090, selected adapter/reference and existing compiled runtime were
+used. Six fixed worker texts, twice each, produced median RTF **0.501** and median
+first-chunk receipt **117 ms** (historical comparator: 0.502 and 114 ms). All four
+compiled components built and executed; the runtime fingerprint remained
+`d25011ca26e02fd216926a03fb02c8629b6593aa12ad98228335a5232723c137`.
+The original whole-WAV baseline benchmark was not repeated in this R1 run.
+
+Native UI actions on the packaged candidate used the isolated existing test
+profile and actual GPU synthesis. The fresh screenshots were paired with Main
+and renderer playback events, not treated as acoustic measurements.
+
+| Case | Fresh result |
+|---|---|
+| Preparation with persisted compiler cache | 44.608 s; compiled execution confirmed |
+| First prepared two-sentence trial | First scheduled playback 1,089 ms; 32/32 chunks ended |
+| Subsequent long-answer warm reread | First playback 391 ms; interrupted during sentence 3 |
+| Active stop | Renderer acknowledgement 0 ms; owned worker exit 338 ms |
+| Explicit recovery reread | First playback 45.593 s including reload; 30/30 chunks ended |
+| Stop after completion, then reread | Same runtime session, no reload; first playback 388 ms, 30/30 chunks ended |
+| Scheduling gaps | 0 ms in these observed runs, including the two-sentence trial |
+| Normal pet-menu Exit | Worker exit 288 ms; zero owned candidate/worker processes, windows and transient files |
+
+The first trial's 1,089 ms is retained rather than hidden by reporting only later
+warm reads. This small native sample does not establish a latency percentile.
+Completed app segments had elapsed RTF 1.000–1.271 including producer wait, or
+active-elapsed/audio-duration estimates 0.569–0.588 after subtracting that wait;
+these are not CUDA kernel timings. Three scheduled chunks intentionally lacked
+end acknowledgements in the active-cancel case; they did not resume afterward.
+
+The deterministic late-file-read race itself is established by the production
+service/supervisor regression with synthetic inference, not by claiming a native
+UI click happened inside that narrow IO window. Native warm reuse and active
+cancel/reload are separately observed above. After exit verification the candidate
+is reopened and prepared for user listening; its intentionally running handoff
+state is not a shutdown leak.
+
 ## Scope and remaining work
 
 R2 cooperative cancellation during active generation/credit waiting is **not

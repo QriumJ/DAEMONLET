@@ -268,3 +268,10 @@ logs and the local handoff. These may contain personal paths or synthetic test
 conversation data and must not be committed or uploaded.
 
 See [commands, app controls and rollback](character-chat-voice.md).
+# R1 ownership follow-up
+
+The later source `f33643b` and its fresh regression, CI, CUDA and native Windows
+evidence are recorded in [stream ownership verification](character-chat-voice-ownership.md).
+Those results supersede the earlier counts for the R1 change. R2 cooperative
+active cancellation and physical listening remain unimplemented/unverified,
+respectively; older measurements below remain historical.

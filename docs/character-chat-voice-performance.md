@@ -232,3 +232,9 @@ fresh recovery and warm reread (389 ms first scheduled playback, 30/30 chunks,
 zero scheduling gaps), followed by normal exit with no owned processes/windows
 or transient audio files. Details and the successful CI run are in the verification
 report. Physical listening remains NOT_TESTED.
+# R1 ownership follow-up
+
+See [the fresh R1 verification](character-chat-voice-ownership.md) for source
+`f33643b`: worker RTF median 0.501 and first chunk 117 ms, with native warm reread,
+active cancellation and recovery reported separately. Measurements below are
+from the preceding performance work, not a second R1 baseline run.
