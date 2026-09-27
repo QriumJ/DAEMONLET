@@ -1,6 +1,9 @@
 # Bounded native GGUF / Metal experiment — 2026-09-28
 
-This is an independent engine experiment, not an installed application backend.
+The user accepted the saved comparison and live streaming review, selecting
+GGUF/Metal F16 for the next Mac integration. [Gemma4 12B concurrency results](character-chat-voice-gemma12b-concurrency.md)
+separately fail the simultaneous real-time gate. This remains an independent
+engine review, not an installed application backend.
 The selected Belle 6000-e2 / step_0002660 voice, original package, pinned base,
 MPS application, Windows runtime and production dependency lock remain unchanged.
 No training, download of model weights, upload, release or version change occurred.

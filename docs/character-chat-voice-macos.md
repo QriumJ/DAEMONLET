@@ -9,6 +9,15 @@ train, substitute a speaker, download models, or enable voice by default.
 streaming can have audible gaps. This is an experimental functional port, not
 an accepted real-time release. See [measured boundaries](character-chat-voice-macos-validation.md).
 
+## Selected next backend
+
+Following the user's successful listening and live review, **GGUF / Metal F16**
+with the fully merged selected LoRA is adopted for the next Mac app integration.
+[Gemma4 12B concurrency measurements](character-chat-voice-gemma12b-concurrency.md)
+show that active simultaneous LLM/TTS generation fails the real-time gate;
+retain completed-answer → voice sequencing. The instructions below describe the
+existing packaged MPS candidate, not a completed GGUF app switch.
+
 ## Assets and approved installation
 
 Transfer the entire selected package and pinned VoxCPM2 snapshot outside Git.
