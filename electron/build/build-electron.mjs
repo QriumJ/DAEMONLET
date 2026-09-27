@@ -22,6 +22,8 @@ await copyFile(resolve(root, "electron/voice/engine.py"), resolve(outdir, "voice
 await copyFile(resolve(root, "electron/voice/control.py"), resolve(outdir, "voice/control.py"))
 for (const file of ['backend.py','macos_runtime.py','runtime-macos.json','gguf_worker.py','gguf_runtime.py','gguf_cache.py','gguf_prepare.py','voice_package.py','runtime-gguf-macos.json']) await copyFile(resolve(root, 'electron/voice', file), resolve(outdir, 'voice', file))
 const chatTarget = runtimeTarget(process.env.PET_BUILD_PLATFORM || process.platform, process.env.PET_BUILD_ARCH || process.arch)
+const baseRuntime=resolve(root,'.generated/voice-base-runtime',chatTarget)
+if(existsSync(baseRuntime)){const trusted=JSON.parse(await (await import('node:fs/promises')).readFile(resolve(root,'electron/voice/runtime-base-macos.json'),'utf8'));await verifyRuntime(baseRuntime,chatTarget,{trusted});await cp(baseRuntime,resolve(outdir,'voice/base-native'),{recursive:true})}
 const chatRuntime = resolve(root, '.generated/character-chat-runtime-package', chatTarget)
 if (existsSync(chatRuntime)) {
  await verifyRuntime(chatRuntime, chatTarget)

@@ -9,12 +9,12 @@ import {CharacterVoiceService} from '../electron/main/character-voice/CharacterV
 const roots:string[]=[]
 afterEach(async()=>{vi.restoreAllMocks();for(const p of roots.splice(0))await rm(p,{recursive:true,force:true})})
 it('exposes only the platform profiles and retains baseline/stream semantics',()=>{
- expect(voiceCapabilities('darwin','arm64')).toEqual(['gguf-metal-f16','mps-fp32-baseline','mps-fp32'])
+ expect(voiceCapabilities('darwin','arm64')).toEqual(['gguf-metal-f16','gguf-metal-f16-complete'])
  expect(voiceCapabilities('darwin','x64')).toEqual([])
  expect(voiceCapabilities('linux','arm64')).toEqual([])
  expect(voiceCapabilities('win32','x64')).toEqual(['baseline','cached','compiled'])
- expect(isStreamingProfile('mps-fp32-baseline')).toBe(false)
- expect(isStreamingProfile('mps-fp32')).toBe(true)
+ expect(isStreamingProfile('gguf-metal-f16-complete')).toBe(false)
+ expect(isStreamingProfile('gguf-metal-f16')).toBe(true)
 })
 it.skipIf(process.platform!=='darwin')('allows a receipted venv interpreter link but rejects target changes',async()=>{
  const root=await realpath(await mkdtemp(join(tmpdir(),'voice-macos-')));roots.push(root)

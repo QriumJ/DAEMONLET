@@ -8,7 +8,7 @@ export async function verifyMacInterpreter(python:string,profile='mps-fp32-basel
  const prefix=await realpath(join(dirname(python),'..')),target=await realpath(python)
  if(!(await lstat(target)).isFile())throw Error('VOICE_RUNTIME_CONFIG')
  const receipt=await boundedJson(join(prefix,'voice-runtime.json'))
- if(receipt.schemaVersion!==2||receipt.profile!==(profile==='gguf-metal-f16'?'macos-arm64-gguf-f16-v1':'macos-arm64-mps-fp32-v1')||receipt.prefix!==prefix||receipt.interpreter!==target||receipt.interpreter_sha256!==await sha256(target))throw Error('RUNTIME_RECEIPT')
+ if(receipt.schemaVersion!==2||receipt.profile!==(profile.startsWith('gguf-metal-')?'macos-arm64-gguf-f16-v1':'macos-arm64-mps-fp32-v1')||receipt.prefix!==prefix||receipt.interpreter!==target||receipt.interpreter_sha256!==await sha256(target))throw Error('RUNTIME_RECEIPT')
  // Launch the venv path, not the canonical base executable (which would lose sys.prefix).
  return {prefix,target}
 }

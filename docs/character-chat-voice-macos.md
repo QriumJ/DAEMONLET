@@ -3,12 +3,15 @@
 The selected Belle package is unchanged: `belle_candidates_6000 /
 0.5.0-selected-6000-e2 / step_0002660`. The adopted Mac profile is now
 **`gguf-metal-f16`**, connected to the existing character chat, completed-answer
-policy, queue, IPC and Web Audio player. Windows keeps its CUDA profiles. The
-older MPS profiles remain available as explicit experimental fallbacks.
+policy, queue, IPC and Web Audio player. Windows keeps its CUDA profiles. Mac exposes only **Metal chunk playback** and **Metal complete-sentence playback**.
+Old MPS settings are rejected and require selecting a supported Metal profile.
 
-No model weights, native TTS engine or Python installation are bundled in the app.
+No model weights or Python installation are bundled in the app. The default-voice
+Metal engine and its license notices are included; advanced LoRA conversion still
+uses the separately approved environment.
 A separately approved, hash-pinned arm64 runtime and the original base snapshot
-are required. Compatible voice packages are prepared locally on first use. The app does not download, train, replace the speaker or enable voice
+are required. Compatible voice packages are prepared locally on first use.
+For package-free default voice, use the [one-button base installer](character-chat-voice-base-install.md). The app does not download, train, replace the speaker or enable voice
 by default. [Gemma4 12B concurrency measurements](character-chat-voice-gemma12b-concurrency.md)
 failed the simultaneous real-time gate; keep completed-answer → voice sequencing.
 

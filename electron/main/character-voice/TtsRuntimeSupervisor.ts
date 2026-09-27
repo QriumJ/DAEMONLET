@@ -1,12 +1,12 @@
 import {spawn,type ChildProcessWithoutNullStreams,type SpawnOptionsWithoutStdio} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
-import {join,isAbsolute} from 'node:path'
+import {join,isAbsolute,dirname} from 'node:path'
 import {mkdir,mkdtemp,readFile,lstat,rm} from 'node:fs/promises'
 import type {SpeechBinding,ExecutionProfile} from '../../shared/character-voice-contract'
 
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 
-export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string}
+export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean}
 export type SpawnWorker=(command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams
 export type AudioResult={audioId:string;bytes:Uint8Array;durationMs:number;generationMs:number;rtf:number;peakAllocatedBytes?:number;peakReservedBytes?:number}
 export type AudioChunk=AudioResult & {synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number;firstChunkReadyMs:number}
@@ -48,7 +48,7 @@ export class TtsRuntimeSupervisor {
  private call(type:string,expected:string,data:object={},chunk?:(v:any)=>void) {
   if(!this.child||this.pending||this.cancellation)return Promise.reject(Error('VOICE_WORKER_BUSY'))
   return new Promise<any>((resolve,reject)=>{
-   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&['compiled','gguf-metal-f16'].includes(this.config.executionProfile||'')?900_000:this.timeoutMs)
+   const id=randomUUID(),timer=setTimeout(()=>{this.fail(Error('VOICE_TIMEOUT'));void this.stop().catch(()=>{})},type==='init'&&['compiled','gguf-metal-f16','gguf-metal-f16-complete'].includes(this.config.executionProfile||'')?900_000:this.timeoutMs)
    const stream=data as {synthesisId:string;binding:SpeechBinding}
    const target=type==='stream'?{requestId:id,synthesisId:stream.synthesisId,runtimeSessionId:stream.binding.runtimeSessionId,speechEpoch:stream.binding.speechEpoch}:undefined
    this.pending={id,expected,target,resolve,reject,timer,chunk}
@@ -84,11 +84,11 @@ export class TtsRuntimeSupervisor {
  }
  private async launch(packagePath:string,fingerprint:string,revision:number) {
   for(const p of [this.config.python,this.config.model,this.config.worker,this.config.cacheRoot])if(!isAbsolute(p))throw Error('VOICE_RUNTIME_CONFIG')
-  if(this.config.executionProfile?.startsWith('mps-')||this.config.executionProfile==='gguf-metal-f16')await verifyMacInterpreter(this.config.python,this.config.executionProfile)
+  if(!this.config.nativeBase&&(this.config.executionProfile?.startsWith('mps-')||this.config.executionProfile?.startsWith('gguf-metal-')))await verifyMacInterpreter(this.config.python,this.config.executionProfile)
   await mkdir(this.config.cacheRoot,{recursive:true});const cache=await mkdtemp(join(this.config.cacheRoot,'session-'))
   if(revision!==this.revision){await rm(cache,{recursive:true,force:true});throw Error('VOICE_CANCELLED')}
   this.cache=cache;this.sessionId=randomUUID()
-  const child=this.child=this.spawnProcess(this.config.python,['-B','-u',this.config.worker],{cwd:this.cache,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HOME:join(this.cache,'hf'),TORCH_HOME:join(this.cache,'torch'),NUMBA_CACHE_DIR:join(this.cache,'numba'),TEMP:this.cache,TMP:this.cache}})
+  const child=this.child=this.spawnProcess(this.config.python,this.config.nativeBase?[]:['-B','-u',this.config.worker],{cwd:this.config.nativeBase?dirname(this.config.python):this.cache,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HOME:join(this.cache,'hf'),TORCH_HOME:join(this.cache,'torch'),NUMBA_CACHE_DIR:join(this.cache,'numba'),TEMP:this.cache,TMP:this.cache}})
   this.exit=new Promise(resolve=>{child.once('close',()=>{if(this.child===child){this.child=null;this.key='';this.fail(Error('VOICE_WORKER_EXIT'))}resolve()});child.once('error',()=>{this.fail(Error('VOICE_WORKER_START'))})})
   child.stdin.on('error',()=>this.fail(Error('VOICE_WORKER_IO')))
   let buffer=''
@@ -114,10 +114,22 @@ export class TtsRuntimeSupervisor {
   })
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
-  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile||'baseline',compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
+  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
   catch(e){await this.stop();throw e}
  }
  async synthesize(text:string,binding:SpeechBinding,segmentIndex:number):Promise<AudioResult> {
+  if(this.config.executionProfile==='gguf-metal-f16-complete'){
+   const parts:Buffer[]=[];let header:Buffer|undefined,samples=0
+   const result=await this.stream(text,binding,segmentIndex,async chunk=>{
+    if(chunk.bytes.length!==44+chunk.sampleCount*2)throw Error('VOICE_INVALID_WAV')
+    header??=Buffer.from(chunk.bytes.subarray(0,44));parts.push(Buffer.from(chunk.bytes.subarray(44)));samples+=chunk.sampleCount
+    if(samples>48000*60)throw Error('VOICE_INVALID_WAV')
+   })
+   if(!header||!samples)throw Error('VOICE_INVALID_WAV')
+   header.writeUInt32LE(36+samples*2,4);header.writeUInt32LE(samples*2,40)
+   const bytes=Buffer.concat([header,...parts]);verifyWav(bytes)
+   return {audioId:randomUUID(),bytes,durationMs:samples/48,generationMs:result.generationMs,rtf:result.rtf}
+  }
   const audioId=randomUUID(),cache=this.cache
   if(!cache||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
   const result=await this.call('synthesize','audio-ready',{audioId,text,binding,segmentIndex,style:null})

@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 2,
+  "targets": {
+    "darwin-arm64": {
+      "platform": "darwin-arm64",
+      "commit": "873056743b74e1a4ce5dcf7290e2298428e214db",
+      "executable": "daemonlet-voice-engine",
+      "backend": "Metal",
+      "build": {
+        "configuration": "Release",
+        "sharedLibraries": false,
+        "mode": "base-no-reference",
+        "nativeSourceSha256": "aa54a487a2e0cd93944606f2c36a8087e600df3d7b53bd83a00cb72e0f523bd9",
+        "deploymentTarget": "13.0",
+        "nativeCpuInstructions": false,
+        "validatedHost": "Apple Silicon / macOS 27"
+      },
+      "files": {
+        "daemonlet-voice-engine": {
+          "bytes": 4716408,
+          "sha256": "2dfbf8d8f91a00c4d1f73a7eb9a2a84eb54844222457c0bf0fff06b9c04a8dbe"
+        },
+        "ggml-metal.metal": {
+          "bytes": 450832,
+          "sha256": "1345fbb9c42d3db8813fbaee5c0714407d2fc8cac867e380f6b5c1261db7dc4c"
+        },
+        "ggml-common.h": {
+          "bytes": 134777,
+          "sha256": "33667042e675da25d8ea0c6d5d0999506f1edfce2b7d97c2d78830ac5fb3fa46"
+        },
+        "ggml-metal-impl.h": {
+          "bytes": 22646,
+          "sha256": "f740a962b4e23b3c5d946d5da9351ba14a4d124c67f2f3cda54350b3e55e003e"
+        },
+        "licenses/llama-cpp-MIT.txt": {
+          "bytes": 1078,
+          "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+        },
+        "licenses/VoxCPM-LICENSE": {
+          "bytes": 11498,
+          "sha256": "cecbfbf54d0089e8d70b479fd2401964b8cfc7d0b1170418f0142da56f3aeae8"
+        },
+        "licenses/sha256-MIT.txt": {
+          "bytes": 41,
+          "sha256": "b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25"
+        },
+        "licenses/cpp-httplib-MIT.txt": {
+          "bytes": 1075,
+          "sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b"
+        },
+        "licenses/nlohmann-json-MIT.txt": {
+          "bytes": 1097,
+          "sha256": "f7e0709209991311ff91cb43b46bdb422d45c593f549597e696b9e13cb4650d4"
+        },
+        "licenses/llama.cpp-MIT.txt": {
+          "bytes": 1078,
+          "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+        },
+        "licenses/rotate-bits-CC0.txt": {
+          "bytes": 1088,
+          "sha256": "ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55"
+        },
+        "licenses/xxhash-BSD.txt": {
+          "bytes": 1389,
+          "sha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a"
+        },
+        "licenses/subprocess-Unlicense.txt": {
+          "bytes": 1331,
+          "sha256": "a2150552e0e2bba5b4a749eaaf11f10d3f781933c6dff2b4a88eaa387f26f6e6"
+        }
+      }
+    }
+  }
+}
