@@ -159,3 +159,80 @@ The probe expects CMake's Unix Makefiles build metadata. It builds the independe
 C++ harness against existing static libraries and checks runtime Metal logs,
 output WAV hashes, process exit and a 240s inference deadline. It never launches
 or registers an application worker. Failed diagnostics are not application PASS.
+
+## Live streaming review — 2026-09-28
+
+The user listened to the saved comparison and reported no large perceived voice
+quality difference. This is a user observation, not phonetic scoring or live
+streaming acceptance.
+
+`scripts/voice-live/server.py` prepares a loopback-only native Metal FP16 worker
+and a browser review screen, using the already approved dependencies and model
+conversion. Every launch rechecks the full selected package, pinned model
+manifest/base, converter source, GGUF hashes and 192 audited LoRA matrix records.
+It compiles the independent native transport and bundles the **unchanged** app
+`AudioPlaybackController.ts`. No production execution profile is added.
+
+The live worker sends actual newly generated 48kHz PCM chunks, with monotonically
+validated index/sample offsets and a three-credit window. Browser credits return
+on playback completion. The existing player retains its 240ms initial scheduling
+margin. This is not cached WAV playback or simulated chunk delivery. The first
+chunk has already reached the player while native synthesis is still active.
+
+Stopping retires the local speech epoch and scheduled audio first, then sends a
+request-bound cancel. Late chunks and credits for a retired ID cannot operate on
+the next synthesis. The native owner thread returns after the upstream VAE stream
+guard, explicitly resets KV/generation state, then acknowledges cleanup. A missing
+acknowledgment/worker failure terminates the owned native process. The review
+requires manual restart after such a failure; it does not claim the production
+supervisor's complete fallback/restart semantics. Hiding/closing the review page
+stops audio and cancels that request; the independent model stays loaded until
+the review server is stopped. This differs from production app hide/unload policy.
+
+Actual browser playback checks, one worker PID:
+
+| Live text | Received / played chunks | First scheduled playback | Scheduled gaps |
+|---|---:|---:|---:|
+| Question | 19 / 19 | 737ms | 0 |
+| Two sentences | 26 / 26 | 776ms | 0 |
+| Longer new Korean paragraph (13.28s audio) | 83 / 83 | 1162ms | 0 |
+
+A later long run was stopped with 54 chunks received / 51 completed playback;
+the screen confirmed cleanup, and the next question reused the same worker.
+The time above includes browser transport/decoding and the player's 240ms margin.
+The screen's live generation/wait RTF includes consumer-credit pacing and cannot
+be compared directly with the earlier unthrottled compute RTF. Gap counts measure
+scheduling, not microphone/loopback capture. Live physical
+listening and LLM concurrency remain separate user/hardware checks.
+
+`check.py` exercised the real transport with five alternating credit-wait and
+active-generation cancels. Acknowledgments took 7.6–8.9ms in credit wait and
+152–154ms during generation. All five recoveries matched the pre-cancel float PCM
+exactly in the same PID. Concurrent generation returned busy, foreign Origin was
+rejected, and stale cancel IDs did not affect current speech. No audio files are
+needed for this streaming transport. The unchanged player regression has 18
+passing tests. Normal server shutdown returned native exit code 0 and both owned
+PIDs disappeared; the final user-facing instance was then started separately.
+Windows code and app configuration are unchanged; no new Windows
+GPU acceptance is claimed.
+
+Run with a **new private result directory**, after the GGUF setup above:
+
+```sh
+'<CONVERSION_ENV>/bin/python' -B scripts/voice-live/server.py \
+  --source '<CPP_SOURCE>' --converted '<VERIFIED_F16_DERIVATIVE>' \
+  --package '<SELECTED_PACKAGE>' --model '<PINNED_MODEL>' \
+  --output '<NEW_PRIVATE_RESULTS>'
+# Open http://127.0.0.1:47862 on that Mac.
+# Optional actual GPU checks (do not run during a user's listening session):
+'<CONVERSION_ENV>/bin/python' -B scripts/voice-live/check.py \
+  --output '<NEW_PRIVATE_CHECK_JSON>'
+```
+
+The server accepts only its loopback Host and same Origin, with a per-run request
+token; it serves no model/source directory or arbitrary paths. Input is capped at
+400 characters / 1600 UTF-8 bytes. Generation is capped at 600 patches, credit
+wait at 10s and a request at 180s. Python/Metal outputs and private launcher paths
+remain outside Git. Locally provided start/stop commands let the user reopen the
+screen or unload the test model. This remains an independent streaming review,
+not full DAEMONLET service/LLM integration or production F1–F5/R1/R2 acceptance.
