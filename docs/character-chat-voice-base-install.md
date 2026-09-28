@@ -147,3 +147,7 @@ GUI deployment/playback remain unverified for this revision.
 
 See [PR #29 F1/F2 follow-up](character-chat-voice-pr29-fixes.md) for mode preservation,
 loading-boundary validation, full CI and measured warm-session verification costs.
+
+See [Windows receipt compatibility](character-chat-voice-windows-receipt.md) for
+the LF/CRLF installation-reuse fix and its subsequent native Windows playback
+verification. Existing receipts are preserved; reinstallation is not required.

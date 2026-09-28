@@ -468,5 +468,79 @@ class MpsTests(unittest.TestCase):
             with patch.object(runtime.metadata,'version',lambda name:'unexpected'):
                 with self.assertRaisesRegex(ValueError,'RUNTIME_VERSION'):runtime.verify_runtime(receipt)
 
+class WindowsReceiptTests(unittest.TestCase):
+    """Run the production installer boundary with only native imports mocked."""
+    def setUp(self):
+        import tempfile, hashlib
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = b'PINNED_SOURCE = True\n'
+        self.policy = dict(python=sys.version.split()[0], sourceCommit='pinned-commit',
+                           sourceFiles={'fixture.py': hashlib.sha256(self.source).hexdigest()},
+                           dependencies={'fixture': '1.0'})
+        self.lock = b'{\n  "python": {"sha256": "pinned", "bytes": 123},\n  "wheels": []\n}\n'
+        self.lock_path = self.root / 'lock.json'
+        self.policy_path = self.root / 'policy.json'
+        self.receipt = self.root / 'voice-runtime.json'
+        self.target = self.root / 'Lib/site-packages/voxcpm/fixture.py'
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(self.source)
+        source = self.root / 'downloads/source/fixture.py'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(self.source)
+        self.policy_path.write_text(json.dumps(self.policy), encoding='utf-8')
+
+    def saved(self, lock):
+        import hashlib
+        self.receipt.write_text(json.dumps(dict(schemaVersion=1,
+            source_commit=self.policy['sourceCommit'],
+            installLockSha256=hashlib.sha256(lock).hexdigest())), encoding='utf-8')
+
+    def run_installer(self, lock, verify=True, version='1.0'):
+        self.lock_path.write_bytes(lock)
+        argv = ['install_windows_base.py', '--downloads', str(self.root/'downloads'),
+                '--policy', str(self.policy_path), '--lock', str(self.lock_path)]
+        if verify: argv.append('--verify')
+        modules = {name: SimpleNamespace() for name in ('torch', 'torchaudio', 'voxcpm', 'triton')}
+        modules['torch'].__version__ = '2.8.0+cu128'
+        modules['triton'].__version__ = '3.4.0'
+        with patch('sys.argv', argv), patch('sys.prefix', str(self.root)), \
+             patch('sys.platform', 'win32'), patch.dict(sys.modules, modules), \
+             patch('importlib.metadata.version', return_value=version), patch('sys.stdout', io.StringIO()):
+            runpy.run_path(str(WORKER.parent/'install_windows_base.py'), run_name='__main__')
+
+    def test_existing_receipts_accept_both_checkout_line_endings_without_rewrite(self):
+        for saved in (self.lock, self.lock.replace(b'\n', b'\r\n')):
+            for current in (self.lock, self.lock.replace(b'\n', b'\r\n')):
+                with self.subTest(saved_crlf=b'\r' in saved, current_crlf=b'\r' in current):
+                    self.saved(saved)
+                    before = self.receipt.read_bytes()
+                    self.run_installer(current)
+                    self.assertEqual(self.receipt.read_bytes(), before)
+
+    def test_new_receipt_uses_lf_digest_even_from_crlf_checkout(self):
+        import hashlib
+        self.run_installer(self.lock.replace(b'\n', b'\r\n'), verify=False)
+        self.assertEqual(json.loads(self.receipt.read_text())['installLockSha256'], hashlib.sha256(self.lock).hexdigest())
+
+    def test_lock_content_and_non_line_ending_edits_remain_rejected(self):
+        for changed in (self.lock.replace(b'pinned', b'changed'),
+                        self.lock.replace(b'123', b'124'), self.lock + b' ',
+                        self.lock.replace(b'  ', b'    ')):
+            with self.subTest(lock=changed):
+                self.saved(self.lock)
+                with self.assertRaisesRegex(ValueError, 'RUNTIME_RECEIPT'):
+                    self.run_installer(changed)
+
+    def test_source_and_dependency_checks_still_run_after_legacy_receipt_match(self):
+        self.saved(self.lock.replace(b'\n', b'\r\n'))
+        self.target.write_bytes(b'TAMPERED = True\n')
+        with self.assertRaisesRegex(ValueError, 'RUNTIME_SOURCE_CHANGED'):
+            self.run_installer(self.lock)
+        self.target.write_bytes(self.source)
+        with self.assertRaisesRegex(ValueError, 'RUNTIME_VERSION:fixture'):
+            self.run_installer(self.lock, version='2.0')
+
 if __name__ == "__main__":
     unittest.main()

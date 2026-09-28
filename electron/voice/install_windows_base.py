@@ -5,12 +5,20 @@ from pathlib import Path
 def sha(p):
     with p.open('rb') as f:return hashlib.file_digest(f,'sha256').hexdigest()
 
+def lock_hashes(path):
+    raw=path.read_bytes();lf=raw.replace(b'\r\n',b'\n')
+    canonical=hashlib.sha256(lf).hexdigest()
+    # Legacy receipts hashed checkout bytes. Accept their LF/CRLF forms only;
+    # do not normalize JSON content, whitespace, or rewrite existing receipts.
+    return canonical,{canonical,hashlib.sha256(raw).hexdigest(),hashlib.sha256(lf.replace(b'\n',b'\r\n')).hexdigest()}
+
 def safe(name):
     if not name or name.startswith('/') or '\\' in name or ':' in name or any(p in ('','.','..') or p.endswith((' ','.')) or re.match(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)',p,re.I) for p in name.split('/')):raise ValueError('PATH')
     return name
 
 p=argparse.ArgumentParser();p.add_argument('--downloads',type=Path,required=True);p.add_argument('--policy',type=Path,required=True);p.add_argument('--lock',type=Path,required=True);p.add_argument('--verify',action='store_true');a=p.parse_args()
 policy=json.loads(a.policy.read_text(encoding='utf-8'));lock=json.loads(a.lock.read_text(encoding='utf-8'));root=Path(sys.prefix).resolve();site=root/'Lib/site-packages';receipt=root/'voice-runtime.json'
+lock_sha,compatible_lock_hashes=lock_hashes(a.lock)
 if sys.platform!='win32' or sys.version.split()[0]!=policy['python']:raise ValueError('RUNTIME_VERSION')
 if not a.verify:
     if receipt.exists():raise ValueError('REFUSE_EXISTING_RUNTIME')
@@ -37,9 +45,9 @@ if not a.verify:
         data=(a.downloads/'source'/safe(name)).read_bytes()
         if hashlib.sha256(data.replace(b'\r\n',b'\n')).hexdigest()!=digest:raise ValueError('RUNTIME_SOURCE_CHANGED')
         target=site/'voxcpm'/name;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data);source_files[name]=sha(target)
-    receipt.write_text(json.dumps(dict(schemaVersion=1,source_commit=policy['sourceCommit'],python=policy['python'],dependencies=policy['dependencies'],source_files=source_files,installLockSha256=sha(a.lock)),indent=2),encoding='utf-8')
+    receipt.write_text(json.dumps(dict(schemaVersion=1,source_commit=policy['sourceCommit'],python=policy['python'],dependencies=policy['dependencies'],source_files=source_files,installLockSha256=lock_sha),indent=2),encoding='utf-8')
 saved=json.loads(receipt.read_text(encoding='utf-8'))
-if saved.get('source_commit')!=policy['sourceCommit'] or saved.get('installLockSha256')!=sha(a.lock):raise ValueError('RUNTIME_RECEIPT')
+if saved.get('source_commit')!=policy['sourceCommit'] or saved.get('installLockSha256') not in compatible_lock_hashes:raise ValueError('RUNTIME_RECEIPT')
 for name,digest in policy['sourceFiles'].items():
     target=site/'voxcpm'/safe(name)
     if target.is_symlink() or not target.resolve().is_relative_to(site) or hashlib.sha256(target.read_bytes().replace(b'\r\n',b'\n')).hexdigest()!=digest:raise ValueError('RUNTIME_SOURCE_CHANGED')
