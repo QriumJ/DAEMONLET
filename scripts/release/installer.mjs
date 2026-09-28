@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { checkCandidate } from './check.mjs'
 import {readAsarIdentity} from './artifact-source.mjs'
+import {checkInstallerPayload} from './installer-payload.mjs'
 import { checkExternalNotices } from './check-notices.mjs'
 
 const { values } = parseArgs({ options: { app: { type: 'string' }, output: { type: 'string' }, publisher: { type: 'string' }, 'certificate-sha1': { type: 'string' } } })
@@ -49,7 +50,7 @@ async function walk(directory, prefix = '') {
   }
 }
 await walk(staged)
-if (files.some(f => /(^|\/)(skills|scripts|node_modules|docs|outputs|workflows|__pycache__)(\/|$)|\.(py|pyc|map|petchar)$/.test(f.path))) throw new Error('Authoring or development content found in installer payload')
+checkInstallerPayload(files, join(staged, 'resources/app.asar'))
 const appPackage = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const identity = await readAsarIdentity(join(staged, 'resources/app.asar'))
 await writeFile(join(output, 'payload.json'), JSON.stringify({ source: identity.source, appVersion: identity.appVersion, checks, files }, null, 2) + '\n')
