@@ -1060,5 +1060,7 @@
   "저장된 기준 음성 검증에 실패했습니다. 원본 WAV를 새 프로필로 가져와 주세요.": "The saved reference failed verification. Import the original WAV as a new profile.",
   "선택한 WAV 음성이 없거나 손상됐습니다. 다른 음성을 직접 선택하거나 원본을 다시 가져와 주세요.": "The selected WAV voice is missing or damaged. Select another voice or import the original again.",
   "이 음성 엔진은 WAV 클로닝 계약을 지원하지 않습니다.": "This voice engine does not support the WAV cloning contract.",
-  "음성 조건이 바뀌었습니다. 다시 재생해 주세요.": "The voice conditions have changed. Play it again."
+  "음성 조건이 바뀌었습니다. 다시 재생해 주세요.": "The voice conditions have changed. Play it again.",
+  "삭제": "Delete",
+  "음성 설정을 확인해 주세요.": "Check your voice settings."
 }
