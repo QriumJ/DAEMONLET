@@ -5,6 +5,8 @@ import {tmpdir} from 'node:os'
 import {EventEmitter} from 'node:events'
 import {ipcMain} from 'electron'
 import {VOICE_IPC} from '../electron/shared/character-voice-contract'
+import {CHAT_SETTINGS_IPC} from '../electron/shared/chat-settings-contract'
+import {ChatSettingsIpcController} from '../electron/main/character-chat/ChatSettingsIpcController'
 import {randomUUID} from 'node:crypto'
 import {ConversationStore} from '../electron/main/character-chat/ConversationStore'
 const environment=vi.hoisted(()=>({root:'',windows:vi.fn(),confirm:vi.fn()}))
@@ -167,4 +169,33 @@ it('settings selection stays synchronized after chat initialization even with it
  vi.spyOn((window as any).registry,'get').mockReturnValue({id:'other',revision:'new',status:'ready'})
  const select=vi.spyOn(window.service,'selectCharacter').mockResolvedValue()
  await window.selectedCharacterChanged('other');expect(select).toHaveBeenCalledWith('other');expect(window.window).toBeNull();expect(window.voice.playbackReady).toBe(false)
+})
+
+
+it.each([true,false])('settings receives playback readiness without a synthesis state change (enabled=%s)',async enabled=>{
+ const {window}=await savedFixture();mockWindows()
+ const settings:any={window:{isDestroyed:()=>false},currentOwner:()=> 'settings-owner',send:vi.fn()}
+ const management=new ChatSettingsIpcController(settings,window)
+ const handle=(channel:string)=>vi.mocked(ipcMain.handle).mock.calls.filter(c=>c[0]===channel).at(-1)![1]
+ try{
+  const initial=await handle(CHAT_SETTINGS_IPC.action)({} as any,{type:'open-chat'})
+  expect(initial.playbackReady).toBe(false)
+  const win=window.window as any;let visible=true;win.isVisible=()=>visible
+  const voice=window.voice.service as any
+  voice.state.enabled=enabled;voice.state.executionProfile='baseline';voice.config={python:'unused',model:'unused'}
+  voice.state.profiles=[{id:'voice',version:'1'}];voice.state.bindings={gpichan:'voice@1'}
+  const prepare=vi.spyOn(window.voice.service,'prepare'),snapshot=window.voice.service.snapshot()
+  const latest=()=>settings.send.mock.calls.filter((c:any[])=>c[0]===CHAT_SETTINGS_IPC.changed).at(-1)?.[1]
+  settings.send.mockClear()
+  await handle(VOICE_IPC.action)({} as any,{type:'ready'})
+  expect(window.voice.playbackReady).toBe(true)
+  expect(window.voice.service.snapshot()).toEqual(snapshot)
+  expect(prepare).toHaveBeenCalledTimes(1)
+  expect(latest()?.playbackReady).toBe(true)
+  visible=false;win.emit('hide');expect(latest()?.playbackReady).toBe(false)
+  visible=true;win.emit('show');expect(latest()?.playbackReady).toBe(true)
+  win.webContents.emit('did-start-loading');expect(latest()?.playbackReady).toBe(false)
+  await handle(VOICE_IPC.action)({} as any,{type:'ready'});expect(latest()?.playbackReady).toBe(true)
+  win.webContents.emit('render-process-gone');expect(latest()?.playbackReady).toBe(false)
+ }finally{management.dispose();await window.dispose()}
 })

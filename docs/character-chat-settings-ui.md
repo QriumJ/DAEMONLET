@@ -62,3 +62,17 @@ The requested artifact is a local release candidate, not a published release.
 The app version remains 0.8.1. Packaging does not add external character/voice/model
 weights. Production signing, notarization, installation replacement, tagging,
 pushing and publication are separate operations and are not performed here.
+
+
+## Candidate readiness correction
+
+Windows packaged verification found that opening chat from settings could leave
+Test playback disabled until the settings tab remounted. Baseline/off readiness
+can change without a synthesis snapshot because these paths skip preparation.
+The voice IPC controller now notifies management subscribers on attachment,
+renderer ready, show, hide, reload and renderer loss independently of engine state.
+Playback ownership and ready/credit capabilities remain with the chat renderer.
+Two regressions use the real chat window, voice controller and settings IPC to
+check readiness delivery with an unchanged voice snapshot and subsequent lifecycle
+revocation. The previous candidate is superseded; installed-app promotion waits
+for the corrected candidate's packaged validation.

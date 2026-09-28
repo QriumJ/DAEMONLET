@@ -42,17 +42,18 @@ export class VoiceIpcController {
    return this.service.audio(id,epoch as number)
   })
  }
+ private publishManagement(){for(const listener of this.managementListeners){try{listener()}catch{}}}
  private send(channel:string,value:unknown){
-  if(channel===VOICE_IPC.changed)for(const listener of this.managementListeners){try{listener()}catch{}}
+  if(channel===VOICE_IPC.changed)this.publishManagement()
   const win=this.window()
   if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed()){
    try{win.webContents.send(channel,value)}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}
   }
  }
  attachWindow(win:BrowserWindow){
-  ++this.outputGeneration;this.attached=win;this.rendererReady=false;this.service.setOutputReady(false)
+  ++this.outputGeneration;this.attached=win;this.rendererReady=false;this.service.setOutputReady(false);this.publishManagement()
   const current=()=>this.attached===win
-  const deny=()=>{if(current()){++this.outputGeneration;this.service.setOutputReady(false)}}
+  const deny=()=>{if(current()){++this.outputGeneration;this.service.setOutputReady(false);this.publishManagement()}}
   const reset=()=>{if(current()){this.rendererReady=false;deny()}}
   win.on('hide',deny);win.on('close',reset);win.on('closed',reset)
   win.on('show',()=>{if(current())this.updateOutput()})
@@ -63,6 +64,8 @@ export class VoiceIpcController {
  private updateOutput(){
   const win=this.window()
   this.service.setOutputReady(!this.closing&&!!win&&win===this.attached&&!win.isDestroyed()&&!win.webContents.isDestroyed()&&win.isVisible()&&this.rendererReady)
+  // Readiness can change without a service snapshot (baseline/off skips preparation).
+  this.publishManagement()
  }
  initialize(){return this.initialized??=this.service.initialize()}
  async stop(){try{await this.service.stop()}catch(e){this.service.error(e)}}
