@@ -1,7 +1,7 @@
 import {createHash,randomUUID} from 'node:crypto'
 import {createReadStream} from 'node:fs'
 import {lstat,readdir,readFile,mkdir,cp,rename,rm,realpath} from 'node:fs/promises'
-import {join,resolve,relative,isAbsolute} from 'node:path'
+import {join,resolve,relative,isAbsolute,basename} from 'node:path'
 import type {VoiceProfile} from '../../shared/character-voice-contract'
 
 export const SELECTED_VOICE = Object.freeze({id:'belle_candidates_6000',version:'0.5.0-selected-6000-e2',checkpoint:'step_0002660',adapter:'e7d8b3b99af702c3df135ef194596c2b13cf99bb00b8e7204f684c435be50eb2',checksums:'1a7d036f437b611307dbdceca564af75424efa27f77f761a01c015de24005f4f'})
@@ -15,6 +15,8 @@ export function safeRelative(name:string) {
 }
 export async function regularTree(root:string,limits=VOICE_LIMITS) {
  const files=new Map<string,number>();let bytes=0,entries=0
+ // macOS system temporary parents are aliases; never allow a package-root link.
+ if(process.platform==='darwin'){if((await lstat(root)).isSymbolicLink())throw Error('VOICE_LINK');root=join(await realpath(resolve(root,'..')),basename(resolve(root)))}
  // Reject links at every ancestor, including a user-selected junction root.
  for(let p=resolve(root);;){const s=await lstat(p);if(s.isSymbolicLink())throw Error('VOICE_LINK');const parent=resolve(p,'..');if(parent===p)break;p=parent}
  const canonical=await realpath(root)
@@ -41,6 +43,7 @@ export async function verifyVoicePackage(root:string,selected?:typeof SELECTED_V
  if(listed.size!==files.size-1)throw Error('VOICE_UNLISTED_FILE')
  for(const [name,hash] of listed)if(!files.has(name)||await sha256(join(root,name))!==hash)throw Error('VOICE_CHECKSUM_MISMATCH')
  const v=await boundedJson(join(root,'voice.json')) as VoiceManifest
+ if(v.voice_id==='voxcpm2_default')throw Error('VOICE_SCHEMA')
  if(v.schema_version!=='voicelab.experimental.v1'||!/[a-z0-9]/.test(v.voice_id)||! /^[a-z0-9_-]{1,80}$/.test(v.voice_id)||! /^[a-zA-Z0-9._-]{1,80}$/.test(v.version)||typeof v.display_name!=='string'||v.display_name.length>120)throw Error('VOICE_SCHEMA')
  for(const [k,value] of Object.entries(ENGINE))if(v.engine?.[k as keyof typeof ENGINE]!==value)throw Error('VOICE_ENGINE')
  if(v.mode!=='reference'||v.output_sample_rate!==48000)throw Error('VOICE_MODE')
@@ -52,6 +55,8 @@ export async function verifyVoicePackage(root:string,selected?:typeof SELECTED_V
  const adapter=listed.get(v.lora+'/lora_weights.safetensors')!
  const provenance=await boundedJson(join(root,'provenance.json'))
  if(provenance.adapter_sha256!==adapter||provenance.checkpoint!==v.checkpoint||provenance.condition?.reference_sha256!==listed.get(v.reference))throw Error('VOICE_PROVENANCE')
+ if(v.voice_id===SELECTED_VOICE.id&&v.version===SELECTED_VOICE.version)selected=SELECTED_VOICE
+ if(typeof v.checkpoint!=='string'||!v.checkpoint||v.checkpoint.length>120)throw Error('VOICE_SCHEMA')
  if(selected&&(v.voice_id!==selected.id||v.version!==selected.version||v.checkpoint!==selected.checkpoint||adapter!==selected.adapter||digest!==selected.checksums))throw Error('VOICE_SELECTION_MISMATCH')
  return {manifest:v,profile:{id:v.voice_id,version:v.version,name:v.display_name,fingerprint:digest,adapterSha256:adapter}}
 }

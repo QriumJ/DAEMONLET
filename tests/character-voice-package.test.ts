@@ -26,3 +26,13 @@ it('rejects tampered, missing, unlisted and duplicate checksums',async()=>{
 it('rejects revision and inference changes even with updated hashes',async()=>{const {root,files,save}=await fixture();const manifest=JSON.parse(files['voice.json']);manifest.engine.model_revision='wrong';files['voice.json']=JSON.stringify(manifest);await save();await expect(verifyVoicePackage(root)).rejects.toThrow('ENGINE');manifest.engine=ENGINE;manifest.inference.normalize=true;files['voice.json']=JSON.stringify(manifest);await save();await expect(verifyVoicePackage(root)).rejects.toThrow('INFERENCE')})
 it('rejects conflicts and enforces file/byte limits',async()=>{const {root,files,save}=await fixture(),dest=await mkdtemp(join(tmpdir(),'voice-registry-'));roots.push(dest);await importVoicePackage(root,dest);files['SOURCE_AND_USAGE_NOTES.md']='changed';await save();await expect(importVoicePackage(root,dest)).rejects.toThrow('CONFLICT');await expect(regularTree(root,{files:2,bytes:100000,json:10000})).rejects.toThrow('LIMIT');await expect(regularTree(root,{files:128,bytes:2,json:10000})).rejects.toThrow('LIMIT')})
 it('rejects junctions at both package root and nested paths',async()=>{const {root}=await fixture(),links=await mkdtemp(join(tmpdir(),'voice-link-'));roots.push(links);await symlink(root,join(links,'alias'),'junction');await expect(verifyVoicePackage(join(links,'alias'))).rejects.toThrow('LINK');await symlink(links,join(root,'nested'),'junction');await expect(verifyVoicePackage(root)).rejects.toThrow('LINK');await rm(join(root,'nested'))})
+
+it('always pins the adopted Belle identity while allowing other compatible packages',async()=>{
+ const {root,files,save}=await fixture();expect((await verifyVoicePackage(root)).profile.id).toBe('synthetic')
+ const manifest=JSON.parse(files['voice.json']);manifest.voice_id=SELECTED_VOICE.id;manifest.version=SELECTED_VOICE.version;files['voice.json']=JSON.stringify(manifest);await save()
+ await expect(verifyVoicePackage(root)).rejects.toThrow('VOICE_SELECTION_MISMATCH')
+})
+
+it('reserves the builtin default voice identity against imported packages',async()=>{
+ const {root,files,save}=await fixture();const manifest=JSON.parse(files['voice.json']);manifest.voice_id='voxcpm2_default';files['voice.json']=JSON.stringify(manifest);await save();await expect(verifyVoicePackage(root)).rejects.toThrow()
+})

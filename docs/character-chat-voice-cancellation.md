@@ -120,7 +120,7 @@ npm run release:verify
 ```
 
 The probe runs six fixed texts twice, then alternates credit-wait/generation
-cancellation four times. It requires the same PID/session, zero cancelled WAVs,
+cancellation five times in the current probe (the earlier Windows report used four). It requires the same PID/session, zero cancelled WAVs,
 one reference-cache build, unchanged compiled graph counts and a recovery WAV
 hash/sample count identical to the pre-cancel reference. Its report separates
 worker synthesis from app playback and physical listening.
@@ -133,3 +133,12 @@ Hiding/closing the chat deliberately unloads; reopening may need preparation.
 Physical listening of this R2 candidate, loopback acoustic stop latency,
 long-duration soak and Mac compatibility are not established by software events.
 The user's confirmation of the prior R1 handoff is not new R2 listening evidence.
+
+
+## Handoff observation correction (2026-09-28)
+
+The PR #28 handoff records the user listening to the Windows R2 candidate and
+reporting no issue. This supersedes the earlier listening-pending wording above
+for that small Windows observation only. It is not acoustic loopback measurement,
+exhaustive pronunciation acceptance, or Mac listening approval. The current
+Mac port has a separate validation report.

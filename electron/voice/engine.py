@@ -5,14 +5,19 @@ import json
 import re
 import time
 
-PROFILES = {'baseline', 'cached', 'compiled'}
+from backend import CudaDevice
+
+PROFILES = {'baseline', 'cached', 'compiled', 'mps-fp32-baseline', 'mps-fp32'}
+BASELINES = {'baseline', 'mps-fp32-baseline'}
 
 
 class Engine:
-    def __init__(self, model, reference, settings, profile):
+    def __init__(self, model, reference, settings, profile, backend=CudaDevice, voice_description=None):
         if profile not in PROFILES:
             raise ValueError('EXECUTION_PROFILE')
         self.model, self.reference, self.settings, self.profile = model, reference, settings, profile
+        self.backend = backend
+        self.voice_description = voice_description
         self.cache = None
         self.cache_builds = 0
         self.compile_counts = {}
@@ -20,10 +25,10 @@ class Engine:
 
     def prepare(self):
         import torch
-        if self.profile != 'baseline':
+        if self.profile not in BASELINES and self.reference is not None:
             start = time.perf_counter()
             self.cache = self.model.tts_model.build_prompt_cache(reference_wav_path=str(self.reference))
-            torch.cuda.synchronize()
+            self.backend.synchronize(torch)
             self.cache_builds += 1
             self.audit['conditioningMs'] = (time.perf_counter()-start)*1000
         if self.profile == 'compiled':
@@ -59,7 +64,9 @@ class Engine:
                 raise ValueError('COMPILE_UNAVAILABLE') from error
 
     def generate(self, text, streaming=False):
-        if self.profile == 'baseline':
+        if self.voice_description:
+            text = f"({self.voice_description}) {text}"
+        if self.profile in BASELINES:
             if streaming:
                 raise ValueError('EXECUTION_PROFILE')
             yield self.model.generate(text=text, reference_wav_path=str(self.reference), **self.settings)
@@ -79,14 +86,14 @@ class Engine:
             yield audio.squeeze(0).cpu().numpy()
 
     def warmup(self):
-        if self.profile == 'baseline':
+        if self.profile in BASELINES:
             return
         import torch
         start = time.perf_counter()
         try:
             for _ in self.generate('응, 듣고 있어. 지금은 어떤 이야기를 할까?'):
                 pass
-            torch.cuda.synchronize()
+            self.backend.synchronize(torch)
             if self.profile == 'compiled':
                 self.audit['compileEffectiveByComponent'] = {k: v['graphs'] > 0 and v['executions'] > 0 for k, v in self.compile_counts.items()}
                 if len(self.audit['compileEffectiveByComponent']) != 4 or not all(self.audit['compileEffectiveByComponent'].values()):

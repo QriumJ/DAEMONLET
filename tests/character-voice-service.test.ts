@@ -35,16 +35,17 @@ async function fixture(){const root=await mkdtemp(join(tmpdir(),'voice-service-'
  const message:ChatMessage={id:'message',role:'assistant',status:'complete',text:'응. 다음 문장!',createdAt:'now',binding:{characterId:'actual-id',revision:'rev1',conversationId:'conversation',requestId:'request',epoch:1,modelId:'E4B',personaHash:'p',semanticHash:'s'}}
  const chat={epoch:1,model:'E4B',character:{id:'actual-id',revision:'rev1'},conversation:{id:'conversation',messages:[message]}} as LocalChatSnapshot
  let audio=0
- const runtime={sessionId:'session',running:false,retireSpeech:vi.fn(),start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),synthesize:vi.fn(async()=>({audioId:'audio-'+(++audio),bytes:new Uint8Array([1,2]),durationMs:10,generationMs:1,rtf:0.1}))}
+ const runtime={sessionId:'session',running:false,get ready(){return runtime.running},retireSpeech:vi.fn(),start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),synthesize:vi.fn(async()=>({audioId:'audio-'+(++audio),bytes:new Uint8Array([1,2]),durationMs:10,generationMs:1,rtf:0.1}))}
  const cancelSpeech=vi.fn(async()=>{await runtime.stop();return {keptWarm:false,elapsedMs:0}});Object.assign(runtime,{cancelSpeech})
  const events:VoiceEvent[]=[]
  const service=new CharacterVoiceService(root,'/worker',()=>chat,()=>{},e=>events.push(e),()=>runtime as unknown as TtsRuntimeSupervisor);services.push(service)
- await service.initialize();await service.configure('/python','/model');await service.enabled(true)
+ await service.initialize();(service as any).state.executionProfile='baseline';await service.configure('/python','/model');await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',name:'Synthetic',fingerprint:'fingerprint',adapterSha256:'adapter'}]
  await service.bind('actual-id','voice@1')
  service.setOutputReady(true);service.requestStarted(message.binding!.requestId)
  const complete=async()=>{await vi.waitFor(()=>expect(events.some(e=>e.type==='audio')).toBe(true));for(let i=0;i<2;i++){await vi.waitFor(()=>expect(events.filter(e=>e.type==='audio').length).toBe(i+1));const e=events.filter(e=>e.type==='audio')[i];if(e.type==='audio'){service.audio(e.audioId,e.epoch);service.played(e.audioId,e.epoch)}}await vi.waitFor(()=>expect(service.snapshot().status).toBe('idle'))}
- return{root,service,chat,message,runtime,events,complete}
+ const completeOne=async()=>{await vi.waitFor(()=>expect(events.some(e=>e.type==='audio'&&(service as any).active?.id===e.audioId)).toBe(true));const e=events.find(e=>e.type==='audio'&&(service as any).active?.id===e.audioId)!;if(e.type==='audio'){service.audio(e.audioId,e.epoch);service.played(e.audioId,e.epoch)}}
+ return{root,service,chat,message,runtime,events,complete,completeOne}
 }
 it('only explicit completion triggers speech, deduplicates and applies ordered backpressure',async()=>{const f=await fixture();f.service.onChatChanged();expect(f.runtime.synthesize).not.toHaveBeenCalled();f.service.completed(f.message);f.service.completed(f.message);await vi.waitFor(()=>expect(f.runtime.synthesize).toHaveBeenCalledTimes(1));await f.complete();expect(f.runtime.synthesize.mock.calls.map(args=>(args as unknown[])[0])).toEqual(['응.',' 다음 문장!']);f.service.onChatChanged();expect(f.runtime.synthesize).toHaveBeenCalledTimes(2)})
 it('late synthesis is discarded on revision or conversation changes',async()=>{const f=await fixture();let release!:(v:any)=>void;f.runtime.synthesize.mockImplementationOnce(()=>new Promise(r=>{release=r}));f.service.completed(f.message);await vi.waitFor(()=>expect(release).toBeTypeOf('function'));f.chat.character!.revision='rev2';f.service.onChatChanged();release({audioId:'late',bytes:new Uint8Array(1),durationMs:1});await new Promise(r=>setTimeout(r,20));expect(f.events.some(e=>e.type==='audio')).toBe(false);expect(f.runtime.stop).toHaveBeenCalled()})
@@ -137,4 +138,77 @@ it('voice-only stop cancels an explicit preparation even before speech exists',a
  const ready=f.service.prepare();await vi.waitFor(()=>expect(release).toBeTypeOf('function'));f.runtime.stop.mockClear()
  await f.service.stop(true,false);expect(f.runtime.stop).toHaveBeenCalledOnce()
  release();await ready;expect(f.service.snapshot().status).toBe('stopped')
+})
+
+it('removal deletes only the selected voice derivative and preserves another voice cache',async()=>{
+ const f=await fixture(),own=join(f.root,'gguf-cache','voice@1'),other=join(f.root,'gguf-cache','other@1')
+ await mkdir(own,{recursive:true});await mkdir(other,{recursive:true});await writeFile(join(own,'derived'),'own');await writeFile(join(other,'derived'),'other')
+ await f.service.remove('voice@1');await expect(stat(own)).rejects.toThrow();expect(await readFile(join(other,'derived'),'utf8')).toBe('other')
+})
+
+it('Windows builtin voice needs no package or manual runtime and keeps two compiled modes',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'voice-windows-base-'));roots.push(root)
+ const base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/managed/python',path:'/managed/model',snapshot:()=>({supported:true,installed:true,phase:'idle' as const,bytes:1,total:1,error:null}),initialize:async()=>{},identity:async()=>"stable",cancelVerification:async()=>{},ready:async()=>'/managed/model',install:async()=>{},cancel:async()=>{}}
+ const configs:any[]=[];const runtime={config:null as any,sessionId:'base-session',running:false,start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),retireSpeech:vi.fn(),cancelSpeech:vi.fn(async()=>({keptWarm:true,elapsedMs:0}))}
+ const service=new CharacterVoiceService(root,'/worker',()=>({character:{id:'test',revision:'1'}}) as any,()=>{},()=>{},config=>{configs.push(config);runtime.config=config;return runtime as any},()=>{},base);services.push(service)
+ await service.initialize();expect(service.snapshot()).toMatchObject({defaultProfile:'voxcpm2_default@base',runtimeConfigured:true,executionProfile:'cuda-compiled',availableProfiles:['cuda-compiled','cuda-compiled-complete']})
+ await service.enabled(true);service.setOutputReady(true);await service.prepare();expect(configs[0]).toMatchObject({windowsBase:true,nativeBase:false,python:'/managed/python',model:'/managed/model',executionProfile:'cuda-compiled'})
+ await service.executionProfile('cuda-compiled-complete');expect(service.snapshot().executionProfile).toBe('cuda-compiled-complete');expect(JSON.parse(await readFile(join(root,'settings.json'),'utf8')).baseExecutionProfile).toBe('cuda-compiled-complete')
+ expect(configs.at(-1).executionProfile).toBe('cuda-compiled-complete')
+})
+
+it.each(['baseline','cached','compiled'] as const)('F1: Windows installer cannot replace external %s or persist a different mode',async mode=>{
+ const f=await fixture(),base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},snapshot:()=>({supported:true,installed:false}),cancelVerification:async()=>{},cancel:async()=>{}}
+ ;(f.service as any).base=base;(f.service as any).state.executionProfile=mode
+ expect(f.service.snapshot()).toMatchObject({executionProfile:mode,availableProfiles:['baseline','cached','compiled']})
+ await f.service.volume(0.4)
+ expect(JSON.parse(await readFile(join(f.root,'settings.json'),'utf8')).executionProfile).toBe(mode)
+ await f.service.prepare();expect(f.runtime.start).toHaveBeenCalledTimes(mode==='baseline'?0:1)
+ if(mode!=='baseline')expect((f.runtime.start.mock.calls[0] as unknown[])[1]).toBe('fingerprint:'+mode)
+})
+it('F2: three warm default utterances validate once; a new worker or changed identity validates again',async()=>{
+ const f=await fixture();let identity='generation-1'
+ const base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/python',path:'/model',snapshot:()=>({supported:true,installed:true}),identity:vi.fn(async()=>identity),ready:vi.fn(async()=>'/model'),cancelVerification:async()=>{},cancel:async()=>{}}
+ ;(f.service as any).base=base;(f.service as any).state.profiles.push(base.profile);(f.service as any).state.bindings['actual-id']='voxcpm2_default@base';(f.service as any).state.executionProfile='cuda-compiled-complete';(f.service as any).baseExecutionProfile='cuda-compiled-complete'
+ Object.assign(f.runtime,{config:{python:'/python',model:'/model',nativeBase:false,windowsBase:true},busy:false})
+ for(let i=0;i<3;i++){f.message.text='서로 다른 문장 '+i;const task=(f.service as any).read(f.message);await f.completeOne();await task}
+ expect(base.ready).toHaveBeenCalledTimes(1)
+ f.runtime.running=false;const reloaded=(f.service as any).read(f.message);await f.completeOne();await reloaded;expect(base.ready).toHaveBeenCalledTimes(2)
+ identity='generation-2';const replaced=(f.service as any).read(f.message);await f.completeOne();await replaced;expect(base.ready).toHaveBeenCalledTimes(3)
+})
+
+it.each(['stop','hide','off','close','question'] as const)('F2: %s during base verification forbids late start and audio',async action=>{
+ const f=await fixture();let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>release=r),begun=new Promise<void>(r=>entered=r)
+ const base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/python',path:'/model',snapshot:()=>({supported:true,installed:true}),identity:async()=> 'stable',ready:vi.fn(async()=>{entered();await gate;return '/model'}),cancelVerification:vi.fn(async()=>{}),cancel:async()=>{}}
+ ;(f.service as any).base=base;(f.service as any).state.profiles.push(base.profile);(f.service as any).state.bindings['actual-id']='voxcpm2_default@base';Object.assign(f.runtime,{config:{nativeBase:false},busy:false})
+ const preparing=f.service.prepare();await begun
+ if(action==='hide')f.service.setOutputReady(false)
+ else if(action==='off')await f.service.enabled(false)
+ else if(action==='close')await f.service.close()
+ else if(action==='question')f.service.cancel()
+ else await f.service.stop()
+ release();await preparing
+ expect(base.cancelVerification).toHaveBeenCalled();expect(f.runtime.start).not.toHaveBeenCalled();expect(f.runtime.synthesize).not.toHaveBeenCalled();expect(f.events.filter(e=>e.type==='audio')).toEqual([])
+})
+it('F2: validation failure stops the old worker and recovery validates before loading',async()=>{
+ const f=await fixture();let identity='first'
+ const base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/python',path:'/model',snapshot:()=>({supported:true,installed:true}),identity:async()=>identity,ready:vi.fn(async()=>'/model'),cancelVerification:async()=>{},cancel:async()=>{}}
+ ;(f.service as any).base=base;(f.service as any).state.profiles.push(base.profile);(f.service as any).state.bindings['actual-id']='voxcpm2_default@base';Object.assign(f.runtime,{config:{nativeBase:false},busy:false})
+ await f.service.prepare();identity='tampered';base.ready.mockRejectedValueOnce(Error('VOICE_BASE_CHANGED'));await f.service.prepare()
+ expect(f.runtime.running).toBe(false);expect(f.runtime.start).toHaveBeenCalledTimes(1);expect(f.service.snapshot().error).toBe('VOICE_BASE_CHANGED')
+ identity='repaired';await f.service.prepare();expect(base.ready).toHaveBeenCalledTimes(3);expect(f.runtime.start).toHaveBeenCalledTimes(2);expect(f.service.snapshot().error).toBeNull()
+})
+
+it.each(['baseline','cached','compiled'] as const)('F1: default/external switch and restart retain external %s independently',async mode=>{
+ const f=await fixture(),external=(f.service as any).state.profiles[0],base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/base/python',path:'/base/model',snapshot:()=>({supported:true,installed:false,phase:'idle' as const,bytes:0,total:1,error:null}),initialize:async()=>{},identity:async()=> 'stable',ready:async()=>'/base/model',cancelVerification:async()=>{},install:async()=>{},cancel:async()=>{}}
+ ;(f.service as any).base=base;(f.service as any).state.executionProfile=mode;(f.service as any).state.profiles.push(base.profile)
+ await f.service.bind('actual-id','voxcpm2_default@base');await f.service.executionProfile('cuda-compiled-complete');await f.service.volume(0.4)
+ expect(f.service.snapshot().executionProfile).toBe('cuda-compiled-complete')
+ await f.service.bind('actual-id','voice@1');expect(f.service.snapshot().executionProfile).toBe(mode)
+ const descriptor=Object.getOwnPropertyDescriptor(process,'platform')!
+ let restored!:CharacterVoiceService
+ try{Object.defineProperty(process,'platform',{value:'win32',configurable:true});restored=new CharacterVoiceService(f.root,'/worker',()=>f.chat,()=>{},()=>{},()=>f.runtime as any,()=>{},base);services.push(restored);await restored.initialize()}finally{Object.defineProperty(process,'platform',descriptor)}
+ ;(restored as any).state.profiles.push(external);await restored.bind('actual-id','voice@1')
+ expect(restored.snapshot().executionProfile).toBe(mode)
+ await restored.bind('actual-id','voxcpm2_default@base');expect(restored.snapshot().executionProfile).toBe('cuda-compiled-complete')
 })

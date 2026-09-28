@@ -8,5 +8,7 @@
 # Runtime catalogs pin the exact legal-notice bytes on both build hosts.
 /distribution/licenses/character-chat/* -text whitespace=cr-at-eol,-blank-at-eof
 /electron/native/character-chat/* text eol=lf
+# New Windows voice receipts use LF lock bytes, independent of core.autocrlf.
+/electron/voice/install-windows-base.json text eol=lf
 # Vendor legal text includes intentional original spaces; do not rewrite it.
 /distribution/licenses/character-chat/CUDA-13.0-EULA.txt whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol

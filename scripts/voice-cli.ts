@@ -3,7 +3,7 @@ import {mkdir,writeFile,readdir} from 'node:fs/promises'
 import {randomUUID,createHash} from 'node:crypto'
 import {verifyVoicePackage,importVoicePackage,SELECTED_VOICE,profileKey} from '../electron/main/character-voice/VoicePackage'
 import {TtsRuntimeSupervisor} from '../electron/main/character-voice/TtsRuntimeSupervisor'
-import type {SpeechBinding} from '../electron/shared/character-voice-contract'
+import {isStreamingProfile,type ExecutionProfile,type SpeechBinding} from '../electron/shared/character-voice-contract'
 
 const [command,...args]=process.argv.slice(2)
 function option(name:string){const index=args.indexOf('--'+name);if(index<0||!args[index+1])throw Error('Missing --'+name);return resolve(args[index+1])}
@@ -16,7 +16,7 @@ else if(command==='import'){
  console.log(JSON.stringify({status:'PASS',profile:result.profile},null,2))
 }else if(command==='smoke'){
  const data=option('data'),result=await importVoicePackage(source,join(data,'voice','profiles'),SELECTED_VOICE)
- const worker=new TtsRuntimeSupervisor({python:option('python'),model:option('model'),worker:resolve('electron/voice/worker.py'),cacheRoot:join(data,'voice','cache')},300_000)
+ const worker=new TtsRuntimeSupervisor({python:option('python'),model:option('model'),worker:resolve('electron/voice/worker.py'),cacheRoot:join(data,'voice','cache'),executionProfile:value('profile',process.platform==='darwin'?'mps-fp32-baseline':'baseline') as ExecutionProfile},300_000)
  try{
   await worker.start(join(data,'voice','profiles',profileKey(result.profile)),result.profile.fingerprint)
   const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:result.profile.id,voiceProfileVersion:result.profile.version,voiceFingerprint:result.profile.fingerprint,runtimeSessionId:worker.sessionId}
@@ -44,15 +44,16 @@ else if(command==='import'){
   await writeFile(join(data,'diagnostics','worker-result.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2))
  }finally{await worker.stop()}
 }else if(command==='stream'){
- const profile=value('profile','cached');if(profile!=='cached'&&profile!=='compiled')throw Error('EXECUTION_PROFILE')
+ const profile=value('profile',process.platform==='darwin'?'gguf-metal-f16':'cached') as ExecutionProfile;if(!['cached','compiled','mps-fp32','gguf-metal-f16'].includes(profile))throw Error('EXECUTION_PROFILE')
  const data=option('data');await mkdir(data,{recursive:true})
  const worker=new TtsRuntimeSupervisor({python:option('python'),model:option('model'),worker:resolve('electron/voice/worker.py'),cacheRoot:join(data,'cache'),compilerCache:args.includes('--compiler-cache')?option('compiler-cache'):join(data,'compiler-cache'),executionProfile:profile},300_000)
  const report:any={profile,scope:'worker-stream-with-immediate-credit',appPlayback:'NOT_TESTED',physicalListening:'NOT_TESTED',measurements:[]}
  try{
   await worker.start(source,verified.profile.fingerprint+':'+profile);report.audit=worker.audit
   const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:verified.profile.id,voiceProfileVersion:verified.profile.version,voiceFingerprint:verified.profile.fingerprint,runtimeSessionId:worker.sessionId,executionProfile:profile}
-  const texts=['응.','오빠, 오늘은 어떤 이야기를 할까?','응, 듣고 있어. 지금은 어떤 이야기를 할까?','내일 오후 세 시에 다시 확인해 줘.','RTX 4090으로 음성을 만들고 있어.','먼저 파일을 확인할게. 문제가 없으면 다음 작업으로 넘어가자.']
-  for(let repeat=0;repeat<2;repeat++)for(let index=0;index<texts.length;index++){
+  const allTexts=['응.','오빠, 오늘은 어떤 이야기를 할까?','응, 듣고 있어. 지금은 어떤 이야기를 할까?','내일 오후 세 시에 다시 확인해 줘.','RTX 4090으로 음성을 만들고 있어.','먼저 파일을 확인할게. 문제가 없으면 다음 작업으로 넘어가자.']
+  const texts=allTexts
+  for(let repeat=0;repeat<Number(value("repeats","2"));repeat++)for(let index=0;index<(args.includes("--quick")?2:texts.length);index++){
    const start=performance.now();let first:number|undefined,chunks=0,samples=0
    const result=await worker.stream(texts[index],binding,index,async chunk=>{first??=performance.now()-start;chunks++;samples+=chunk.sampleCount})
    report.measurements.push({repeat,index,...result,firstChunkReceivedMs:first,observedChunks:chunks,observedSamples:samples})
@@ -74,7 +75,7 @@ else if(command==='import'){
    }
    const reference=await capture(),session=worker.sessionId,pid=worker.audit?.workerPid
    report.cooperative={reference,pid,session,cycles:[]}
-   for(const mode of ['credit-wait','generation','credit-wait','generation']){
+   for(const mode of ['credit-wait','generation','credit-wait','generation','credit-wait']){
     ++binding.speechEpoch
     let seen=0,trigger!:()=>void
     const ready=new Promise<void>(resolve=>{trigger=resolve})

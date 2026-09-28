@@ -1,6 +1,6 @@
 import { extractFile, listPackage } from "@electron/asar"
 import { FuseState, FuseV1Options, getCurrentFuseWire } from "@electron/fuses"
-import { lstat, realpath } from "node:fs/promises"
+import { lstat, realpath, readFile } from "node:fs/promises"
 import { isAbsolute, join, relative } from "node:path"
 import { APP_NAME, BUNDLE_ID, assertEntitlements, entitlementRole, assertProduction, parseSignature, requireMac } from "./policy.mjs"
 import { hashFile, hashObject, inventory, run, within, writeJSON } from "./io.mjs"
@@ -37,6 +37,8 @@ export async function verifyApp(requestedApp, expected, { evidence, requireTicke
   await checkCandidate(asar)
   await checkExternalNotices(join(app, "Contents/Resources/licenses"))
   await verifyRuntime(join(app, "Contents/Resources/local-llm"), 'darwin-arm64')
+  const voicePolicy=JSON.parse(await readFile(new URL('../../electron/voice/runtime-base-macos.json',import.meta.url),'utf8'))
+  await verifyRuntime(join(app,'Contents/Resources/voice/base-native'),'darwin-arm64',{trusted:voicePolicy})
   if (production.version !== info.CFBundleShortVersionString) throw new Error("Bundle and package versions differ.")
   // Pin the leaf certificate directly in a codesign requirement; no certificate/private-key export.
   const requirement = `=anchor apple generic and certificate leaf = H"${expected.fingerprint}" and certificate leaf[subject.OU] = "${expected.team}"`

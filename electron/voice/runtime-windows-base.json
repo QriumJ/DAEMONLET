@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "profile": "windows-cuda-base-compiled-v1",
+  "model": {
+    "repo": "openbmb/VoxCPM2",
+    "revision": "32279effe8c19989596f05d353d1447f51d9e915",
+    "license": "Apache-2.0",
+    "files": {
+      ".gitattributes": {
+        "bytes": 1519,
+        "sha256": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361"
+      },
+      "README.md": {
+        "bytes": 7939,
+        "sha256": "c18d2ffbfb2f0aec770481c967842aee6c200cde65f6b033efd892a849986fda"
+      },
+      "audiovae.pth": {
+        "bytes": 376951122,
+        "sha256": "94b5d51e107e0507d4acc976cfdadb64edd6fd06d1f751dadbf2fd1594274bf1"
+      },
+      "config.json": {
+        "bytes": 4336,
+        "sha256": "405f0dcd92f7feba6011ed4eac5c8d4f74cba9712f07fd5cfa3063bbdd95402c"
+      },
+      "model.safetensors": {
+        "bytes": 4580080592,
+        "sha256": "f7f964cfa9da23653baec6e6f7750719977ad944ed9f95fe52fe3a620506891d"
+      },
+      "special_tokens_map.json": {
+        "bytes": 1632,
+        "sha256": "068594063e37662c02b21acf42ebb334ef6a74fb810e68a2368f88f08351de76"
+      },
+      "tokenization_voxcpm2.py": {
+        "bytes": 2895,
+        "sha256": "84489ea32b6ee0cae22ed5480cacb6df85c46624c3119be9a2021c3649a12729"
+      },
+      "tokenizer.json": {
+        "bytes": 3676772,
+        "sha256": "f8984687e4a92a3503d521396d454b7d68e9fdaab2a0288eb3536c7c1aa4bc20"
+      },
+      "tokenizer_config.json": {
+        "bytes": 5059,
+        "sha256": "e78a3ebb48a0b9437efd1823b6b726c823da89e49dd8bcc90c02419d9baa772b"
+      }
+    }
+  },
+  "python": "3.11.15",
+  "sourceCommit": "f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69",
+  "sourceFiles": {
+    "cli.py": "c70ab732cfbe584f34a0b4c369ae821fb976fd61fb1ece8b5727b7de7717e6a1",
+    "core.py": "5116a96ed19e2e2b86a9bffabfb322e276dd33dc0bf4d0b189a1e4fd5d2cc109",
+    "zipenhancer.py": "48e591c4117cc7eea2e3fd54363d2bcf0f306b70e994320eacf0e025636bae27",
+    "__init__.py": "a6a971983ce2777468802b1873fdf455220e49b68c445c503c8cdc677dafa89b",
+    "model/utils.py": "0fb8db0a194e5f7900208174b4aa505bfabeee1f8582dd485c625e7ddff8413f",
+    "model/voxcpm.py": "4d13384ede9e8466a26e7a7808393023088985b11dc78dac5b5476e4a32ed8b2",
+    "model/voxcpm2.py": "31ad554bc15a4da18cf820c6fda97a5b2c56ac8e9a5e66031a264d363661575c",
+    "model/__init__.py": "6e3dc8864d5b42bca453a6dedc30463e36b7114ec2e08252391029bd27c491c1",
+    "modules/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modules/audiovae/audio_vae.py": "cabe57717c94437ace644b8da7fa4db811a5bdacb437e341a875f890bf8308f9",
+    "modules/audiovae/audio_vae_v2.py": "2efdff1708d8ec1471624aae6f232d0f933de26b788b6901c434246847e2d3a8",
+    "modules/audiovae/__init__.py": "bf72e27063eac02f332ae0489696ecca8c0ceb7a0a41f0af54ca8f1c6f145abf",
+    "modules/layers/lora.py": "8071035d19057bee86f61c3261c63193b234e49312b122eb635074984375b534",
+    "modules/layers/scalar_quantization_layer.py": "3e8c661a0eae8ecbf5abbebbea8971a962e95ebef8ea887b5ca4796d9436ca9d",
+    "modules/layers/__init__.py": "4578ed00894dce44a30e2cb153f9ade69382391a0530d718a52634a1beb43c1a",
+    "modules/locdit/local_dit.py": "d6e82cee3f5157724b1c998325163c96fe1fff5f11a733c89faacafe9987223b",
+    "modules/locdit/local_dit_v2.py": "7ea51eb5acc8475ffa41649852ee8d5d3f2a601b962f313f9e1c7eb109542b2f",
+    "modules/locdit/unified_cfm.py": "e4535337024cf44b6888eccfd39ccbe98684e302dd1836e05f940b4d626dcfdf",
+    "modules/locdit/__init__.py": "a22d80973102835a5edcca027e59cefc611a6d2afec1af98690727bcfc4b3685",
+    "modules/locenc/local_encoder.py": "ab1d3c5b4028573495e2bc57d548af0310a577cee04c57055aaafcf94a1e1729",
+    "modules/locenc/__init__.py": "257ee6d2ee516f7065573180c7c2b175b06e7c59b8b89998b34b6ffafd7bb332",
+    "modules/minicpm4/cache.py": "644acd3bf7cf8313f2ba285f68c41967fcedb57e5f5d8f38a883acc385ee030d",
+    "modules/minicpm4/config.py": "5bed3ea87242f0ad5d0e8d80d602eea4373c9d175e26f5bb324b3c93ad7db36d",
+    "modules/minicpm4/model.py": "0733349295d13b2ec57e979058fa64becec821b9bd475e188eb4033fc016d2d2",
+    "modules/minicpm4/__init__.py": "c2d6c1a428844a709d88e0312f07a79f337b4cfd58334756013786510e399f11",
+    "timestamps/base.py": "b7bdd66e61ca03f060696dc1ccbe19af35fdadb8a1e95dab80cb267c180adcdf",
+    "timestamps/postprocess.py": "991f8a2a61bda0191d5f66e332ebf00eac969a5140fb8c5f2dca6cbb25b0f1c7",
+    "timestamps/stable_ts.py": "7a950e16a04c11fc927006cb9def268ad2fb5b946174d30efdf6c8c1eb17a9fe",
+    "timestamps/__init__.py": "eeaaac16d83a1f9c495c7da886480cd4a5842f883012e3ce439250d6d795486c",
+    "utils/text_normalize.py": "3e2c86c777ed67fda8c9b001a93dba7239bf79a06503e2bcd46afc5ef0dffe3b"
+  },
+  "dependencies": {
+    "annotated-doc": "0.0.5",
+    "annotated-types": "0.8.0",
+    "anyio": "4.15.1",
+    "audioread": "3.1.0",
+    "certifi": "2026.7.22",
+    "cffi": "2.1.1",
+    "charset-normalizer": "3.5.1",
+    "click": "8.5.0",
+    "cloudpickle": "3.1.2",
+    "colorama": "0.4.6",
+    "decorator": "5.3.1",
+    "einops": "0.8.2",
+    "filelock": "3.32.3",
+    "fsspec": "2025.3.0",
+    "h11": "0.16.0",
+    "hf-xet": "1.6.0",
+    "httpcore": "1.0.9",
+    "httpx": "0.28.1",
+    "huggingface-hub": "1.33.0",
+    "idna": "3.20",
+    "jinja2": "3.1.6",
+    "joblib": "1.6.0",
+    "lazy-loader": "0.6",
+    "librosa": "0.11.0",
+    "llvmlite": "0.49.0",
+    "markdown-it-py": "4.2.0",
+    "markupsafe": "3.0.3",
+    "mdurl": "0.1.2",
+    "mpmath": "1.3.0",
+    "msgpack": "1.2.2",
+    "narwhals": "2.26.0",
+    "networkx": "3.6.1",
+    "numba": "0.67.0",
+    "numpy": "2.2.6",
+    "packaging": "26.3",
+    "platformdirs": "4.12.0",
+    "pooch": "1.9.0",
+    "pycparser": "3.0",
+    "pydantic": "2.13.5",
+    "pydantic-core": "2.46.5",
+    "pygments": "2.21.0",
+    "pyyaml": "6.0.3",
+    "regex": "2026.9.10",
+    "requests": "2.34.2",
+    "rich": "15.0.0",
+    "safetensors": "0.8.0",
+    "scikit-learn": "1.9.1",
+    "scipy": "1.17.1",
+    "sentencepiece": "0.2.2",
+    "shellingham": "1.5.4",
+    "soundfile": "0.14.0",
+    "soxr": "1.1.0",
+    "sympy": "1.14.0",
+    "threadpoolctl": "3.7.0",
+    "tokenizers": "0.22.2",
+    "torch": "2.8.0+cu128",
+    "torchaudio": "2.8.0+cu128",
+    "tqdm": "4.70.1",
+    "transformers": "5.3.0",
+    "typer": "0.27.2",
+    "typing-extensions": "4.16.0",
+    "typing-inspection": "0.4.4",
+    "urllib3": "2.8.0",
+    "triton-windows": "3.4.0.post21"
+  },
+  "settings": {
+    "cfg_value": 2,
+    "inference_timesteps": 10,
+    "normalize": false,
+    "denoise": false,
+    "retry_badcase": false,
+    "max_len": 600,
+    "seed": 42
+  },
+  "sourceDownloads": {
+    "cli.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/cli.py",
+      "bytes": 23122,
+      "sha256": "c70ab732cfbe584f34a0b4c369ae821fb976fd61fb1ece8b5727b7de7717e6a1"
+    },
+    "core.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/core.py",
+      "bytes": 16078,
+      "sha256": "5116a96ed19e2e2b86a9bffabfb322e276dd33dc0bf4d0b189a1e4fd5d2cc109"
+    },
+    "zipenhancer.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/zipenhancer.py",
+      "bytes": 2722,
+      "sha256": "48e591c4117cc7eea2e3fd54363d2bcf0f306b70e994320eacf0e025636bae27"
+    },
+    "__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/__init__.py",
+      "bytes": 54,
+      "sha256": "a6a971983ce2777468802b1873fdf455220e49b68c445c503c8cdc677dafa89b"
+    },
+    "model/utils.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/model/utils.py",
+      "bytes": 8255,
+      "sha256": "0fb8db0a194e5f7900208174b4aa505bfabeee1f8582dd485c625e7ddff8413f"
+    },
+    "model/voxcpm.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/model/voxcpm.py",
+      "bytes": 43178,
+      "sha256": "4d13384ede9e8466a26e7a7808393023088985b11dc78dac5b5476e4a32ed8b2"
+    },
+    "model/voxcpm2.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/model/voxcpm2.py",
+      "bytes": 54715,
+      "sha256": "31ad554bc15a4da18cf820c6fda97a5b2c56ac8e9a5e66031a264d363661575c"
+    },
+    "model/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/model/__init__.py",
+      "bytes": 109,
+      "sha256": "6e3dc8864d5b42bca453a6dedc30463e36b7114ec2e08252391029bd27c491c1"
+    },
+    "modules/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/__init__.py",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "modules/audiovae/audio_vae.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/audiovae/audio_vae.py",
+      "bytes": 10871,
+      "sha256": "cabe57717c94437ace644b8da7fa4db811a5bdacb437e341a875f890bf8308f9"
+    },
+    "modules/audiovae/audio_vae_v2.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/audiovae/audio_vae_v2.py",
+      "bytes": 19201,
+      "sha256": "2efdff1708d8ec1471624aae6f232d0f933de26b788b6901c434246847e2d3a8"
+    },
+    "modules/audiovae/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/audiovae/__init__.py",
+      "bytes": 133,
+      "sha256": "bf72e27063eac02f332ae0489696ecca8c0ceb7a0a41f0af54ca8f1c6f145abf"
+    },
+    "modules/layers/lora.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/layers/lora.py",
+      "bytes": 4370,
+      "sha256": "8071035d19057bee86f61c3261c63193b234e49312b122eb635074984375b534"
+    },
+    "modules/layers/scalar_quantization_layer.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/layers/scalar_quantization_layer.py",
+      "bytes": 800,
+      "sha256": "3e8c661a0eae8ecbf5abbebbea8971a962e95ebef8ea887b5ca4796d9436ca9d"
+    },
+    "modules/layers/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/layers/__init__.py",
+      "bytes": 63,
+      "sha256": "4578ed00894dce44a30e2cb153f9ade69382391a0530d718a52634a1beb43c1a"
+    },
+    "modules/locdit/local_dit.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/locdit/local_dit.py",
+      "bytes": 3519,
+      "sha256": "d6e82cee3f5157724b1c998325163c96fe1fff5f11a733c89faacafe9987223b"
+    },
+    "modules/locdit/local_dit_v2.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/locdit/local_dit_v2.py",
+      "bytes": 3580,
+      "sha256": "7ea51eb5acc8475ffa41649852ee8d5d3f2a601b962f313f9e1c7eb109542b2f"
+    },
+    "modules/locdit/unified_cfm.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/locdit/unified_cfm.py",
+      "bytes": 8714,
+      "sha256": "e4535337024cf44b6888eccfd39ccbe98684e302dd1836e05f940b4d626dcfdf"
+    },
+    "modules/locdit/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/locdit/__init__.py",
+      "bytes": 140,
+      "sha256": "a22d80973102835a5edcca027e59cefc611a6d2afec1af98690727bcfc4b3685"
+    },
+    "modules/locenc/local_encoder.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/locenc/local_encoder.py",
+      "bytes": 1009,
+      "sha256": "ab1d3c5b4028573495e2bc57d548af0310a577cee04c57055aaafcf94a1e1729"
+    },
+    "modules/locenc/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/locenc/__init__.py",
+      "bytes": 40,
+      "sha256": "257ee6d2ee516f7065573180c7c2b175b06e7c59b8b89998b34b6ffafd7bb332"
+    },
+    "modules/minicpm4/cache.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/minicpm4/cache.py",
+      "bytes": 1384,
+      "sha256": "644acd3bf7cf8313f2ba285f68c41967fcedb57e5f5d8f38a883acc385ee030d"
+    },
+    "modules/minicpm4/config.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/minicpm4/config.py",
+      "bytes": 702,
+      "sha256": "5bed3ea87242f0ad5d0e8d80d602eea4373c9d175e26f5bb324b3c93ad7db36d"
+    },
+    "modules/minicpm4/model.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/minicpm4/model.py",
+      "bytes": 16655,
+      "sha256": "0733349295d13b2ec57e979058fa64becec821b9bd475e188eb4033fc016d2d2"
+    },
+    "modules/minicpm4/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/modules/minicpm4/__init__.py",
+      "bytes": 100,
+      "sha256": "c2d6c1a428844a709d88e0312f07a79f337b4cfd58334756013786510e399f11"
+    },
+    "timestamps/base.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/timestamps/base.py",
+      "bytes": 658,
+      "sha256": "b7bdd66e61ca03f060696dc1ccbe19af35fdadb8a1e95dab80cb267c180adcdf"
+    },
+    "timestamps/postprocess.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/timestamps/postprocess.py",
+      "bytes": 775,
+      "sha256": "991f8a2a61bda0191d5f66e332ebf00eac969a5140fb8c5f2dca6cbb25b0f1c7"
+    },
+    "timestamps/stable_ts.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/timestamps/stable_ts.py",
+      "bytes": 3246,
+      "sha256": "7a950e16a04c11fc927006cb9def268ad2fb5b946174d30efdf6c8c1eb17a9fe"
+    },
+    "timestamps/__init__.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/timestamps/__init__.py",
+      "bytes": 174,
+      "sha256": "eeaaac16d83a1f9c495c7da886480cd4a5842f883012e3ce439250d6d795486c"
+    },
+    "utils/text_normalize.py": {
+      "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/src/voxcpm/utils/text_normalize.py",
+      "bytes": 6268,
+      "sha256": "3e2c86c777ed67fda8c9b001a93dba7239bf79a06503e2bcd46afc5ef0dffe3b"
+    }
+  },
+  "sourceLicense": {
+    "url": "https://raw.githubusercontent.com/OpenBMB/VoxCPM/f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69/LICENSE",
+    "bytes": 11298,
+    "sha256": "4f10acc209addacfad28293315c74c4cd648f771ee1263a748f1781d1e0265e4"
+  }
+}

@@ -56,7 +56,7 @@ async function fixture(){
  const chat={epoch:1,model:'E4B',character:{id:'test',revision:'rev'},conversation:{id:'chat',messages:[message]}} as LocalChatSnapshot
  const service=new CharacterVoiceService(root,join(root,'synthetic'),()=>chat,()=>{},e=>events.push(e),()=>runtime)
  cleanup.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})})
- await service.initialize();await service.configure(process.execPath,root);await service.enabled(true)
+ await service.initialize();(service as any).state.executionProfile='baseline';await service.configure(process.execPath,root);await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',fingerprint:'fingerprint'}]
  await service.bind('test','voice@1');service.setOutputReady(true)
  ;(service as any).state.executionProfile='cached'

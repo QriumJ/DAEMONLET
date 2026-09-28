@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { readFileSync } from "node:fs"
 import base from "../forge.config.mjs"
-import { APP_NAME, BUNDLE_ID, JIT_ENTITLEMENT, AUDIO_INPUT_ENTITLEMENT, isDictationCode, isPinnedChatRuntime, entitlementRole, assertCanSubmit, assertEntitlements, assertProduction, assertUploadApproval, notaryStatus, parseSignature, publicSummary, requireMac, selectIdentity, signedForgeConfig } from "../scripts/macos/policy.mjs"
+import { APP_NAME, BUNDLE_ID, JIT_ENTITLEMENT, AUDIO_INPUT_ENTITLEMENT, isDictationCode, isPinnedChatRuntime, isPinnedVoiceRuntime, entitlementRole, assertCanSubmit, assertEntitlements, assertProduction, assertUploadApproval, notaryStatus, parseSignature, publicSummary, requireMac, selectIdentity, signedForgeConfig } from "../scripts/macos/policy.mjs"
 
 const fingerprint = "A".repeat(40)
 const team = "ABCDEFGHIJ"
@@ -147,3 +147,5 @@ describe("dictation process entitlements", () => {
     }
   })
 })
+
+it('pins the default voice engine before signing the enclosing app',()=>{expect(isPinnedVoiceRuntime('/candidate/App.app/Contents/Resources/voice/base-native/daemonlet-voice-engine')).toBe(true);expect(isPinnedVoiceRuntime('/candidate/daemonlet-voice-engine')).toBe(false)})

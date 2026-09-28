@@ -12,6 +12,7 @@ from unittest.mock import patch
 WORKER = Path(__file__).resolve().parents[1] / "electron/voice/worker.py"
 sys.path.insert(0, str(WORKER.parent))
 from engine import Engine, runtime_fingerprint
+from backend import CudaDevice, MpsDevice, select_backend
 from control import Inbox, StreamControl, StreamCancelled
 
 
@@ -150,6 +151,7 @@ class DeviceTests(unittest.TestCase):
         classify = module["error_code"]
         self.assertEqual(classify(module["WorkerError"]("UNSUPPORTED_DEVICE")), "UNSUPPORTED_DEVICE")
         self.assertEqual(classify(ValueError("MODEL_CHANGED")), "MODEL_CHANGED")
+        self.assertEqual(classify(ModuleNotFoundError("private module path")), "RUNTIME_DEPENDENCY")
         self.assertEqual(classify(RuntimeError("UNSUPPORTED_DEVICE")), "TTS_FAILED")
         self.assertEqual(classify(ValueError("PRIVATE_SECRET")), "TTS_FAILED")
         self.assertEqual(classify(RuntimeError("private/path dialogue")), "TTS_FAILED")
@@ -185,6 +187,27 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(second['prompt_cache'], {'mode': 'reference', 'fixed': True})
         self.assertNotIn('normalize', first)
         self.assertNotIn('denoise', first)
+
+    def test_default_voice_design_without_reference_in_both_paths(self):
+        defaults = json.loads((WORKER.parent / 'base-voice-defaults.json').read_text())
+        engine, calls, tts, tensor = self.engine()
+        engine.reference = None
+        engine.voice_description = defaults['description']
+        engine.settings['seed'] = defaults['seed']
+        def streaming(**kwargs):
+            calls.append(('stream', kwargs))
+            yield tensor, None, None
+        tts.generate_with_prompt_cache_streaming = streaming
+        with patch.dict('sys.modules', {'torch': SimpleNamespace()}):
+            engine.prepare()
+            list(engine.generate('안녕.'))
+            list(engine.generate('안녕.', streaming=True))
+        self.assertEqual(engine.cache_builds, 0)
+        self.assertEqual([c[0] for c in calls], ['generate', 'stream'])
+        for _, kwargs in calls:
+            self.assertEqual(kwargs['target_text'], '(' + defaults['description'] + ') 안녕.')
+            self.assertIsNone(kwargs['prompt_cache'])
+            self.assertEqual(kwargs['seed'], 42)
 
     def test_stream_is_incremental_and_closes_generator(self):
         engine, _, tts, tensor = self.engine()
@@ -242,6 +265,7 @@ class CacheTests(unittest.TestCase):
         sf = SimpleNamespace(write=lambda path, *args, **kwargs: path.touch())
         with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'numpy': np, 'torch': SimpleNamespace(cuda=cuda), 'soundfile': sf}):
             worker = module['Worker']()
+            worker.backend = CudaDevice
             worker.cache = Path(cache)
             worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
             worker.engine = SimpleNamespace(generate=lambda *a, **k: iter_chunks())
@@ -316,6 +340,7 @@ class CancellationTests(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'numpy': SimpleNamespace(asarray=lambda a: a), 'soundfile': SimpleNamespace(), 'torch': SimpleNamespace(cuda=SimpleNamespace(reset_peak_memory_stats=lambda: None))}):
                 worker = module['Worker']()
+                worker.backend = CudaDevice
                 worker.cache = Path(cache)
                 worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
                 worker.engine = SimpleNamespace(generate=generate)
@@ -343,6 +368,7 @@ class CancellationTests(unittest.TestCase):
         torch = SimpleNamespace(inference_mode=contextlib.nullcontext, cuda=SimpleNamespace(synchronize=lambda: events.append('sync')))
         with tempfile.TemporaryDirectory() as cache, patch.dict('sys.modules', {'torch': torch}):
             worker = module['Worker']()
+            worker.backend = CudaDevice
             worker.model = SimpleNamespace(tts_model=SimpleNamespace(base_lm=SimpleNamespace(kv_cache=caches[0]), residual_lm=SimpleNamespace(kv_cache=caches[1])))
             worker.engine = SimpleNamespace(cache=reference)
             worker.vae_forwards = [(mod, mod.forward)]
@@ -369,6 +395,152 @@ class CancellationTests(unittest.TestCase):
                 StreamControl(inbox, request, lambda _: False)(3)
         finally:
             inbox.close()
+
+
+class MpsTests(unittest.TestCase):
+    def test_platform_arch_profile_and_override_matrix(self):
+        import os
+        for host, arch, profile, good in [
+            ('darwin','arm64','mps-fp32',True), ('darwin','arm64','mps-fp32-baseline',True),
+            ('darwin','x86_64','mps-fp32',False), ('win32','AMD64','mps-fp32',False),
+            ('darwin','arm64','compiled',False), ('linux','aarch64','mps-fp32',False),
+            ('win32','AMD64','compiled',True), ('win32','AMD64','cached',True),
+        ]:
+            with self.subTest(host=host,arch=arch,profile=profile), patch('sys.platform',host), patch('platform.machine',lambda:arch), patch.dict(os.environ,{},clear=True):
+                if good:
+                    self.assertEqual(select_backend(profile).device,'mps' if host=='darwin' else 'cuda')
+                else:
+                    with self.assertRaisesRegex(Exception,'UNSUPPORTED_DEVICE'):
+                        select_backend(profile)
+        for key,value in [('VOXCPM_MPS_DTYPE','bf16'),('VOXCPM_MPS_DTYPE','fp16'),('PYTORCH_ENABLE_MPS_FALLBACK','1')]:
+            with patch('sys.platform','darwin'), patch('platform.machine',lambda:'arm64'), patch.dict(os.environ,{key:value},clear=True):
+                with self.assertRaisesRegex(Exception,'RUNTIME_POLICY'):
+                    select_backend('mps-fp32')
+
+    def test_mps_availability_and_memory_never_use_cuda(self):
+        calls=[]
+        class Forbidden:
+            def __getattr__(self,name):
+                raise AssertionError('CUDA touched on MPS: '+name)
+        fake=SimpleNamespace(cuda=Forbidden(),backends=SimpleNamespace(mps=SimpleNamespace(is_built=lambda:True,is_available=lambda:True)),mps=SimpleNamespace(synchronize=lambda:calls.append('mps-sync'),current_allocated_memory=lambda:123,driver_allocated_memory=lambda:456))
+        with patch('sys.platform','darwin'),patch('platform.machine',lambda:'arm64'),patch.dict('os.environ',{},clear=True):
+            MpsDevice.require(fake)
+            MpsDevice.synchronize(fake)
+            MpsDevice.begin_measurement(fake)
+            self.assertEqual(MpsDevice.memory(fake),dict(mpsCurrentAllocatedBytes=123,mpsDriverAllocatedBytes=456))
+            fake.backends.mps.is_available=lambda:False
+            with self.assertRaisesRegex(Exception,'UNSUPPORTED_DEVICE'):
+                MpsDevice.require(fake)
+        self.assertEqual(calls,['mps-sync'])
+
+    def test_mps_cached_engine_uses_mps_sync_and_no_compile(self):
+        engine,calls,tts,_=CacheTests().engine('mps-fp32')
+        engine.backend=MpsDevice
+        sync=[]
+        with patch.dict('sys.modules',{'torch':SimpleNamespace(mps=SimpleNamespace(synchronize=lambda:sync.append('mps')))}):
+            engine.prepare();engine.warmup()
+        self.assertEqual(sync,['mps','mps'])
+        self.assertEqual(engine.cache_builds,1)
+        self.assertEqual(engine.compile_counts,{})
+        self.assertFalse(engine.audit['compileRequested'])
+
+    def test_mps_dtype_audit_and_oom_classification(self):
+        tensor=SimpleNamespace(device=SimpleNamespace(type='mps'),dtype='fp32',is_floating_point=lambda:True)
+        model=SimpleNamespace(parameters=lambda:[tensor])
+        self.assertEqual(MpsDevice.audit_model(model,SimpleNamespace(float32='fp32'))['effectiveDevice'],'mps')
+        tensor.dtype='bf16'
+        with self.assertRaisesRegex(Exception,'RUNTIME_TENSORS'):
+            MpsDevice.audit_model(model,SimpleNamespace(float32='fp32'))
+        module=runpy.run_path(str(WORKER))
+        self.assertEqual(module['error_code'](RuntimeError('MPS backend out of memory')),'MPS_OOM')
+
+    def test_mac_receipt_rejects_tampering_without_relaxing_windows_provenance(self):
+        import macos_runtime as runtime
+        expected=runtime.policy()
+        receipt=dict(schemaVersion=2,profile=expected['id'],policy_sha256='policy',lock_sha256=expected['lock_sha256'],source_commit=expected['source_commit'],source_files=expected['source_files'],dependencies=expected['dependencies'],interpreter=str(Path(sys.executable).resolve()),interpreter_sha256='exe',prefix=str(Path(sys.prefix).resolve()))
+        with patch('sys.platform','darwin'),patch('platform.machine',lambda:'arm64'),patch('platform.python_version',lambda:expected['python']),patch.object(runtime,'sha',lambda p:'policy' if p.name=='runtime-macos.json' else 'exe'):
+            broken=dict(receipt,lock_sha256='modified')
+            with self.assertRaisesRegex(ValueError,'RUNTIME_RECEIPT'):runtime.verify_runtime(broken)
+            broken=dict(receipt,source_files={})
+            with self.assertRaisesRegex(ValueError,'RUNTIME_SOURCE'):runtime.verify_runtime(broken)
+            broken=dict(receipt,interpreter='/other/python')
+            with self.assertRaisesRegex(ValueError,'RUNTIME_RECEIPT'):runtime.verify_runtime(broken)
+            with patch.object(runtime.metadata,'version',lambda name:'unexpected'):
+                with self.assertRaisesRegex(ValueError,'RUNTIME_VERSION'):runtime.verify_runtime(receipt)
+
+class WindowsReceiptTests(unittest.TestCase):
+    """Run the production installer boundary with only native imports mocked."""
+    def setUp(self):
+        import tempfile, hashlib
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = b'PINNED_SOURCE = True\n'
+        self.policy = dict(python=sys.version.split()[0], sourceCommit='pinned-commit',
+                           sourceFiles={'fixture.py': hashlib.sha256(self.source).hexdigest()},
+                           dependencies={'fixture': '1.0'})
+        self.lock = b'{\n  "python": {"sha256": "pinned", "bytes": 123},\n  "wheels": []\n}\n'
+        self.lock_path = self.root / 'lock.json'
+        self.policy_path = self.root / 'policy.json'
+        self.receipt = self.root / 'voice-runtime.json'
+        self.target = self.root / 'Lib/site-packages/voxcpm/fixture.py'
+        self.target.parent.mkdir(parents=True)
+        self.target.write_bytes(self.source)
+        source = self.root / 'downloads/source/fixture.py'
+        source.parent.mkdir(parents=True)
+        source.write_bytes(self.source)
+        self.policy_path.write_text(json.dumps(self.policy), encoding='utf-8')
+
+    def saved(self, lock):
+        import hashlib
+        self.receipt.write_text(json.dumps(dict(schemaVersion=1,
+            source_commit=self.policy['sourceCommit'],
+            installLockSha256=hashlib.sha256(lock).hexdigest())), encoding='utf-8')
+
+    def run_installer(self, lock, verify=True, version='1.0'):
+        self.lock_path.write_bytes(lock)
+        argv = ['install_windows_base.py', '--downloads', str(self.root/'downloads'),
+                '--policy', str(self.policy_path), '--lock', str(self.lock_path)]
+        if verify: argv.append('--verify')
+        modules = {name: SimpleNamespace() for name in ('torch', 'torchaudio', 'voxcpm', 'triton')}
+        modules['torch'].__version__ = '2.8.0+cu128'
+        modules['triton'].__version__ = '3.4.0'
+        with patch('sys.argv', argv), patch('sys.prefix', str(self.root)), \
+             patch('sys.platform', 'win32'), patch.dict(sys.modules, modules), \
+             patch('importlib.metadata.version', return_value=version), patch('sys.stdout', io.StringIO()):
+            runpy.run_path(str(WORKER.parent/'install_windows_base.py'), run_name='__main__')
+
+    def test_existing_receipts_accept_both_checkout_line_endings_without_rewrite(self):
+        for saved in (self.lock, self.lock.replace(b'\n', b'\r\n')):
+            for current in (self.lock, self.lock.replace(b'\n', b'\r\n')):
+                with self.subTest(saved_crlf=b'\r' in saved, current_crlf=b'\r' in current):
+                    self.saved(saved)
+                    before = self.receipt.read_bytes()
+                    self.run_installer(current)
+                    self.assertEqual(self.receipt.read_bytes(), before)
+
+    def test_new_receipt_uses_lf_digest_even_from_crlf_checkout(self):
+        import hashlib
+        self.run_installer(self.lock.replace(b'\n', b'\r\n'), verify=False)
+        self.assertEqual(json.loads(self.receipt.read_text())['installLockSha256'], hashlib.sha256(self.lock).hexdigest())
+
+    def test_lock_content_and_non_line_ending_edits_remain_rejected(self):
+        for changed in (self.lock.replace(b'pinned', b'changed'),
+                        self.lock.replace(b'123', b'124'), self.lock + b' ',
+                        self.lock.replace(b'  ', b'    ')):
+            with self.subTest(lock=changed):
+                self.saved(self.lock)
+                with self.assertRaisesRegex(ValueError, 'RUNTIME_RECEIPT'):
+                    self.run_installer(changed)
+
+    def test_source_and_dependency_checks_still_run_after_legacy_receipt_match(self):
+        self.saved(self.lock.replace(b'\n', b'\r\n'))
+        self.target.write_bytes(b'TAMPERED = True\n')
+        with self.assertRaisesRegex(ValueError, 'RUNTIME_SOURCE_CHANGED'):
+            self.run_installer(self.lock)
+        self.target.write_bytes(self.source)
+        with self.assertRaisesRegex(ValueError, 'RUNTIME_VERSION:fixture'):
+            self.run_installer(self.lock, version='2.0')
 
 if __name__ == "__main__":
     unittest.main()
