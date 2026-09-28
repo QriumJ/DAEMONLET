@@ -4,6 +4,7 @@ import {join,isAbsolute,dirname} from 'node:path'
 import {mkdir,mkdtemp,readFile,lstat,rm} from 'node:fs/promises'
 import type {SpeechBinding,ExecutionProfile} from '../../shared/character-voice-contract'
 
+import type {ReferenceCondition} from './ReferenceProfileStore'
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 
 export type TtsConfig={python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean;windowsBase?:boolean}
@@ -30,6 +31,7 @@ export class TtsRuntimeSupervisor {
  private ending:Promise<void>|null=null
  private cache:string|null=null
  private key=''
+ private conditioning:ReferenceCondition|undefined
  private pending:{id:string;expected:string;target?:CancelTarget;resolve:(v:any)=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>;chunk?:(v:any)=>void}|null=null
  private cancellation:{id:string;target:CancelTarget;resolve:()=>void;reject:(e:Error)=>void;task:Promise<CancelResult>;boundary?:string;reuseAudit?:Record<string,any>}|null=null
  private starting:Promise<void>|null=null
@@ -74,16 +76,18 @@ export class TtsRuntimeSupervisor {
   child.stdin.write(JSON.stringify({protocolVersion:1,type:'cancel-stream',requestId:cancellation.id,target:cancellation.target})+'\n',error=>{if(error)reject(Error('VOICE_WORKER_IO'))})
   return cancellation.task
  }
- async start(packagePath:string,fingerprint:string) {
+ async start(packagePath:string,fingerprint:string,conditioning?:ReferenceCondition) {
   if(this.cancellation)await this.cancellation.task
   if(this.ending)await this.ending
   if(this.starting){await this.starting.catch(()=>{});if(this.key===fingerprint)return;if(this.ending)await this.ending}
   if(this.child&&this.key===fingerprint)return
   if(this.child)await this.stop()
-  const task=this.launch(packagePath,fingerprint,this.revision);this.starting=task
+  const task=this.launch(packagePath,fingerprint,this.revision,conditioning);this.starting=task
   try{await task}finally{if(this.starting===task)this.starting=null}
  }
- private async launch(packagePath:string,fingerprint:string,revision:number) {
+ private async launch(packagePath:string,fingerprint:string,revision:number,conditioning?:ReferenceCondition) {
+  if(conditioning&&(!this.config.nativeBase&&!this.config.windowsBase||conditioning.kind!=='wav-reference'||!isAbsolute(conditioning.path)))throw Error('VOICE_REFERENCE_RUNTIME')
+  this.conditioning=conditioning
   for(const p of [this.config.python,this.config.model,this.config.worker,this.config.cacheRoot])if(!isAbsolute(p))throw Error('VOICE_RUNTIME_CONFIG')
   if(!this.config.nativeBase&&(this.config.executionProfile?.startsWith('mps-')||this.config.executionProfile?.startsWith('gguf-metal-')))await verifyMacInterpreter(this.config.python,this.config.executionProfile)
   await mkdir(this.config.cacheRoot,{recursive:true});const cache=await mkdtemp(join(this.config.cacheRoot,'session-'))
@@ -115,7 +119,7 @@ export class TtsRuntimeSupervisor {
   })
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
-  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:this.config.windowsBase===true,compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');this.key=fingerprint}
+  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:this.config.windowsBase===true||this.config.nativeBase===true,...(conditioning?{conditioning}:{}),compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');if(conditioning&&(this.audit?.mode!=='wav-reference'||this.audit.referenceContract!==1||this.audit.referenceSha256!==conditioning.sha256||this.audit.conditioningFingerprint!==conditioning.fingerprint||this.audit.referenceCacheBuilds!==1||this.audit.adapterSha256!==null||this.audit.defaultVoice!=null))throw Error('VOICE_REFERENCE_RUNTIME');this.key=fingerprint}
   catch(e){await this.stop();throw e}
  }
  async synthesize(text:string,binding:SpeechBinding,segmentIndex:number):Promise<AudioResult> {
@@ -140,6 +144,7 @@ export class TtsRuntimeSupervisor {
   finally {await rm(path,{force:true}).catch(()=>{})}
  }
  async stream(text:string,binding:SpeechBinding,segmentIndex:number,accept:(audio:AudioChunk)=>Promise<void>) {
+  if(this.conditioning&&binding.conditioningFingerprint!==this.conditioning.fingerprint)throw Error('VOICE_REFERENCE_BINDING')
   const synthesisId=randomUUID(),cache=this.cache,child=this.child
   if(!cache||!child||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
   let index=0,offset=0,reads=Promise.resolve(),failure:Error|null=null,retired=false,delivered=false,nextCredit=0,discardCredits=false

@@ -1,16 +1,20 @@
 import {mkdir,readdir,readFile,rm,writeFile} from 'node:fs/promises'
-import {join} from 'node:path'
-import {randomUUID} from 'node:crypto'
+import {dirname,join} from 'node:path'
+import {createHash,randomUUID} from 'node:crypto'
 import type {ChatMessage,LocalChatSnapshot} from '../../shared/character-chat-contract'
-import {DEFAULT_SPEECH_POLICY,planSpeech,type SpeechPolicy,isStreamingProfile,voiceCapabilities,type SpeechBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
+import {isManagedVoice,isReferenceProfile,DEFAULT_SPEECH_POLICY,planSpeech,type SpeechPolicy,isStreamingProfile,voiceCapabilities,type SpeechBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
 import {importVoicePackage,profileKey,SELECTED_VOICE,verifyVoicePackage} from './VoicePackage'
 import {TtsRuntimeSupervisor,type TtsConfig,type AudioChunk} from './TtsRuntimeSupervisor'
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 import {type BaseVoiceInstallation,BASE_VOICE,BASE_KEY} from './VoiceBaseInstaller'
+import {ReferenceProfileStore,referenceKey,workerReferenceConverter,type ReferenceCondition} from './ReferenceProfileStore'
 import {replaceFile} from '../character-chat/replaceFile'
 
 export class CharacterVoiceService {
  private state:VoiceSnapshot={epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'gguf-metal-f16':'baseline'}
+ readonly references:ReferenceProfileStore
+ private referenceOperation:{controller:AbortController;task:Promise<void>}|null=null
+ private referenceImportError:string|null=null
  private installingBase:Promise<void>|null=null
  private installEpoch=0
  private baseExecutionProfile:ExecutionProfile='cuda-compiled'
@@ -34,10 +38,18 @@ export class CharacterVoiceService {
  private spokenRequestAt=0
  private firstPlayback=false
  private lastPlaybackEndAt=0
- constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation,private speechPolicy:SpeechPolicy=DEFAULT_SPEECH_POLICY){}
- snapshot(){const s=structuredClone(this.state);s.executionProfile=this.activeProfile();if(this.base){s.baseInstall=this.base.snapshot();if(s.baseInstall.supported){s.defaultProfile=this.baseKey();const builtin=this.selectedProfile()?.id===BASE_VOICE.id;if(builtin)s.runtimeConfigured=s.baseInstall.installed;if(!this.base.native)s.availableProfiles=builtin?['cuda-compiled','cuda-compiled-complete']:['baseline','cached','compiled']}}return s}
+ constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation,private speechPolicy:SpeechPolicy=DEFAULT_SPEECH_POLICY,referenceStore?:ReferenceProfileStore){this.references=referenceStore??new ReferenceProfileStore(join(root,'reference-profiles'),workerReferenceConverter(join(dirname(worker),'reference-import-worker.cjs')))}
+ snapshot(){
+  const s=structuredClone(this.state),selected=this.selectedProfile(),managed=isManagedVoice(selected)
+  s.executionProfile=this.activeProfile();s.runtimeConfigured=!!this.configured();s.referenceImport={busy:!!this.referenceOperation,error:this.referenceImportError}
+  if(this.base){s.baseInstall=this.base.snapshot();if(s.baseInstall.supported){s.defaultProfile=this.baseKey();if(!this.base.native)s.availableProfiles=managed?['cuda-compiled','cuda-compiled-complete']:['baseline','cached','compiled']}}
+  if(this.state.enabled&&((managed&&!s.runtimeConfigured)||isReferenceProfile(selected)&&selected.error||referenceKey(this.bindingKey(this.chat().character?.id||''))&&!selected)){
+   s.status='unavailable';s.error=isReferenceProfile(selected)&&selected.error?selected.error:!selected?'VOICE_REFERENCE_UNAVAILABLE':s.error||'VOICE_BASE_NOT_INSTALLED'
+  }
+  return s
+ }
  private baseKey(){return this.base?profileKey(this.base.profile):BASE_KEY}
- private activeProfile():ExecutionProfile{return this.selectedProfile()?.id===BASE_VOICE.id&&this.base&&!this.base.native?this.baseExecutionProfile:this.state.executionProfile||'baseline'}
+ private activeProfile():ExecutionProfile{return isManagedVoice(this.selectedProfile())&&this.base&&!this.base.native?this.baseExecutionProfile:this.state.executionProfile||'baseline'}
  private bindingKey(id:string){return this.state.bindings[id]??(this.base?.snapshot().supported?this.baseKey():'')}
  refreshBase(){this.emit()}
  installBase():Promise<void>{
@@ -55,7 +67,7 @@ export class CharacterVoiceService {
  }
  async cancelInstallBase(){++this.installEpoch;const pending=this.installingBase;try{await this.base?.cancel()}finally{await pending?.catch(()=>{})}}
  private selectedProfile(){return this.state.profiles.find(p=>profileKey(p)===this.bindingKey(this.chat().character?.id||''))}
- private configured(){return this.selectedProfile()?.id===BASE_VOICE.id?this.base?.snapshot().installed:!!this.config}
+ private configured(){const p=this.selectedProfile();return isReferenceProfile(p)&&p.error?false:isManagedVoice(p)?this.base?.snapshot().installed:!!this.config}
  private bestEffort(work:()=>void){try{work()}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}}
  private emit(){this.bestEffort(()=>this.changed(this.snapshot()))}
  private notify(event:VoiceEvent){this.bestEffort(()=>this.event(event))}
@@ -85,6 +97,7 @@ export class CharacterVoiceService {
     this.state.bindings=Object.fromEntries(Object.entries(saved.bindings).filter(([k,v])=>k.length<=80&&typeof v==='string'&&v.length<=170)) as Record<string,string>
     if(saved.runtime&&typeof saved.runtime.python==='string'&&typeof saved.runtime.model==='string'){this.config=saved.runtime;this.state.runtimeConfigured=true}
    }catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw Error('VOICE_SETTINGS')}
+   await this.references.initialize().catch(()=>{this.referenceImportError='VOICE_REFERENCE_STORAGE'})
    for(const key of this.pendingRemoval)await this.removeFiles(key).catch(()=>{this.state.error='VOICE_CLEANUP_PENDING'})
    for(const entry of await readdir(join(this.root,'profiles'),{withFileTypes:true}))if(entry.isDirectory()&&!entry.name.startsWith('.')){
     if(this.pendingRemoval.has(entry.name)){await this.removeFiles(entry.name).catch(()=>{this.state.error='VOICE_CLEANUP_PENDING'});continue}
@@ -92,8 +105,9 @@ export class CharacterVoiceService {
     if(entry.name!==profileKey(p.profile))throw Error('VOICE_PROFILE_PATH')
     this.state.profiles.push(p.profile)
    }
+   this.state.profiles.push(...this.references.list().filter(p=>!this.pendingRemoval.has(profileKey(p))))
    if(this.base){await this.base.initialize();if(this.base.snapshot().supported)this.state.profiles.push(this.base.profile)}
-   for(const [character,key] of Object.entries(this.state.bindings))if(!this.state.profiles.some(p=>profileKey(p)===key))delete this.state.bindings[character]
+   for(const [character,key] of Object.entries(this.state.bindings))if(!referenceKey(key)&&!this.state.profiles.some(p=>profileKey(p)===key))delete this.state.bindings[character]
    this.state.status=this.state.enabled?'idle':'off';this.emit()
   }catch{this.error(Error('VOICE_STORAGE'))}
  }
@@ -105,17 +119,34 @@ export class CharacterVoiceService {
  private mutate(work:()=>Promise<void>){const task=this.serial.then(async()=>{if(this.disposed)return;const previous=structuredClone(this.state),config=this.config,baseMode=this.baseExecutionProfile,removals=new Set(this.pendingRemoval);try{await work();await this.save();this.emit()}catch(e){this.state={...previous,epoch:this.state.epoch};this.config=config;this.baseExecutionProfile=baseMode;this.pendingRemoval=removals;this.error(e)}});this.serial=task.catch(()=>{});return task}
  error(e:unknown){this.state.error=e instanceof Error&&/^[A-Z_]{1,80}$/.test(e.message)?e.message:'VOICE_ERROR';this.state.status='error';this.emit()}
  async importPackage(path:string){return this.mutate(async()=>{const p=await importVoicePackage(path,join(this.root,'profiles'),process.platform==='darwin'?undefined:SELECTED_VOICE);if(!this.state.profiles.some(v=>profileKey(v)===profileKey(p.profile)))this.state.profiles.push(p.profile);this.pendingRemoval.delete(profileKey(p.profile));this.state.error=null})}
+ importReference(path:string,name:string,current=()=>true):Promise<void>{
+  if(this.disposed)return Promise.resolve()
+  if(this.referenceOperation)return this.referenceOperation.task
+  const controller=new AbortController(),operation={controller,task:Promise.resolve()}
+  this.referenceImportError=null;this.referenceOperation=operation
+  operation.task=Promise.resolve().then(async()=>{
+   const poll=setInterval(()=>{if(!current()||this.disposed)controller.abort()},50)
+   try{const p=await this.references.import(path,name,controller.signal,()=>!this.disposed&&current());const publish=this.serial.then(()=>{this.state.profiles.push(p)});this.serial=publish.catch(()=>{});await publish}
+   catch(e){if(!controller.signal.aborted&&!this.disposed&&!(e instanceof Error&&e.message==='VOICE_REFERENCE_CANCELLED'))this.referenceImportError=e instanceof Error&&/^VOICE_REFERENCE_[A-Z_]+$/.test(e.message)?e.message:'VOICE_REFERENCE_IMPORT'}
+   finally{clearInterval(poll);if(this.referenceOperation===operation)this.referenceOperation=null;this.emit()}
+  });this.emit();return operation.task
+ }
+ async cancelReferenceImport(){const operation=this.referenceOperation;if(operation){operation.controller.abort();await operation.task}}
+ renameReference(profile:string,name:string,current=()=>true){const task=this.serial.then(async()=>{if(this.disposed||!current())throw Error('CHAT_SETTINGS_EXPIRED');await this.references.rename(profile,name,()=>!this.disposed&&current());const p=this.references.list().find(p=>profileKey(p)===profile);if(p)this.state.profiles=this.state.profiles.map(old=>profileKey(old)===profile?p:old);this.emit()});this.serial=task.catch(()=>{});return task}
  configure(python:string,model:string){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-')||this.state.executionProfile?.startsWith('gguf-metal-'))await verifyMacInterpreter(python,this.state.executionProfile);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
  enabled(value:boolean){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.state.enabled=value;this.state.status=value?'idle':'off';this.state.error=null})}
  auto(value:boolean){return this.mutate(async()=>{this.state.autoRead=value})}
  volume(value:number){return this.mutate(async()=>{this.state.volume=value})}
- executionProfile(value:ExecutionProfile){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.selectedProfile()?.id===BASE_VOICE.id&&this.base&&!this.base.native)this.baseExecutionProfile=value;else this.state.executionProfile=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
- private getRuntime(){const config:{python:string;model:string;nativeBase?:boolean;windowsBase?:boolean}=this.selectedProfile()?.id===BASE_VOICE.id?{python:this.base!.executable,model:this.base!.path,nativeBase:this.base!.native,windowsBase:!this.base!.native}:this.config!;if(this.runtime&&this.runtime.config?.nativeBase!==config.nativeBase){void this.runtime.stop().catch(()=>{});this.runtime=null}return this.runtime??=this.makeRuntime({...config,worker:this.worker,cacheRoot:join(this.root,'cache'),compilerCache:join(this.root,'compiler-cache'),executionProfile:this.activeProfile()})}
+ executionProfile(value:ExecutionProfile){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(isManagedVoice(this.selectedProfile())&&this.base&&!this.base.native)this.baseExecutionProfile=value;else this.state.executionProfile=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
+ private getRuntime(){const config:{python:string;model:string;nativeBase?:boolean;windowsBase?:boolean}=isManagedVoice(this.selectedProfile())?{python:this.base!.executable,model:this.base!.path,nativeBase:this.base!.native,windowsBase:!this.base!.native}:this.config!;if(this.runtime&&this.runtime.config?.nativeBase!==config.nativeBase){void this.runtime.stop().catch(()=>{});this.runtime=null}return this.runtime??=this.makeRuntime({...config,worker:this.worker,cacheRoot:join(this.root,'cache'),compilerCache:join(this.root,'compiler-cache'),executionProfile:this.activeProfile()})}
  private async startRuntime(profile:VoiceSnapshot['profiles'][number],runtime:TtsRuntimeSupervisor,current:()=>boolean){
-  const key=profile.fingerprint+':'+this.activeProfile(),started=Date.now()
-  if(profile.id!==BASE_VOICE.id){if(!current())throw Error('VOICE_CANCELLED');await runtime.start(join(this.root,'profiles',profileKey(profile)),key);return}
+  let key=profile.fingerprint+':'+this.activeProfile();const started=Date.now()
+  if(!isManagedVoice(profile)){if(!current())throw Error('VOICE_CANCELLED');await runtime.start(join(this.root,'profiles',profileKey(profile)),key);return}
   try{
+   let conditioning:ReferenceCondition|undefined
+   if(isReferenceProfile(profile)){conditioning=await this.references.resolve(profileKey(profile));if(conditioning.fingerprint!==profile.fingerprint)throw Error('VOICE_REFERENCE_CHANGED')}
    const identity=await this.base!.identity(),lease=this.verifiedBase
+   if(conditioning){conditioning={...conditioning,fingerprint:createHash('sha256').update(JSON.stringify({profile:conditioning.fingerprint,base:this.base!.profile.fingerprint,assets:identity,executionProfile:this.activeProfile()})).digest('hex')};key+=':'+conditioning.fingerprint}
    if(!current())throw Error('VOICE_CANCELLED')
    if(identity&&lease?.runtime===runtime&&lease.session===runtime.sessionId&&lease.key===key&&lease.identity===identity&&runtime.ready){
     this.diagnose({type:'base-verification',reused:true,verifyMs:0,metadataMs:Date.now()-started,session:runtime.sessionId});return
@@ -128,7 +159,7 @@ export class CharacterVoiceService {
    if(!current())throw Error('VOICE_CANCELLED')
    if(identity&&identity!==await this.base!.identity())throw Error('VOICE_BASE_CHANGED')
    if(!current())throw Error('VOICE_CANCELLED')
-   const loading=Date.now();await runtime.start(join(this.root,'profiles',profileKey(profile)),key)
+   const loading=Date.now();await runtime.start(join(this.root,'profiles',profileKey(profile)),key,conditioning)
    if(!current())throw Error('VOICE_CANCELLED')
    if(identity&&identity!==await this.base!.identity())throw Error('VOICE_BASE_CHANGED')
    if(!current())throw Error('VOICE_CANCELLED')
@@ -147,8 +178,8 @@ export class CharacterVoiceService {
   }).catch(e=>{if(operation===this.operation&&!this.disposed&&this.outputReady)this.error(e)}).finally(()=>{if(this.preparing===task)this.preparing=null})
   this.preparing=task;return task
  }
- bind(characterId:string,profile:string|null){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.runtime=null;if((profile===this.baseKey()||profile===null)&&this.base?.native&&this.base.snapshot().supported&&!this.state.executionProfile?.startsWith('gguf-metal-'))this.state.executionProfile='gguf-metal-f16';if(profile&&!this.state.profiles.some(p=>profileKey(p)===profile))throw Error('VOICE_PROFILE');if(profile)this.state.bindings[characterId]=profile;else delete this.state.bindings[characterId];this.state.error=null})}
- private async removeFiles(profile:string){await rm(join(this.root,'gguf-cache',profile),{recursive:true,force:true,maxRetries:3});await rm(join(this.root,'profiles',profile),{recursive:true,force:true,maxRetries:3})}
+ bind(characterId:string,profile:string|null,current=()=>true){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.runtime=null;if((profile===this.baseKey()||profile===null||!!profile&&referenceKey(profile))&&this.base?.native&&this.base.snapshot().supported&&!this.state.executionProfile?.startsWith('gguf-metal-'))this.state.executionProfile='gguf-metal-f16';if(profile&&!this.state.profiles.some(p=>profileKey(p)===profile))throw Error('VOICE_PROFILE');if(profile)this.state.bindings[characterId]=profile;else delete this.state.bindings[characterId];this.state.error=null})}
+ private async removeFiles(profile:string){if(referenceKey(profile)){await this.references.remove(profile);return}await rm(join(this.root,'gguf-cache',profile),{recursive:true,force:true,maxRetries:3});await rm(join(this.root,'profiles',profile),{recursive:true,force:true,maxRetries:3})}
  remove(profile:string){
   if(profile===this.baseKey())throw Error('VOICE_BASE_BUILTIN')
   void this.stop().catch(e=>this.error(e))
@@ -196,7 +227,7 @@ export class CharacterVoiceService {
   if(this.disposed||!this.outputReady||!this.state.enabled)return
   if(message.role!=='assistant'||message.status!=='complete'||!message.binding)throw Error('VOICE_MESSAGE')
   const before=this.chat(),source=structuredClone(message),profile=this.selectedProfile()
-  if(!profile)throw Error('VOICE_NOT_INSTALLED');if(!this.configured())throw Error(profile.id===BASE_VOICE.id?'VOICE_BASE_NOT_INSTALLED':'VOICE_RUNTIME_MISSING')
+  if(!profile)throw Error(referenceKey(this.bindingKey(before.character?.id||''))?'VOICE_REFERENCE_UNAVAILABLE':'VOICE_NOT_INSTALLED');if(isReferenceProfile(profile)&&profile.error)throw Error(profile.error);if(!this.configured())throw Error(isManagedVoice(profile)?'VOICE_BASE_NOT_INSTALLED':'VOICE_RUNTIME_MISSING')
   const op=++this.operation;await this.stop(false);if(op!==this.operation||this.disposed)return
   const epoch=this.state.epoch,origin=before.character
   const current=()=>{const s=this.chat();return !this.disposed&&this.outputReady&&this.state.enabled&&op===this.operation&&epoch===this.state.epoch&&s.character?.id===source.binding!.characterId&&s.character.revision===source.binding!.revision&&s.epoch===before.epoch&&s.model===before.model&&s.conversation?.id===before.conversation?.id&&this.bindingKey(s.character.id)===profileKey(profile)&&(test||!!s.conversation?.messages.some(m=>m.id===source.id&&m.status==='complete'&&m.text===source.text))}
@@ -212,7 +243,7 @@ export class CharacterVoiceService {
    await this.startRuntime(profile,runtime,current)
    if(!current())return
    this.diagnose({type:'runtime-ready',at:Date.now(),session:runtime.sessionId,audit:runtime.audit})
-   const binding:SpeechBinding={...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,runtimeSessionId:runtime.sessionId,executionProfile:this.activeProfile()}
+   const binding:SpeechBinding={...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,runtimeSessionId:runtime.sessionId,executionProfile:this.activeProfile(),...(isReferenceProfile(profile)?{conditioningFingerprint:String(runtime.audit?.conditioningFingerprint||'')}: {})}
    if(isStreamingProfile(binding.executionProfile)){
     let previous=Promise.resolve()
     for(const segment of segments){
@@ -294,5 +325,5 @@ export class CharacterVoiceService {
   }}finally{await verification}
  }
  outputStopped(epoch:number,elapsedMs:number){if(epoch===this.state.epoch)this.diagnose({type:'output-stopped',at:Date.now(),epoch,mainActionToRendererStopMs:elapsedMs})}
- async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();const installation=this.cancelInstallBase();void installation.catch(()=>{});try{await this.stop()}finally{await installation;await this.serial.catch(()=>{})}}
+ async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();const installation=Promise.all([this.cancelInstallBase(),this.cancelReferenceImport()]);void installation.catch(()=>{});try{await this.stop()}finally{await installation;await this.serial.catch(()=>{})}}
 }

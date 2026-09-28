@@ -3,6 +3,7 @@ import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {createHash} from 'node:crypto'
+import {build} from 'esbuild'
 import {createPackage} from '@electron/asar'
 import {checkInstallerPayload,voiceRuntimeFiles} from '../scripts/release/installer-payload.mjs'
 
@@ -12,7 +13,7 @@ describe('Windows installer TTS payload',()=>{
   root=await mkdtemp(join(tmpdir(),'installer-voice-'));asar=join(root,'app.asar');files=[]
   await mkdir(join(root,'stage/dist-electron/voice'),{recursive:true})
   for(const name of voiceRuntimeFiles){
-   const bytes=await readFile(join('electron/voice',name))
+   const bytes=name==='reference-import-worker.cjs'?Buffer.from((await build({entryPoints:['electron/utility/reference-import-worker.ts'],bundle:true,platform:'node',format:'cjs',write:false})).outputFiles[0].contents):await readFile(join('electron/voice',name))
    await writeFile(join(root,'stage/dist-electron/voice',name),bytes)
    files.push({path:'resources/voice/'+name,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
   }

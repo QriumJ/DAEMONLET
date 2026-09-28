@@ -58,7 +58,7 @@ export async function verifyVoicePackage(root:string,selected?:typeof SELECTED_V
  if(v.voice_id===SELECTED_VOICE.id&&v.version===SELECTED_VOICE.version)selected=SELECTED_VOICE
  if(typeof v.checkpoint!=='string'||!v.checkpoint||v.checkpoint.length>120)throw Error('VOICE_SCHEMA')
  if(selected&&(v.voice_id!==selected.id||v.version!==selected.version||v.checkpoint!==selected.checkpoint||adapter!==selected.adapter||digest!==selected.checksums))throw Error('VOICE_SELECTION_MISMATCH')
- return {manifest:v,profile:{id:v.voice_id,version:v.version,name:v.display_name,fingerprint:digest,adapterSha256:adapter}}
+ return {manifest:v,profile:{kind:'trained-lora',id:v.voice_id,version:v.version,name:v.display_name,fingerprint:digest,adapterSha256:adapter}}
 }
 export const profileKey=(p:VoiceProfile)=>p.id+'@'+p.version
 export async function importVoicePackage(source:string,profilesRoot:string,selected?:typeof SELECTED_VOICE) {

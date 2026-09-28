@@ -1,10 +1,11 @@
-import {VOICE_MANAGEMENT_ACTIONS,type VoiceManagementAction} from '../../shared/chat-settings-contract'
+import {appText,appLanguage} from '../AppLanguage'
+import {settingsContext,VOICE_MANAGEMENT_ACTIONS,type VoiceManagementAction} from '../../shared/chat-settings-contract'
 import {join,dirname} from 'node:path'
 import {WindowsVoiceInstaller} from './WindowsVoiceInstaller'
 import {VoiceBaseInstaller} from './VoiceBaseInstaller'
 import {dialog,ipcMain,type BrowserWindow} from 'electron'
 import {isTrustedSender} from '../SecurityPolicy'
-import {VOICE_IPC,type VoiceAction} from '../../shared/character-voice-contract'
+import {isReferenceProfile,VOICE_IPC,type VoiceAction} from '../../shared/character-voice-contract'
 import type {CharacterChatService} from '../character-chat/CharacterChatService'
 import {CharacterVoiceService} from './CharacterVoiceService'
 
@@ -20,6 +21,7 @@ export class VoiceIpcController {
   if(value.type==='test'&&!this.playbackReady)throw Error('VOICE_OUTPUT_NOT_READY')
   return this.action(value,owner,current)
  }
+ private referencePicker:{cancelled:boolean}|null=null
  private picking=false
  private rendererReady=false
  private outputGeneration=0
@@ -34,7 +36,7 @@ export class VoiceIpcController {
    const owner=this.window(),generation=this.outputGeneration
    await this.initialize()
    if(owner!==this.window()||generation!==this.outputGeneration||!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl))throw Error('VOICE_OUTPUT_EXPIRED')
-   try{await this.action(value)}catch(e){this.service.error(e)}
+   try{await this.action(value,owner,()=>owner===this.window()&&generation===this.outputGeneration&&!!owner&&!owner.isDestroyed())}catch(e){this.service.error(e)}
    return this.service.snapshot()
   })
   ipcMain.handle(VOICE_IPC.audio,(event,id:unknown,epoch:unknown)=>{
@@ -71,19 +73,42 @@ export class VoiceIpcController {
  async stop(){try{await this.service.stop()}catch(e){this.service.error(e)}}
  private async action(v:VoiceAction,owner=this.window(),isCurrent=()=>this.window()===owner&&!!owner&&!owner.isDestroyed()){
   if(!v||typeof v!=='object')throw Error('VOICE_ACTION')
-  const character=this.chat.snapshot().character
+  const snapshot=this.chat.snapshot(),character=snapshot.character,context=settingsContext(snapshot)
+  const contextCurrent=()=>isCurrent()&&Object.entries(settingsContext(this.chat.snapshot())).every(([key,value])=>context[key as keyof typeof context]===value)
   switch(v.type){
    case 'ready':this.rendererReady=true;this.updateOutput();return
    case 'snapshot':return
    case 'stop':return this.service.stop(true,false)
    case 'installBase':return this.service.installBase()
    case 'cancelInstallBase':return this.service.cancelInstallBase()
+   case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()
    case 'prepare':return this.service.prepare()
    case 'executionProfile':if(!this.service.snapshot().availableProfiles?.includes(v.value))throw Error('VOICE_ACTION');return this.service.executionProfile(v.value)
    case 'enabled':case 'auto':if(typeof v.value!=='boolean')throw Error('VOICE_ACTION');return v.type==='enabled'?this.service.enabled(v.value):this.service.auto(v.value)
    case 'volume':if(!Number.isFinite(v.value)||v.value<0||v.value>1)throw Error('VOICE_ACTION');return this.service.volume(v.value)
-   case 'bind':if(!character||v.profile!==null&&(typeof v.profile!=='string'||v.profile.length>170))throw Error('VOICE_ACTION');return this.service.bind(character.id,v.profile)
-   case 'remove':if(typeof v.profile!=='string'||v.profile.length>170)throw Error('VOICE_ACTION');return this.service.remove(v.profile)
+   case 'bind':if(!character||v.profile!==null&&(typeof v.profile!=='string'||v.profile.length>170))throw Error('VOICE_ACTION');return this.service.bind(character.id,v.profile,contextCurrent)
+   case 'renameReference':if(typeof v.profile!=='string'||v.profile.length>170||typeof v.name!=='string'||v.name.length>80)throw Error('VOICE_ACTION');return this.service.renameReference(v.profile,v.name,contextCurrent)
+   case 'remove':{
+    if(typeof v.profile!=='string'||v.profile.length>170)throw Error('VOICE_ACTION')
+    const state=this.service.snapshot(),profile=state.profiles.find(p=>p.id+'@'+p.version===v.profile)
+    if(isReferenceProfile(profile)){
+     if(!owner||owner.isDestroyed())throw Error('VOICE_ACTION')
+     const count=Object.values(state.bindings).filter(key=>key===v.profile).length
+     const result=await dialog.showMessageBox(owner,{type:'question',buttons:[appText('취소'),appText('삭제')],defaultId:0,cancelId:0,message:appText('WAV 음성을 삭제할까요?'),detail:appLanguage()==='en'?`${count} character voice binding(s) will be removed. Active speech will stop. The original WAV will be kept.`:`연결된 캐릭터 ${count}개의 음성 연결이 해제됩니다. 현재 발화를 중단하며, 원본 WAV는 삭제하지 않습니다.`})
+     if(result.response!==1||!contextCurrent())return
+    }
+    return this.service.remove(v.profile)
+   }
+   case 'importReference':{
+    if(typeof v.name!=='string'||!v.name.trim()||v.name.trim().length>80||/[\x00-\x1f\x7f]/.test(v.name)||v.acknowledged!==true)throw Error('VOICE_REFERENCE_NAME')
+    const win=owner;if(!win||win.isDestroyed()||this.referencePicker||this.picking)return
+    const pick={cancelled:false};this.referencePicker=pick;this.picking=true
+    try{
+     const r=await dialog.showOpenDialog(win,{title:appText('기준 WAV 선택'),filters:[{name:'WAV',extensions:['wav']}],properties:process.platform==='darwin'?['openFile','noResolveAliases']:['openFile']})
+     if(!pick.cancelled&&contextCurrent()&&!win.isDestroyed()&&!r.canceled&&r.filePaths.length===1)await this.service.importReference(r.filePaths[0],v.name,()=>!pick.cancelled&&contextCurrent()&&!win.isDestroyed())
+    }finally{if(this.referencePicker===pick){this.referencePicker=null;this.picking=false}}
+    return
+   }
    case 'read':if(typeof v.messageId!=='string'||v.messageId.length>80)throw Error('VOICE_ACTION');return this.service.readMessage(v.messageId)
    case 'test':return this.service.test()
    case 'played':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||v.error!==undefined&&typeof v.error!=='boolean')throw Error('VOICE_ACTION');return this.service.played(v.audioId,v.epoch,v.error)
@@ -112,6 +137,7 @@ export class VoiceIpcController {
  close():Promise<void>{
   if(this.closing)return this.closing
   this.rendererReady=false
+  if(this.referencePicker)this.referencePicker.cancelled=true
   this.managementListeners.clear()
   const work=[()=>ipcMain.removeHandler(VOICE_IPC.action),()=>ipcMain.removeHandler(VOICE_IPC.audio),...this.detach,()=>this.service.close()]
   this.detach=[]

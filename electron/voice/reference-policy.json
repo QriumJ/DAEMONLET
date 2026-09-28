@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "contract": "voxcpm2-managed-reference-v1",
+  "preprocessingVersion": "mono-pcm16-round-v1",
+  "minSeconds": 2,
+  "maxSeconds": 20,
+  "maxSourceBytes": 20971520,
+  "maxProfiles": 32,
+  "maxStoreBytes": 134217728,
+  "maxChunks": 64,
+  "sampleRates": [16000, 22050, 24000, 32000, 44100, 48000],
+  "minAcRms": 0.0001
+}

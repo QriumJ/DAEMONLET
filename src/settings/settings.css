@@ -233,3 +233,10 @@ select { padding: 8px 30px 8px 11px; border: 1px solid #dfe4d9; border-radius: 7
 .voice-advanced > summary { font-size:12px; font-weight:550; color:#55695b; cursor:pointer; padding:3px 0; }
 .voice-advanced .voice-install { margin-top:14px; }
 .voice-advanced > small { margin-top:10px; }
+
+.voice-reference-import, .voice-reference-info { display:flex; flex-wrap:wrap; gap:12px; width:100%; padding:16px; border:1px solid var(--border, #dce2d8); border-radius:12px; background:var(--surface, #fff); }
+.voice-reference-import strong, .voice-reference-info strong { flex-basis:100%; font-size:14px; }
+.voice-reference-import p { margin:0; font-size:12px; line-height:1.6; }
+.voice-reference-import label, .voice-reference-info label { display:flex; align-items:center; gap:10px; width:100%; font-size:12px; }
+.voice-reference-import input:not([type="checkbox"]), .voice-reference-info input { flex:1; min-width:0; padding:8px 10px; border:1px solid #dce2d8; border-radius:8px; font:inherit; }
+.voice-reference-import button:focus-visible, .voice-reference-info button:focus-visible, .voice-reference-import input:focus-visible, .voice-reference-info input:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
