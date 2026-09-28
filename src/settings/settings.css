@@ -203,3 +203,33 @@ select { padding: 8px 30px 8px 11px; border: 1px solid #dfe4d9; border-radius: 7
 .pack-update-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
 .pack-update-auto { display: flex; align-items: flex-start; gap: 6px; margin-top: 10px; font-size: 12px; }
 .pack-update progress { width: 100%; }
+
+.chat-settings-context { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:-7px 0 22px; padding:12px 16px; border:1px solid var(--line); border-radius:10px; background:#eff5f1; font-size:12px; color:#526459; }
+.chat-settings-context .text-button { margin-left:auto; }
+.chat-settings-fields { border:0; padding:0; margin:0; min-width:0; }
+.chat-settings-field { display:grid; gap:8px; font-size:12px; font-weight:550; margin-top:16px; }
+.chat-settings-page select,.chat-settings-page textarea { width:100%; min-height:40px; padding:9px 12px; border:1px solid #dce2d8; border-radius:8px; background:#fff; color:#34453b; font:inherit; }
+.chat-settings-page textarea { min-height:90px; resize:vertical; }
+.chat-settings-badge { margin-left:auto; border-radius:6px; background:#eef4ef; color:#486853; padding:3px 9px; font-size:11px; white-space:nowrap; }
+.voice-settings { display:flex; flex-wrap:wrap; gap:12px 8px; }
+.voice-settings > div[role="status"] { width:100%; color:var(--muted); font-size:12px; display:flex; align-items:center; justify-content:space-between; }
+.voice-settings > label { display:flex; align-items:center; justify-content:space-between; gap:18px; width:100%; padding:8px 0; font-size:13px; }
+.voice-settings > label:has(input[type="checkbox"]) { justify-content:flex-start; }
+.voice-settings select { max-width:65%; }
+.voice-settings input[type="checkbox"] { accent-color:var(--accent); width:16px; height:16px; }
+.voice-settings input[type="range"] { accent-color:var(--accent); width:65%; }
+.voice-settings button { border:1px solid #dce2d8; border-radius:8px; background:#f9fbf8; color:#37463c; padding:8px 12px; min-height:36px; font-size:12px; transition:transform 140ms cubic-bezier(.23,1,.32,1),background-color 140ms ease; }
+.voice-settings small { display:block; flex-basis:100%; color:var(--muted); font-size:11px; line-height:1.6; }
+.voice-install { flex-basis:100%; padding:15px; border-radius:9px; background:#f5f7f2; }
+.voice-install button { margin-top:10px; background:#fff; }
+.voice-install progress,.chat-settings-progress progress { flex:1; min-width:80px; accent-color:var(--accent); }
+.chat-settings-progress { display:flex; align-items:center; gap:12px; margin-top:16px; }
+.chat-memory { padding:12px 0; border-bottom:1px solid var(--line); }
+.chat-memory p { white-space:pre-wrap; overflow-wrap:anywhere; }
+.chat-settings-page button:active:not(:disabled) { transform:scale(.97); }
+@media (hover:hover) and (pointer:fine) { .voice-settings button:hover:not(:disabled) { background:#edf3ec; } }
+@media (prefers-reduced-motion:reduce) { .chat-settings-page button { transition:none; } .chat-settings-page button:active:not(:disabled) { transform:none; } }
+.voice-advanced { flex-basis:100%; border-top:1px solid var(--line); margin-top:8px; padding-top:14px; }
+.voice-advanced > summary { font-size:12px; font-weight:550; color:#55695b; cursor:pointer; padding:3px 0; }
+.voice-advanced .voice-install { margin-top:14px; }
+.voice-advanced > small { margin-top:10px; }

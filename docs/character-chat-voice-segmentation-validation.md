@@ -1,5 +1,10 @@
 # Voice grouping validation — 2026-09-28
 
+Subsequent user acceptance: the user reported satisfactory listening and selected
+the current compromise for the final release candidate. The `PENDING_REVIEW`
+entries below describe the earlier measurement stage, before that acceptance.
+Windows GUI playback is still not claimed by that listening approval.
+
 ## Source and scope
 
 Work-order baseline and fetched main are both

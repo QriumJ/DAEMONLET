@@ -1,3 +1,4 @@
+import {VOICE_MANAGEMENT_ACTIONS,type VoiceManagementAction} from '../../shared/chat-settings-contract'
 import {join,dirname} from 'node:path'
 import {WindowsVoiceInstaller} from './WindowsVoiceInstaller'
 import {VoiceBaseInstaller} from './VoiceBaseInstaller'
@@ -10,6 +11,15 @@ import {CharacterVoiceService} from './CharacterVoiceService'
 export class VoiceIpcController {
  readonly service:CharacterVoiceService
  private initialized:Promise<void>|null=null
+ private managementListeners=new Set<()=>void>()
+ subscribeManagement(listener:()=>void){this.managementListeners.add(listener);return()=>{this.managementListeners.delete(listener)}}
+ get playbackReady(){const win=this.window();return !this.closing&&!!win&&win===this.attached&&!win.isDestroyed()&&!win.webContents.isDestroyed()&&win.isVisible()&&this.rendererReady}
+ async manage(value:VoiceManagementAction,owner:BrowserWindow,current:()=>boolean){
+  if(!VOICE_MANAGEMENT_ACTIONS.includes(value?.type as any))throw Error('VOICE_ACTION')
+  await this.initialize();if(!current())throw Error('CHAT_SETTINGS_EXPIRED')
+  if(value.type==='test'&&!this.playbackReady)throw Error('VOICE_OUTPUT_NOT_READY')
+  return this.action(value,owner,current)
+ }
  private picking=false
  private rendererReady=false
  private outputGeneration=0
@@ -33,6 +43,7 @@ export class VoiceIpcController {
   })
  }
  private send(channel:string,value:unknown){
+  if(channel===VOICE_IPC.changed)for(const listener of this.managementListeners){try{listener()}catch{}}
   const win=this.window()
   if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed()){
    try{win.webContents.send(channel,value)}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}
@@ -55,7 +66,7 @@ export class VoiceIpcController {
  }
  initialize(){return this.initialized??=this.service.initialize()}
  async stop(){try{await this.service.stop()}catch(e){this.service.error(e)}}
- private async action(v:VoiceAction){
+ private async action(v:VoiceAction,owner=this.window(),isCurrent=()=>this.window()===owner&&!!owner&&!owner.isDestroyed()){
   if(!v||typeof v!=='object')throw Error('VOICE_ACTION')
   const character=this.chat.snapshot().character
   switch(v.type){
@@ -76,9 +87,9 @@ export class VoiceIpcController {
    case 'scheduled':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.delayMs)||v.delayMs<0||v.delayMs>6000||!Number.isFinite(v.gapMs)||v.gapMs<0||v.gapMs>180_000)throw Error('VOICE_ACTION');return this.service.scheduled(v.audioId,v.epoch,v.delayMs,v.gapMs)
    case 'outputStopped':if(!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.elapsedMs)||v.elapsedMs<0||v.elapsedMs>180_000)throw Error('VOICE_ACTION');return this.service.outputStopped(v.epoch,v.elapsedMs)
    case 'import':case 'configure':{
-    const win=this.window();if(!win||win.isDestroyed()||this.picking)return
+    const win=owner;if(!win||win.isDestroyed()||this.picking)return
     this.picking=true
-    const current=()=>this.window()===win&&!win.isDestroyed()
+    const current=()=>isCurrent()&&!win.isDestroyed()
     try{
      if(v.type==='import'){
       const r=await dialog.showOpenDialog(win,{title:process.platform==='darwin'?'LoRA 음성 패키지 폴더 가져오기':'채택된 음성 패키지 폴더 가져오기',properties:['openDirectory']})
@@ -98,6 +109,7 @@ export class VoiceIpcController {
  close():Promise<void>{
   if(this.closing)return this.closing
   this.rendererReady=false
+  this.managementListeners.clear()
   const work=[()=>ipcMain.removeHandler(VOICE_IPC.action),()=>ipcMain.removeHandler(VOICE_IPC.audio),...this.detach,()=>this.service.close()]
   this.detach=[]
   this.closing=Promise.allSettled(work.map(fn=>Promise.resolve().then(fn))).then(results=>{

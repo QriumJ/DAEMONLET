@@ -424,3 +424,13 @@ it('closing during model inventory does not start a late runtime availability pr
  await Promise.all([initial,closed])
  expect(service.runtime.available).not.toHaveBeenCalled()
 })
+
+it.each(['save','delete'])('settings memory %s cannot cross a queued character selection',async action=>{
+ const {service}=await fixture();await service.saveMemory('original')
+ const id=service.snapshot().memories![0].id
+ const select=service.selectCharacter('synthetic-b')
+ const memory=action==='save'?service.saveMemory('must not leak'):service.deleteMemory(id)
+ const caught=expect(memory).rejects.toThrow('CHAT_SETTINGS_CONTEXT_CHANGED')
+ await select;await caught;expect(service.snapshot().memories).toEqual([])
+ await service.selectCharacter('gpichan');expect(service.snapshot().memories!.map(m=>m.text)).toEqual(['original'])
+})

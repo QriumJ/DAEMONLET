@@ -47,3 +47,6 @@ contextBridge.exposeInMainWorld("settingsDesktop", Object.freeze(api))
 import { UPDATE_IPC, type UpdateDesktopApi } from "../shared/update-contract"
 const updates: UpdateDesktopApi = { onOpen: listener => subscription(UPDATE_IPC.open, listener), snapshot: () => ipcRenderer.invoke(UPDATE_IPC.snapshot), act: value => ipcRenderer.invoke(UPDATE_IPC.action, value), onChanged: listener => subscription(UPDATE_IPC.changed, listener) }
 contextBridge.exposeInMainWorld("updateDesktop", Object.freeze(updates))
+
+import {CHAT_SETTINGS_IPC,type ChatSettingsApi} from '../shared/chat-settings-contract'
+contextBridge.exposeInMainWorld('chatSettings',Object.freeze({onOpen:listener=>subscription(CHAT_SETTINGS_IPC.open,listener),action:value=>ipcRenderer.invoke(CHAT_SETTINGS_IPC.action,value),subscribe:listener=>subscription(CHAT_SETTINGS_IPC.changed,listener)} satisfies ChatSettingsApi))

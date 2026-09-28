@@ -161,3 +161,10 @@ it('Voice F2: renderer reload rejects readiness IPC suspended in initialization'
  window.window!.webContents.emit('did-start-loading');release();await check
  expect((window.voice.service as any).outputReady).toBe(false);await window.dispose()
 })
+
+it('settings selection stays synchronized after chat initialization even with its window closed',async()=>{
+ const {window}=await savedFixture();await window.initializeSettings();expect(window.window).toBeNull()
+ vi.spyOn((window as any).registry,'get').mockReturnValue({id:'other',revision:'new',status:'ready'})
+ const select=vi.spyOn(window.service,'selectCharacter').mockResolvedValue()
+ await window.selectedCharacterChanged('other');expect(select).toHaveBeenCalledWith('other');expect(window.window).toBeNull();expect(window.voice.playbackReady).toBe(false)
+})

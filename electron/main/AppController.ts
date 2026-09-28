@@ -1,3 +1,4 @@
+import {ChatSettingsIpcController} from './character-chat/ChatSettingsIpcController'
 import { CodexUsageService } from "./codex-usage/CodexUsageService"
 import { createCodexUsageReader } from "./codex-usage/CodexUsageReader"
 import { CodexUsageIpcController } from "./CodexUsageIpcController"
@@ -117,6 +118,7 @@ export class AppController {
   private readonly lab: LabWindowController
   private readonly adapter: AdapterSupervisor
   private readonly integration: CodexIntegrationController
+  private readonly chatSettingsIpc: ChatSettingsIpcController
   private readonly settingsWindow: SettingsWindowController
   private readonly settingsIpc: SettingsIpcController
   private readonly packUpdates: PackUpdateService
@@ -157,7 +159,7 @@ export class AppController {
   private readonly smokeReadyCharacters = new Set<string>()
 
   constructor(private readonly dirname: string, private readonly characters: CharacterRegistry, private readonly setupSmoke?: SetupSmokeContext, private readonly startup?: StartupWindow, updateSmoke?: Partial<ConstructorParameters<typeof UpdateService>[0]>) {
-    this.characterChat = new CharacterChatWindow(dirname, characters, this.devServerUrl, {pet:()=>this.pet.window,reveal:()=>this.showPet(),active:value=>{this.activityBubble.setLocalChatVisible(value);if(value){this.chatEntry.cancel();this.sideChat.setMode("hidden")}},select:entry=>this.selectCharacter(entry),selected:()=>this.settings.characterId})
+    this.characterChat = new CharacterChatWindow(dirname, characters, this.devServerUrl, {pet:()=>this.pet.window,reveal:()=>this.showPet(),active:value=>{this.activityBubble.setLocalChatVisible(value);if(value){this.chatEntry.cancel();this.sideChat.setMode("hidden")}},select:entry=>this.selectCharacter(entry),selected:()=>this.settings.characterId,openSettings:()=>{const win=this.settingsWindow.open();const show=()=>{if(!win.isDestroyed())win.webContents.send('chat-settings.open')};if(win.webContents.isLoading())win.webContents.once('did-finish-load',show);else show()}})
     this.adapterConfig = createDesktopAdapterRuntimeConfig()
     this.protocol = new ProtocolBridge(this.adapterConfig.protocolEndpoint)
     const preload = (name: string) => join(dirname, `${name}-preload.cjs`)
@@ -224,6 +226,7 @@ export class AppController {
         this.settingsPoll = null
       },
     })
+    this.chatSettingsIpc = new ChatSettingsIpcController(this.settingsWindow,this.characterChat,this.devServerUrl)
     this.updates = new UpdateService({
       version: app.getVersion(), dataRoot: app.getPath("userData"), platform: () => detectUpdatePlatform(this.settings?.allowUnsignedWindowsUpdates), engine: () => createOfficialUpdateEngine(() => this.settings?.allowUnsignedWindowsUpdates ?? false),
       setUnsignedWindowsPolicy: enabled => this.setUnsignedWindowsPolicy(enabled),
@@ -503,6 +506,7 @@ export class AppController {
     this.residentDock?.dispose(); this.residentDock = null
     if (this.settingsPoll) clearInterval(this.settingsPoll)
     this.settingsPoll = null
+    this.chatSettingsIpc.dispose()
     await this.characterChat.dispose()
     await usageStopped
     this.sideChatIpc.dispose()
