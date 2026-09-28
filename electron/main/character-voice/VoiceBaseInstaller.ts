@@ -7,43 +7,56 @@ import {verifyRuntime} from '../character-chat/runtime-artifacts.mjs'
 import {digestFile} from '../character-chat/ModelManager'
 import {streamChunks} from '../character-chat/stream'
 import type {VoiceProfile,VoiceInstallState} from '../../shared/character-voice-contract'
+import {VoiceAssetIdentity} from './VoiceAssetIdentity'
 import defaults from '../../voice/base-voice-defaults.json'
 export const BASE_VOICE:VoiceProfile={id:'voxcpm2_default',version:catalog.revision,name:'기본 음성 · VoxCPM2',fingerprint:createHash('sha256').update(JSON.stringify({catalog,defaults})).digest('hex'),adapterSha256:'none'}
 export const BASE_KEY=BASE_VOICE.id+'@'+BASE_VOICE.version
-export interface BaseVoiceInstallation {readonly native:boolean;readonly profile:VoiceProfile;readonly executable:string;readonly path:string;snapshot():VoiceInstallState;initialize():Promise<void>;ready():Promise<string>;install():Promise<void>;cancel():Promise<void>}
+export interface BaseVoiceInstallation {readonly native:boolean;readonly profile:VoiceProfile;readonly executable:string;readonly path:string;snapshot():VoiceInstallState;initialize():Promise<void>;identity():Promise<string|null>;ready():Promise<string>;cancelVerification():Promise<void>;install():Promise<void>;cancel():Promise<void>}
 export class VoiceBaseInstaller implements BaseVoiceInstallation {
  readonly native=true
  readonly profile=BASE_VOICE
+ private verifying:Promise<string>|null=null
+ private verifyController:AbortController|null=null
+ private assets:VoiceAssetIdentity|null=null
  private lastUpdate=0
  private operation:Promise<void>|null=null
  private controller:AbortController|null=null
  private status:VoiceInstallState={supported:process.platform==='darwin'&&process.arch==='arm64',installed:false,phase:'idle',bytes:0,total:Object.values(catalog.files).reduce((n,f)=>n+f.bytes,0),error:null}
- constructor(readonly root:string,readonly runtimeRoot:string,private changed:()=>void,private options:{fetch?:typeof fetch;catalog?:typeof catalog;verifyRuntime?:()=>Promise<unknown>;freeBytes?:()=>Promise<number>}={}){}
+ constructor(readonly root:string,readonly runtimeRoot:string,private changed:()=>void,private options:{fetch?:typeof fetch;catalog?:typeof catalog;verifyRuntime?:(signal?:AbortSignal)=>Promise<unknown>;freeBytes?:()=>Promise<number>}={}){}
  private get model(){return this.options.catalog??catalog}
  get path(){return join(this.root,this.model.revision)}
  get executable(){return join(this.runtimeRoot,'daemonlet-voice-engine')}
  snapshot(){return {...this.status}}
  private update(value:Partial<VoiceInstallState>){const notify=value.phase!==undefined||value.error!==undefined||Date.now()-this.lastUpdate>150;Object.assign(this.status,value);if(notify){this.lastUpdate=Date.now();this.changed()}}
- private async runtime(){try{await (this.options.verifyRuntime?.()??verifyRuntime(this.runtimeRoot,'darwin-arm64',{trusted:runtimeCatalog as any}))}catch{throw Error('VOICE_BASE_RUNTIME')}}
- async initialize(){if(!this.status.supported)return;try{await this.runtime();await this.verify();this.status.installed=true}catch{} }
+ private async runtime(signal?:AbortSignal){try{await (this.options.verifyRuntime?.(signal)??verifyRuntime(this.runtimeRoot,'darwin-arm64',{trusted:runtimeCatalog as any,signal}))}catch(e){if(signal?.aborted)throw e;throw Error('VOICE_BASE_RUNTIME')}}
+ private assetIdentity(){return this.assets??=new VoiceAssetIdentity(JSON.stringify({model:this.model,runtimeCatalog,defaults}),this.options.verifyRuntime?[this.path]:[this.path,this.runtimeRoot],[...Object.entries(this.model.files).map(([name,f])=>({path:join(this.path,name),bytes:f.bytes})),{path:join(this.path,'model-receipt.json')},...(this.options.verifyRuntime?[]:[{path:join(this.runtimeRoot,'runtime-lock.json')},...Object.entries(runtimeCatalog.targets['darwin-arm64'].files).map(([name,f])=>({path:join(this.runtimeRoot,name),bytes:f.bytes}))])])}
+ async identity(){try{return await this.assetIdentity().snapshot()}catch(e){this.update({installed:false});throw e}}
+ async initialize(){if(!this.status.supported)return;try{const receipt=JSON.parse(await readFile(join(this.path,'model-receipt.json'),'utf8'));if(JSON.stringify(receipt)!==JSON.stringify(this.model))return;await this.assetIdentity().snapshot(false);this.status.installed=true}catch{} }
  async verify(signal?:AbortSignal){
   const info=await lstat(this.path);if(info.isSymbolicLink()||!info.isDirectory())throw Error('VOICE_BASE_CHANGED')
   for(const [name,f] of Object.entries(this.model.files)){const p=join(this.path,name),s=await lstat(p);if(!s.isFile()||s.isSymbolicLink()||s.size!==f.bytes||await digestFile(p,signal)!==f.sha256)throw Error('VOICE_BASE_CHANGED')}
   return this.path
  }
- async ready(){try{await this.runtime();return await this.verify()}catch(e){this.update({installed:false});throw e}}
+ ready():Promise<string>{
+  if(this.verifying)return this.verifying
+  const controller=this.verifyController=new AbortController()
+  const task=this.verifying=(async()=>{try{await this.runtime(controller.signal);const path=await this.verify(controller.signal);this.update({installed:true});return path}catch(e){if(!controller.signal.aborted)this.update({installed:false});throw e}})().finally(()=>{if(this.verifying===task){this.verifying=null;this.verifyController=null}})
+  return task
+ }
+ async cancelVerification(){this.verifyController?.abort();await this.verifying?.catch(()=>{})}
  async install(){
   if(this.operation)return this.operation
   if(!this.status.supported)throw Error('VOICE_BASE_UNSUPPORTED')
+  await this.cancelVerification();this.assets?.invalidate()
   const controller=this.controller=new AbortController()
   const task=this.operation=this.download(controller.signal)
   try{await task;this.update({installed:true,phase:'idle',bytes:this.status.total,error:null})}
   catch(e){this.update({phase:'idle',error:controller.signal.aborted?null:e instanceof Error&&/^VOICE_[A-Z_]+$/.test(e.message)?e.message:'VOICE_DOWNLOAD_FAILED'});if(!controller.signal.aborted)throw e}
   finally{this.controller=null;this.operation=null}
  }
- async cancel(){this.controller?.abort();await this.operation?.catch(()=>{})}
+ async cancel(){this.controller?.abort();await Promise.allSettled([this.operation,this.cancelVerification()]);this.assets?.close()}
  private async download(signal:AbortSignal){
-  await this.runtime();await mkdir(this.root,{recursive:true,mode:0o700})
+  await this.runtime(signal);await mkdir(this.root,{recursive:true,mode:0o700})
   if((await lstat(this.root)).isSymbolicLink())throw Error('VOICE_BASE_CHANGED')
   const stage=this.path+'.download';await mkdir(stage,{recursive:true,mode:0o700});if((await lstat(stage)).isSymbolicLink())throw Error('VOICE_BASE_CHANGED')
   const total=Object.values(this.model.files).reduce((n,f)=>n+f.bytes,0);this.update({phase:'downloading',bytes:0,total,error:null})

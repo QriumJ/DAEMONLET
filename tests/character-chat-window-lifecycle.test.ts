@@ -17,7 +17,7 @@ it.each(['LLM_STOP_FAILED','CHAT_STORAGE_FAILED'])('Voice F3: %s cannot skip voi
  vi.spyOn(window.service,'close').mockRejectedValue(Error(code));const close=vi.spyOn(window.voice,'close').mockResolvedValue()
  await expect(window.dispose()).rejects.toThrow();expect(close).toHaveBeenCalledTimes(1);expect(destroy).toHaveBeenCalledTimes(1)
 })
-it.each([['baseline',false],['baseline',true],['gguf-metal-f16',false],['gguf-metal-f16',true]] as const)('Voice F2: %s hide then show=%s denies late completed reply',async (profile,show)=>{
+it.each([['baseline',false],['baseline',true],['cached',false],['cached',true],['compiled',false],['compiled',true],['gguf-metal-f16',false],['gguf-metal-f16',true]] as const)('Voice F2: %s hide then show=%s denies late completed reply',async (profile,show)=>{
  const {window}=await savedFixture();mockWindows();await window.open()
  const win=window.window as any;win.isVisible=()=>true;win.webContents.isDestroyed=()=>false
  const voice=window.voice.service as any,runtime={running:false,sessionId:'mock',retireSpeech:vi.fn(),start:vi.fn(async()=>{}),stop:vi.fn(async()=>{}),synthesize:vi.fn(async()=>({audioId:'mock',bytes:new Uint8Array(1),durationMs:1}))}
@@ -25,7 +25,7 @@ it.each([['baseline',false],['baseline',true],['gguf-metal-f16',false],['gguf-me
  voice.state.executionProfile=profile;Object.assign(runtime,{stream:vi.fn(async()=>{})});voice.runtime=runtime;voice.config={python:'mock',model:'mock'};voice.state.enabled=true;voice.state.profiles=[{id:'voice',version:'1'}];voice.state.bindings={gpichan:'voice@1'}
  const chat=window.service.snapshot(),message={id:'pending',role:'assistant',status:'streaming',text:'응.',binding:{characterId:'gpichan',revision:chat.character!.revision,conversationId:chat.conversation!.id,requestId:'pending',epoch:chat.epoch,modelId:'E4B'}}
  chat.conversation!.messages.push(message as any);vi.spyOn(window.service,'snapshot').mockReturnValue(chat)
- await (window.voice as any).action({type:'ready'});win.emit('show');(window.service as any).notifyVoiceStart('pending');(window.service as any).emit();win.emit('hide');if(show)win.emit('show')
+ await (window.voice as any).action({type:'ready'});win.emit('show');await voice.prepare();if(profile==='baseline')expect(runtime.start).not.toHaveBeenCalled();else expect(runtime.start).toHaveBeenCalled();expect(runtime.synthesize).not.toHaveBeenCalled();expect((runtime as any).stream).not.toHaveBeenCalled();(window.service as any).notifyVoiceStart('pending');(window.service as any).emit();win.emit('hide');if(show)win.emit('show')
  message.status='complete';(window.service as any).notifyVoice(message)
  await new Promise(r=>setTimeout(r,30));if(profile==='baseline')expect(runtime.start).not.toHaveBeenCalled();expect(runtime.synthesize).not.toHaveBeenCalled();expect((runtime as any).stream).not.toHaveBeenCalled();expect(win.webContents.send.mock.calls.filter((call:any[])=>call[0]===VOICE_IPC.event&&call[1]?.type==='audio')).toEqual([]);await window.dispose()
 })

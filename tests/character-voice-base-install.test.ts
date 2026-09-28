@@ -61,3 +61,16 @@ it('Windows pinned downloads resume verified ranges and reject corrupt bytes',as
  await downloadVoiceFile(path,file,signal,()=>{},fetcher);expect(fetcher.mock.calls[0][1].headers.Range).toBe('bytes=3-');expect(await readFile(path,'utf8')).toBe('abcdef')
  await writeFile(path,'ABCDEF');await expect(downloadVoiceFile(path,file,signal,()=>{},fetcher)).rejects.toThrow('VOICE_BASE_CHANGED');await expect(stat(path)).rejects.toThrow()
 })
+
+run('installed-state discovery never runs native hash verification; loading still does',async()=>{
+ const {installer,root,model}=await setup(vi.fn(async()=>new Response('abcdef')) as any);await installer.install()
+ const runtime=vi.fn(async()=>{}),fresh=new VoiceBaseInstaller(root,'/unused',()=>{}, {catalog:model,verifyRuntime:runtime})
+ const hashes=vi.spyOn(fresh,'verify');await fresh.initialize();expect(fresh.snapshot().installed).toBe(true);expect(runtime).not.toHaveBeenCalled();expect(hashes).not.toHaveBeenCalled()
+ await fresh.ready();expect(runtime).toHaveBeenCalledOnce();expect(hashes).toHaveBeenCalledOnce()
+ await fresh.cancel()
+})
+run('Mac verification abort is drained before cancellation returns',async()=>{
+ const {root,model}=await setup(vi.fn(async()=>new Response('abcdef')) as any);let entered!:()=>void;const begun=new Promise<void>(r=>entered=r)
+ const installer=new VoiceBaseInstaller(root,'/unused',()=>{}, {catalog:model,verifyRuntime:signal=>new Promise((_,reject)=>{entered();signal!.addEventListener('abort',()=>reject(Error('aborted')),{once:true})})})
+ const verification=installer.ready().catch(e=>e.message);await begun;await installer.cancelVerification();expect(await verification).toBe('aborted');expect((installer as any).verifying).toBeNull()
+})

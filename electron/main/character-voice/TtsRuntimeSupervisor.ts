@@ -39,6 +39,7 @@ export class TtsRuntimeSupervisor {
  audit:Record<string,unknown>|null=null
  constructor(readonly config:TtsConfig,private timeoutMs=180_000,private spawnProcess:SpawnWorker=spawn){}
  get running(){return !!this.child}
+ get ready(){return !!this.child&&!!this.key&&!this.starting&&!this.ending&&!this.pending&&!this.cancellation}
  // Protocol/GPU activity ends at the terminal response, before file delivery and
  // playback necessarily finish. An idle model can still have retiring callbacks.
  get busy(){return !!this.pending||!!this.starting||!!this.cancellation}

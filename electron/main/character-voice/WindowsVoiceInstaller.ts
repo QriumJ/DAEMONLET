@@ -3,6 +3,7 @@ import {createHash,randomUUID} from 'node:crypto'
 import {lstat,mkdir,readFile,writeFile,rename,rm,statfs,copyFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import policy from '../../voice/runtime-windows-base.json'
+import {VoiceAssetIdentity} from './VoiceAssetIdentity'
 import defaults from '../../voice/base-voice-defaults.json'
 import lock from '../../voice/install-windows-base.json'
 import {digestFile} from '../character-chat/ModelManager'
@@ -14,6 +15,7 @@ const fingerprint=createHash('sha256').update(JSON.stringify({policy,lock})).dig
 export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  readonly native=false
  readonly profile:VoiceProfile={id:'voxcpm2_default',version:policy.model.revision,name:'기본 음성 · VoxCPM2',fingerprint:createHash('sha256').update(JSON.stringify({fingerprint,defaults})).digest('hex'),adapterSha256:'none'}
+ private assetsIdentity:VoiceAssetIdentity|null=null
  private verifying:Promise<string>|null=null
  private verifyController:AbortController|null=null
  private operation:Promise<void>|null=null
@@ -25,13 +27,26 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  get path(){return join(this.root,'models',policy.model.revision)}
  get executable(){return join(this.runtime,'python','python.exe')}
  snapshot(){return {...this.status}}
+ private assetIdentity(){return this.assetsIdentity??=new VoiceAssetIdentity(JSON.stringify({fingerprint,defaults,resources:this.resources}),[this.path,this.runtime,this.resources],[
+  ...Object.entries(policy.model.files).map(([name,f])=>({path:join(this.path,name),bytes:f.bytes})),
+  {path:join(this.runtime,'install-receipt.json')},{path:this.executable},{path:join(this.runtime,'python','voice-runtime.json')},
+  ...Object.keys(policy.sourceFiles).map(name=>({path:join(this.runtime,'python','Lib','site-packages','voxcpm',name)})),
+  ...['worker.py','engine.py','backend.py','control.py','windows_base_worker.py','base-voice-defaults.json','runtime-windows-base.json','install-windows-base.json','install_windows_base.py'].map(name=>({path:join(this.resources,name)})),
+ ])}
+ async identity(){try{return await this.assetIdentity().snapshot()}catch(e){this.update({installed:false});throw e}}
  private update(value:Partial<VoiceInstallState>){const notify=value.phase!==undefined||value.error!==undefined||Date.now()-this.lastUpdate>150;Object.assign(this.status,value);if(notify){this.lastUpdate=Date.now();this.changed()}}
  private assets():Array<{name:string;file:PinnedVoiceFile}>{return [
   {name:'python.tar.gz',file:lock.python},...lock.wheels.map(f=>({name:'wheels/'+f.filename,file:f})),
   ...Object.entries(policy.sourceDownloads).map(([name,file])=>({name:'source/'+name,file})),{name:'source/VOXCPM-LICENSE',file:policy.sourceLicense},
   ...Object.entries(policy.model.files).map(([name,f])=>({name:'model/'+name,file:{...f,url:`https://huggingface.co/${policy.model.repo}/resolve/${policy.model.revision}/${name}`}})),
  ]}
- private run(command:string,args:string[],signal?:AbortSignal){return new Promise<string>((resolve,reject)=>{execFile(command,args,{signal,windowsHide:true,timeout:600000,maxBuffer:8*1024**2,env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1'}},(error,stdout,stderr)=>error?reject(new Error(signal?.aborted?'VOICE_INSTALL_CANCELLED':'VOICE_RUNTIME_INSTALL',{cause:stderr.slice(-8000)||error.message})):resolve(stdout))})}
+ private run(command:string,args:string[],signal?:AbortSignal){return new Promise<string>((resolve,reject)=>{
+  let closed=false,result:{error:Error|null;stdout:string;stderr:string}|undefined
+  const finish=()=>{if(!closed||!result)return;const {error,stdout,stderr}=result;error?reject(new Error(signal?.aborted?'VOICE_INSTALL_CANCELLED':'VOICE_RUNTIME_INSTALL',{cause:stderr.slice(-8000)||error.message})):resolve(stdout)}
+  const child=execFile(command,args,{signal,windowsHide:true,timeout:600000,maxBuffer:8*1024**2,env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1'}},(error,stdout,stderr)=>{result={error,stdout,stderr};finish()})
+  // Abort's error callback can precede process close. Never report cleanup early.
+  child.once('close',()=>{closed=true;finish()})
+ })}
  private async checkFile(path:string,bytes:number,sha256:string,signal?:AbortSignal){const s=await lstat(path);if(!s.isFile()||s.isSymbolicLink()||s.size!==bytes||await digestFile(path,signal)!==sha256)throw Error('VOICE_BASE_CHANGED')}
  ready():Promise<string>{
   if(this.verifying)return this.verifying
@@ -44,14 +59,16 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
    const receipt=JSON.parse(await readFile(join(this.runtime,'install-receipt.json'),'utf8'));if(receipt.fingerprint!==fingerprint)throw Error('VOICE_BASE_CHANGED')
    await this.run(this.executable,['-I','-B',join(this.resources,'install_windows_base.py'),'--downloads',join(this.root,'downloads'),'--policy',join(this.resources,'runtime-windows-base.json'),'--lock',join(this.resources,'install-windows-base.json'),'--verify'],signal)
    for(const [name,f] of Object.entries(policy.model.files))await this.checkFile(join(this.path,name),f.bytes,f.sha256,signal)
-   return this.path
+   this.update({installed:true});return this.path
   }catch(e){if(!signal.aborted)this.update({installed:false});throw e}
  }
- async initialize(){if(!this.status.supported)return;try{await this.ready();this.status.installed=true}catch{}}
- async cancel(){this.controller?.abort();this.verifyController?.abort();await Promise.allSettled([this.operation,this.verifying])}
+ async initialize(){if(!this.status.supported)return;try{const receipt=JSON.parse(await readFile(join(this.runtime,'install-receipt.json'),'utf8'));if(receipt.fingerprint!==fingerprint)return;await this.assetIdentity().snapshot(false);this.status.installed=true}catch{}}
+ async cancelVerification(){this.verifyController?.abort();await this.verifying?.catch(()=>{})}
+ async cancel(){this.controller?.abort();await Promise.allSettled([this.operation,this.cancelVerification()]);this.assetsIdentity?.close()}
  async install(){
   if(this.operation)return this.operation
   if(!this.status.supported)throw Error('VOICE_BASE_UNSUPPORTED')
+  await this.cancelVerification();this.assetsIdentity?.invalidate()
   const controller=this.controller=new AbortController();const task=this.operation=this.prepare(controller.signal)
   try{await task;this.update({installed:true,phase:'idle',bytes:this.status.total,error:null})}
   catch(e){this.update({phase:'idle',error:controller.signal.aborted?null:e instanceof Error&&/^VOICE_[A-Z_]+$/.test(e.message)?e.message:'VOICE_RUNTIME_INSTALL'});if(!controller.signal.aborted)throw e}
