@@ -18,8 +18,8 @@
       },
       "files": {
         "daemonlet-voice-engine": {
-          "bytes": 4716456,
-          "sha256": "61d1d89760786ff05cae3b73e4b9e9f1957c3835a34827ace0fbfcdef9c6ec9e"
+          "bytes": 4707696,
+          "sha256": "7e1e753bce8eef9f9a3bbf6a7c588e58d7d8899c1e931de3d5b1ab11cd5ba0d0"
         },
         "ggml-metal.metal": {
           "bytes": 450832,
