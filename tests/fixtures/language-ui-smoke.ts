@@ -12,6 +12,10 @@ import { SETUP_IPC } from '../../electron/shared/codex-integration-contract'
 import { TASK_CONTROL_IPC } from '../../electron/shared/task-control-contract'
 import { ACTIVITY_IPC } from '../../electron/shared/activity-contract'
 import { CHARACTER_IPC } from '../../electron/shared/character-pack-contract'
+import { SIDE_CHAT_IPC } from '../../electron/shared/side-chat-contract'
+import { PLACEMENT_IPC } from '../../electron/shared/bubble-placement'
+import { CODEX_USAGE_IPC, emptyCodexUsage } from '../../electron/shared/codex-usage-contract'
+import { PACK_UPDATE_IPC } from '../../electron/shared/pack-update-contract'
 
 async function run() {
 const root = process.cwd(), output = resolve(root, process.env.DAEMONLET_LANGUAGE_SMOKE_OUTPUT ?? 'outputs/evidence/app-language')
@@ -30,6 +34,12 @@ let voiceId = '', starts = 0, stops = 0
 let selectDone: (() => void) | undefined
 const bind = (channel: string, handler: (...args: any[]) => any) => ipcMain.handle(channel, async (_e, ...args) => ({ ok: true, value: await handler(...args) }))
 const emit = (channel: string, value: unknown) => windows.forEach(w => !w.isDestroyed() && w.webContents.send(channel, value))
+// Current renderer surfaces also read these inactive capabilities at mount.
+// Keep their real response shapes; the existing zero-console-error assertion stays strict.
+ipcMain.handle(SIDE_CHAT_IPC.get, () => ({ok:false,code:'CHAT_DISABLED'}))
+ipcMain.handle(PLACEMENT_IPC.get, () => ({editing:false,revision:0}))
+bind(CODEX_USAGE_IPC.get, emptyCodexUsage)
+ipcMain.handle(PACK_UPDATE_IPC.list, () => [])
 bind(SETUP_IPC.status, () => status)
 bind(SETUP_IPC.settingsGet, () => settings)
 bind(SETUP_IPC.settingsPatch, async patch => {

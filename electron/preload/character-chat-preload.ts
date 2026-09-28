@@ -1,3 +1,5 @@
+import {exposeAppLanguage} from './app-language'
+exposeAppLanguage()
 import {contextBridge,ipcRenderer} from 'electron'
 import {LOCAL_CHAT_IPC,type LocalChatApi} from '../shared/character-chat-contract'
 import {VOICE_IPC,type VoiceApi} from '../shared/character-voice-contract'
