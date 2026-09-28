@@ -64,18 +64,35 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  }
  async initialize(){if(!this.status.supported)return;try{const receipt=JSON.parse(await readFile(join(this.runtime,'install-receipt.json'),'utf8'));if(receipt.fingerprint!==fingerprint)return;await this.assetIdentity().snapshot(false);this.status.installed=true}catch{}}
  async cancelVerification(){this.verifyController?.abort();await this.verifying?.catch(()=>{})}
- async cancel(){this.controller?.abort();await Promise.allSettled([this.operation,this.cancelVerification()]);this.assetsIdentity?.close()}
- async install(){
+ async cancel(){const operation=this.operation;this.controller?.abort();await Promise.allSettled([operation,this.cancelVerification()]);if(!this.operation||this.operation===operation)this.assetsIdentity?.close()}
+ install():Promise<void>{
   if(this.operation)return this.operation
-  if(!this.status.supported)throw Error('VOICE_BASE_UNSUPPORTED')
-  await this.cancelVerification();this.assetsIdentity?.invalidate()
-  const controller=this.controller=new AbortController();const task=this.operation=this.prepare(controller.signal)
-  try{await task;this.update({installed:true,phase:'idle',bytes:this.status.total,error:null})}
-  catch(e){this.update({phase:'idle',error:controller.signal.aborted?null:e instanceof Error&&/^VOICE_[A-Z_]+$/.test(e.message)?e.message:'VOICE_RUNTIME_INSTALL'});if(!controller.signal.aborted)throw e}
-  finally{this.operation=null;this.controller=null}
+  if(!this.status.supported)return Promise.reject(Error('VOICE_BASE_UNSUPPORTED'))
+  // Admission owns cancellation before any await or observer callback can reenter.
+  const controller=this.controller=new AbortController()
+  const task:Promise<void>=Promise.resolve().then(async()=>{
+   this.update({phase:'preparing'})
+   await this.cancelVerification()
+   controller.signal.throwIfAborted()
+   if(this.operation!==task)return
+   this.assetsIdentity?.invalidate()
+   await this.prepare(controller.signal)
+   controller.signal.throwIfAborted()
+   if(this.operation===task)this.update({installed:true,phase:'idle',bytes:this.status.total,error:null})
+  }).catch(e=>{
+   if(this.operation===task)this.update({phase:'idle',error:controller.signal.aborted?null:e instanceof Error&&/^VOICE_[A-Z_]+$/.test(e.message)?e.message:'VOICE_RUNTIME_INSTALL'})
+   if(!controller.signal.aborted)throw e
+  }).finally(()=>{
+   if(this.operation===task){this.operation=null;if(this.controller===controller)this.controller=null}
+  })
+  this.operation=task
+  // Snapshot is cancellable immediately; notification runs inside the owned task.
+  Object.assign(this.status,{phase:'preparing',bytes:0,error:null})
+  return task
  }
- private async publish(stage:string,target:string){let old:string|undefined;await mkdir(join(target,'..'),{recursive:true});try{await lstat(target);old=target+'.previous-'+randomUUID();await rename(target,old)}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e}try{await rename(stage,target)}catch(e){if(old)await rename(old,target);throw e}}
+ private async publish(stage:string,target:string,signal:AbortSignal){signal.throwIfAborted();let old:string|undefined;await mkdir(join(target,'..'),{recursive:true});try{await lstat(target);signal.throwIfAborted();old=target+'.previous-'+randomUUID();await rename(target,old)}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e}try{signal.throwIfAborted();await rename(stage,target)}catch(e){if(old)await rename(old,target);throw e}}
  private async prepare(signal:AbortSignal){
+  signal.throwIfAborted()
   await mkdir(this.root,{recursive:true});if((await lstat(this.root)).isSymbolicLink())throw Error('VOICE_BASE_CHANGED')
   const disk=await statfs(this.root);if(disk.bavail*disk.bsize<30*1024**3)throw Error('VOICE_DISK_SPACE')
   const downloads=join(this.root,'downloads');let completed=0;this.update({phase:'downloading',bytes:0,error:null})
@@ -98,7 +115,7 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
    for(const [name,f] of Object.entries(policy.model.files)){await copyFile(join(downloads,'model',name),join(modelStage,name));await this.checkFile(join(modelStage,name),f.bytes,f.sha256,signal)}
    await writeFile(join(modelStage,'snapshot-provenance.json'),JSON.stringify({model_id:policy.model.repo,revision:policy.model.revision,files:Object.fromEntries(Object.entries(policy.model.files).map(([n,f])=>[n,f.sha256]))}))
    await writeFile(join(stage,'install-receipt.json'),JSON.stringify({schemaVersion:1,fingerprint}))
-   signal.throwIfAborted();await this.publish(stage,this.runtime);await this.publish(modelStage,this.path)
+   signal.throwIfAborted();await this.publish(stage,this.runtime,signal);await this.publish(modelStage,this.path,signal)
   }finally{await rm(stage,{recursive:true,force:true}).catch(()=>{});await rm(modelStage,{recursive:true,force:true}).catch(()=>{})}
  }
 }

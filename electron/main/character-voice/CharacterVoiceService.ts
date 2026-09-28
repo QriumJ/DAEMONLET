@@ -11,6 +11,8 @@ import {replaceFile} from '../character-chat/replaceFile'
 
 export class CharacterVoiceService {
  private state:VoiceSnapshot={epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'gguf-metal-f16':'baseline'}
+ private installingBase:Promise<void>|null=null
+ private installEpoch=0
  private baseExecutionProfile:ExecutionProfile='cuda-compiled'
  private verifiedBase:{runtime:TtsRuntimeSupervisor;session:string;key:string;identity:string}|null=null
  private config:{python:string;model:string}|null=null
@@ -38,8 +40,20 @@ export class CharacterVoiceService {
  private activeProfile():ExecutionProfile{return this.selectedProfile()?.id===BASE_VOICE.id&&this.base&&!this.base.native?this.baseExecutionProfile:this.state.executionProfile||'baseline'}
  private bindingKey(id:string){return this.state.bindings[id]??(this.base?.snapshot().supported?this.baseKey():'')}
  refreshBase(){this.emit()}
- async installBase(){if(!this.base)throw Error('VOICE_BASE_UNSUPPORTED');await this.base.install();this.state.error=null;this.emit();await this.prepare()}
- cancelInstallBase(){return this.base?.cancel()}
+ installBase():Promise<void>{
+  if(this.disposed)return Promise.resolve()
+  if(this.installingBase)return this.installingBase
+  if(!this.base)return Promise.reject(Error('VOICE_BASE_UNSUPPORTED'))
+  const epoch=this.installEpoch
+  const task:Promise<void>=Promise.resolve().then(async()=>{
+   if(this.disposed||epoch!==this.installEpoch)return
+   await this.base!.install()
+   if(this.disposed||epoch!==this.installEpoch||!this.base!.snapshot().installed)return
+   this.state.error=null;this.emit();await this.prepare()
+  }).finally(()=>{if(this.installingBase===task)this.installingBase=null})
+  this.installingBase=task;return task
+ }
+ async cancelInstallBase(){++this.installEpoch;const pending=this.installingBase;try{await this.base?.cancel()}finally{await pending?.catch(()=>{})}}
  private selectedProfile(){return this.state.profiles.find(p=>profileKey(p)===this.bindingKey(this.chat().character?.id||''))}
  private configured(){return this.selectedProfile()?.id===BASE_VOICE.id?this.base?.snapshot().installed:!!this.config}
  private bestEffort(work:()=>void){try{work()}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}}
@@ -279,5 +293,5 @@ export class CharacterVoiceService {
   }}finally{await verification}
  }
  outputStopped(epoch:number,elapsedMs:number){if(epoch===this.state.epoch)this.diagnose({type:'output-stopped',at:Date.now(),epoch,mainActionToRendererStopMs:elapsedMs})}
- async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();try{await this.stop()}finally{await this.base?.cancel();await this.serial.catch(()=>{})}}
+ async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();const installation=this.cancelInstallBase();void installation.catch(()=>{});try{await this.stop()}finally{await installation;await this.serial.catch(()=>{})}}
 }

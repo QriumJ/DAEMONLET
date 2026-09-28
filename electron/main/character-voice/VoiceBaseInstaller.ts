@@ -44,19 +44,34 @@ export class VoiceBaseInstaller implements BaseVoiceInstallation {
   return task
  }
  async cancelVerification(){this.verifyController?.abort();await this.verifying?.catch(()=>{})}
- async install(){
+ install():Promise<void>{
   if(this.operation)return this.operation
-  if(!this.status.supported)throw Error('VOICE_BASE_UNSUPPORTED')
-  await this.cancelVerification();this.assets?.invalidate()
+  if(!this.status.supported)return Promise.reject(Error('VOICE_BASE_UNSUPPORTED'))
+  // Admission owns cancellation before any await or observer callback can reenter.
   const controller=this.controller=new AbortController()
-  const task=this.operation=this.download(controller.signal)
-  try{await task;this.update({installed:true,phase:'idle',bytes:this.status.total,error:null})}
-  catch(e){this.update({phase:'idle',error:controller.signal.aborted?null:e instanceof Error&&/^VOICE_[A-Z_]+$/.test(e.message)?e.message:'VOICE_DOWNLOAD_FAILED'});if(!controller.signal.aborted)throw e}
-  finally{this.controller=null;this.operation=null}
+  const task:Promise<void>=Promise.resolve().then(async()=>{
+   this.update({phase:'preparing'})
+   await this.cancelVerification()
+   controller.signal.throwIfAborted()
+   if(this.operation!==task)return
+   this.assets?.invalidate()
+   await this.download(controller.signal)
+   controller.signal.throwIfAborted()
+   if(this.operation===task)this.update({installed:true,phase:'idle',bytes:this.status.total,error:null})
+  }).catch(e=>{
+   if(this.operation===task)this.update({phase:'idle',error:controller.signal.aborted?null:e instanceof Error&&/^VOICE_[A-Z_]+$/.test(e.message)?e.message:'VOICE_DOWNLOAD_FAILED'})
+   if(!controller.signal.aborted)throw e
+  }).finally(()=>{
+   if(this.operation===task){this.operation=null;if(this.controller===controller)this.controller=null}
+  })
+  this.operation=task
+  // Snapshot is cancellable immediately; notification runs inside the owned task.
+  Object.assign(this.status,{phase:'preparing',bytes:0,error:null})
+  return task
  }
- async cancel(){this.controller?.abort();await Promise.allSettled([this.operation,this.cancelVerification()]);this.assets?.close()}
+ async cancel(){const operation=this.operation;this.controller?.abort();await Promise.allSettled([operation,this.cancelVerification()]);if(!this.operation||this.operation===operation)this.assets?.close()}
  private async download(signal:AbortSignal){
-  await this.runtime(signal);await mkdir(this.root,{recursive:true,mode:0o700})
+  signal.throwIfAborted();await this.runtime(signal);signal.throwIfAborted();await mkdir(this.root,{recursive:true,mode:0o700})
   if((await lstat(this.root)).isSymbolicLink())throw Error('VOICE_BASE_CHANGED')
   const stage=this.path+'.download';await mkdir(stage,{recursive:true,mode:0o700});if((await lstat(stage)).isSymbolicLink())throw Error('VOICE_BASE_CHANGED')
   const total=Object.values(this.model.files).reduce((n,f)=>n+f.bytes,0);this.update({phase:'downloading',bytes:0,total,error:null})
@@ -82,9 +97,13 @@ export class VoiceBaseInstaller implements BaseVoiceInstallation {
    completed+=offset
   }
   signal.throwIfAborted();await writeFile(join(stage,'model-receipt.json'),JSON.stringify(this.model)+'\n')
+  await this.publish(stage,signal)
+ }
+ private async publish(stage:string,signal:AbortSignal){
+  signal.throwIfAborted()
   // Never expose a partial installation. Preserve an older broken installation for recovery.
   let old:string|undefined
-  try{await lstat(this.path);old=this.path+'.previous-'+randomUUID();await rename(this.path,old)}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e}
-  try{await rename(stage,this.path)}catch(e){if(old)await rename(old,this.path);throw e}
+  try{await lstat(this.path);signal.throwIfAborted();old=this.path+'.previous-'+randomUUID();await rename(this.path,old)}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e}
+  try{signal.throwIfAborted();await rename(stage,this.path)}catch(e){if(old)await rename(old,this.path);throw e}
  }
 }
