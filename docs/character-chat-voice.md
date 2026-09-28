@@ -1,6 +1,6 @@
 # Local character-chat voice (experimental)
 
-This branch adds **completed-reply, sentence-by-sentence TTS** to local character
+This branch adds **completed-reply, bounded utterance-group TTS** to local character
 chat. Voice is off by default. Text chat works without a voice package, Python,
 GPU, or a successful TTS request. Streaming text is unchanged; old conversations
 are never automatically spoken when restored.

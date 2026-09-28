@@ -2,7 +2,7 @@ import {mkdir,readdir,readFile,rm,writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {randomUUID} from 'node:crypto'
 import type {ChatMessage,LocalChatSnapshot} from '../../shared/character-chat-contract'
-import {speechSegments,isStreamingProfile,voiceCapabilities,type SpeechBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
+import {DEFAULT_SPEECH_POLICY,planSpeech,type SpeechPolicy,isStreamingProfile,voiceCapabilities,type SpeechBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
 import {importVoicePackage,profileKey,SELECTED_VOICE,verifyVoicePackage} from './VoicePackage'
 import {TtsRuntimeSupervisor,type TtsConfig,type AudioChunk} from './TtsRuntimeSupervisor'
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
@@ -34,7 +34,7 @@ export class CharacterVoiceService {
  private spokenRequestAt=0
  private firstPlayback=false
  private lastPlaybackEndAt=0
- constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation){}
+ constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation,private speechPolicy:SpeechPolicy=DEFAULT_SPEECH_POLICY){}
  snapshot(){const s=structuredClone(this.state);s.executionProfile=this.activeProfile();if(this.base){s.baseInstall=this.base.snapshot();if(s.baseInstall.supported){s.defaultProfile=this.baseKey();const builtin=this.selectedProfile()?.id===BASE_VOICE.id;if(builtin)s.runtimeConfigured=s.baseInstall.installed;if(!this.base.native)s.availableProfiles=builtin?['cuda-compiled','cuda-compiled-complete']:['baseline','cached','compiled']}}return s}
  private baseKey(){return this.base?profileKey(this.base.profile):BASE_KEY}
  private activeProfile():ExecutionProfile{return this.selectedProfile()?.id===BASE_VOICE.id&&this.base&&!this.base.native?this.baseExecutionProfile:this.state.executionProfile||'baseline'}
@@ -203,7 +203,8 @@ export class CharacterVoiceService {
   if(!origin||!current())return
   this.currentSpeech=current
   try {
-   const segments=speechSegments(source.text)
+   const plan=planSpeech(source.text,this.speechPolicy),segments=plan.segments
+   this.diagnose({type:'speech-plan',policy:plan.policy,preferredLength:plan.preferredLength,segments:segments.map(({start,end,index,cutReason,readableGraphemes,tinyReason})=>({start,end,index,cutReason,readableGraphemes,tinyReason}))})
    const runtime=this.getRuntime()
    this.speechStartedAt=requestedAt;this.spokenRequestAt=automatic?(this.requestTimes.get(source.binding!.requestId)||this.speechStartedAt):0;this.firstPlayback=false;this.lastPlaybackEndAt=0
    this.state.error=null;this.state.status=runtime.running?'synthesizing':'loading';this.emit()
