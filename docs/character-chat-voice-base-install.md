@@ -11,9 +11,9 @@ Managed default voice exposes two playback modes; Mac labels them Metal and Wind
 External Windows packages preserve their existing baseline/cached/compiled choices:
 
 - **Metal · 청크 재생**: play generated 480ms chunks with the existing bounded queue.
-- **Metal · 완성 후 재생**: collect one completed sentence before delivering its WAV.
+- **Metal · 완성 후 재생**: collect one bounded utterance group before delivering its WAV.
   The next sentence is synthesized after playback, so this option trades initial
-  latency and sentence gaps for complete-sentence playback. Both modes produce the
+  latency and group gaps for complete-group playback. Both modes produce the
   same PCM and use the same request/speech ownership and cancellation protocol.
 
 The default model uses the same built-in female voice description and seed 42 on

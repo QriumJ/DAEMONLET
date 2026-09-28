@@ -259,13 +259,14 @@ export class CharacterChatService {
       data.current=data.conversations.find(c=>c.characterId===data.characterId)?.id
     }
   })}
-  saveMemory(text: string, id?: string) {return this.change(async data=>{
+  saveMemory(text: string, id?: string) {const characterId=this.data.characterId;return this.change(async data=>{
+    if(data.characterId!==characterId)throw Error('CHAT_SETTINGS_CONTEXT_CHANGED')
     if (typeof text!=='string' || !text.trim() || text.length>500) throw Error('기억은 1~500자로 입력해 주세요.')
     const items=data.memories[data.characterId]??=[]
     if (id) {const old=items.find(m=>m.id===id);if (!old) throw Error('기억을 찾지 못했습니다.');old.text=text.trim()}
     else {if (items.length>=64) throw Error('저장할 수 있는 기억은 캐릭터마다 64개입니다.');items.push({id:randomUUID(),text:text.trim()})}
   })}
-  deleteMemory(id: string) {return this.change(async data=>{data.memories[data.characterId]=(data.memories[data.characterId]||[]).filter(m=>m.id!==id)})}
+  deleteMemory(id: string) {const characterId=this.data.characterId;return this.change(async data=>{if(data.characterId!==characterId)throw Error('CHAT_SETTINGS_CONTEXT_CHANGED');data.memories[data.characterId]=(data.memories[data.characterId]||[]).filter(m=>m.id!==id)})}
   private requireRequest() {
     this.requireLoaded()
     if (this.modelChange) throw Error('모델 설치 또는 삭제가 끝난 뒤 다시 보내 주세요.')

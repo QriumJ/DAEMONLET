@@ -53,3 +53,7 @@ progress { width: 100%; }
   .send-button:hover:not(:disabled) { background: #456349; }
   .resize-handle:hover:not(:disabled) { background: transparent; color: #456349; }
 }
+/* Frequent quick switching stays compact; opening it never resizes the conversation. */
+.bubble-menu { position:absolute; z-index:5; top:48px; left:12px; right:12px; flex:none; max-height:calc(100% - 116px); padding:8px 16px 18px; border:1px solid #dce3d6; border-radius:14px; background:#fafbf7; box-shadow:0 8px 24px #293d3420; }
+.bubble-menu label { margin-top:10px; }
+.bubble-menu select { min-height:36px; }

@@ -9,7 +9,7 @@ import {tmpdir} from 'node:os'
 import {TtsRuntimeSupervisor,type SpawnWorker} from '../electron/main/character-voice/TtsRuntimeSupervisor'
 import {CharacterVoiceService} from '../electron/main/character-voice/CharacterVoiceService'
 import type {LocalChatSnapshot} from '../electron/shared/character-chat-contract'
-import type {VoiceEvent} from '../electron/shared/character-voice-contract'
+import type {VoiceEvent,SpeechPolicy} from '../electron/shared/character-voice-contract'
 
 const io=vi.hoisted(()=>({remaining:0,entered:()=>{},wait:Promise.resolve()}))
 vi.mock('node:fs/promises',async importOriginal=>{
@@ -25,7 +25,7 @@ function blockRead(n:number){const entered=deferred(),release=deferred();io.rema
 function wav(){const b=Buffer.alloc(9644);b.write('RIFF');b.writeUInt32LE(b.length-8,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(48000,24);b.writeUInt32LE(96000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(9600,40);return b}
 const cleanup:Array<()=>Promise<void>>=[]
 afterEach(async()=>{io.remaining=0;for(const close of cleanup.splice(0))await close();vi.restoreAllMocks()})
-async function fixture(){
+async function fixture(policy:SpeechPolicy='legacy-sentence-v1'){
  const root=await mkdtemp(join(tmpdir(),'voice-ownership-')),requests:any[]=[],events:VoiceEvent[]=[]
  let cache='',spawns=0,kills=0,hold=false,finish=()=>{},cancelReply=()=>{}
  const spawn:SpawnWorker=()=>{
@@ -54,7 +54,7 @@ async function fixture(){
  const runtime=new TtsRuntimeSupervisor({python:process.execPath,model:root,worker:join(root,'synthetic'),cacheRoot:join(root,'cache')},2000,spawn)
  const message={id:'message',role:'assistant',status:'complete',text:'응.',createdAt:'now',binding:{characterId:'test',revision:'rev',conversationId:'chat',requestId:'req',epoch:1,modelId:'E4B',personaHash:'p',semanticHash:'s'}}
  const chat={epoch:1,model:'E4B',character:{id:'test',revision:'rev'},conversation:{id:'chat',messages:[message]}} as LocalChatSnapshot
- const service=new CharacterVoiceService(root,join(root,'synthetic'),()=>chat,()=>{},e=>events.push(e),()=>runtime)
+ const service=new CharacterVoiceService(root,join(root,'synthetic'),()=>chat,()=>{},e=>events.push(e),()=>runtime,undefined,undefined,policy)
  cleanup.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})})
  await service.initialize();(service as any).state.executionProfile='baseline';await service.configure(process.execPath,root);await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',fingerprint:'fingerprint'}]
@@ -146,4 +146,42 @@ it('a predecessor playback error still cancels the same answer successor',async(
  await vi.waitFor(()=>expect(f.service.snapshot().error).toBe('VOICE_PLAYBACK'))
  expect(f.runtime.running).toBe(false);expect(f.kills()).toBe(1)
  for(const e of f.audio())expect(()=>f.service.audio(e.audioId,e.epoch)).toThrow('VOICE_AUDIO_EXPIRED')
+})
+
+it.each(['stop','reread'])('grouped R2 real service %s waits for cleanup ack before replacement',async boundary=>{
+ const f=await fixture('transition-v1');f.message.text='비가 오는 날이야. 오늘은 따뜻한 차를 마시면서 천천히 이야기하자. 아... 잠깐만.';f.hold();f.read();await vi.waitFor(()=>expect(f.audio()).toHaveLength(2))
+ const session=f.runtime.sessionId,old=f.audio()[0]
+ const stopped=boundary==='stop'?f.service.stop(true,false):Promise.resolve();f.read()
+ await vi.waitFor(()=>expect(f.requests.filter(r=>r.type==='cancel-stream')).toHaveLength(1))
+ expect(f.requests.filter(r=>r.type==='stream')).toHaveLength(1)
+ expect(f.requests.filter(r=>r.type==='credit')).toHaveLength(0)
+ expect(()=>f.service.audio(old.audioId,old.epoch)).toThrow('VOICE_AUDIO_EXPIRED')
+ f.cancelReply();await stopped
+ await vi.waitFor(()=>expect(f.requests.filter(r=>r.type==='stream')).toHaveLength(2))
+ expect(f.kills()).toBe(0);expect(f.spawns()).toBe(1);expect(f.runtime.sessionId).toBe(session)
+ f.finish();await vi.waitFor(()=>{f.consume();expect(f.service.snapshot().status).toBe('idle')})
+})
+
+it.each(['baseline','cached'] as const)('grouped R1 real service retires terminal IO before same-worker %s replacement',async profile=>{
+ const f=await fixture('transition-v1');f.message.text='비가 오는 날이야. 오늘은 따뜻한 차를 마시면서 천천히 이야기하자. 아... 잠깐만.';const barrier=blockRead(2);f.read()
+ await barrier.entered
+ expect(f.runtime.busy).toBe(false);const session=f.runtime.sessionId,old=f.audio()[0]
+ await f.service.stop(true,false)
+ expect(()=>f.service.audio(old.audioId,old.epoch)).toThrow('VOICE_AUDIO_EXPIRED')
+ // Exercise a new pending request on the SAME child/session, not respawn recovery.
+ f.hold()
+ const baseline=profile==='baseline'?f.runtime.synthesize('replacement',{...f.requests.find(r=>r.type==='stream').binding,speechEpoch:f.service.snapshot().epoch},0).then(value=>({value,error:null}),error=>({value:null,error})):null
+ if(!baseline)f.read()
+ await vi.waitFor(()=>expect(f.requests.filter(r=>r.type==='stream'||r.type==='synthesize')).toHaveLength(2))
+ expect(f.runtime.busy).toBe(true);expect(f.spawns()).toBe(1);expect(f.runtime.sessionId).toBe(session);barrier.release()
+ await vi.waitFor(()=>expect(f.runtime.deliveryPending).toBe(false))
+ await vi.waitFor(async()=>expect((await readdir(f.cache())).filter(p=>p.endsWith('.wav'))).toEqual([]))
+ expect(f.kills()).toBe(0);expect(f.spawns()).toBe(1);expect(f.runtime.sessionId).toBe(session)
+ f.finish()
+ if(baseline){const result=await baseline;expect(result.error).toBeNull();expect(result.value?.durationMs).toBe(100)}
+ else await vi.waitFor(()=>{f.consume();expect(f.service.snapshot().status).toBe('idle')})
+ expect(f.service.snapshot().error).toBeNull();expect(f.runtime.running).toBe(true)
+ expect(f.audio().filter(e=>e.epoch===old.epoch)).toHaveLength(1)
+ const oldRequest=f.requests.find(r=>r.type==='stream').requestId
+ expect(f.requests.filter(r=>r.type==='credit'&&r.requestId===oldRequest).map(r=>r.chunkIndex)).toEqual([0,1])
 })

@@ -3,7 +3,7 @@
 The selected Belle package is unchanged: `belle_candidates_6000 /
 0.5.0-selected-6000-e2 / step_0002660`. The adopted Mac profile is now
 **`gguf-metal-f16`**, connected to the existing character chat, completed-answer
-policy, queue, IPC and Web Audio player. Windows keeps its CUDA profiles. Mac exposes only **Metal chunk playback** and **Metal complete-sentence playback**.
+policy, queue, IPC and Web Audio player. Windows keeps its CUDA profiles. Mac exposes only **Metal chunk playback** and **Metal complete-group playback**.
 Old MPS settings are rejected and require selecting a supported Metal profile.
 
 No model weights or Python installation are bundled in the app. The default-voice

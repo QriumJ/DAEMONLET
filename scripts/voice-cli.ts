@@ -1,3 +1,4 @@
+import {segmentationAb,segmentationHelp} from './voice-segmentation-ab'
 import {resolve,join} from 'node:path'
 import {mkdir,writeFile,readdir} from 'node:fs/promises'
 import {randomUUID,createHash} from 'node:crypto'
@@ -8,6 +9,9 @@ import {isStreamingProfile,type ExecutionProfile,type SpeechBinding} from '../el
 const [command,...args]=process.argv.slice(2)
 function option(name:string){const index=args.indexOf('--'+name);if(index<0||!args[index+1])throw Error('Missing --'+name);return resolve(args[index+1])}
 function value(name:string,fallback:string){const index=args.indexOf('--'+name);return index<0?fallback:args[index+1]}
+if(command==='segmentation-ab')await segmentationAb(args)
+else if(command==='--help'||command==='help'){console.log('doctor | import | smoke | stream | '+segmentationHelp)}
+else {
 const source=option('package')
 const verified=await verifyVoicePackage(source,SELECTED_VOICE)
 if(command==='doctor')console.log(JSON.stringify({status:'PASS',scope:'package-only',profile:verified.profile},null,2))
@@ -102,3 +106,5 @@ else if(command==='import'){
  }catch(e){report.status='FAIL';report.error=e instanceof Error?e.message:'ERROR';throw e}
  finally{await worker.stop();await writeFile(join(data,'stream-result.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report,null,2))}
 }else throw Error('Use doctor, import, smoke or stream')
+
+}

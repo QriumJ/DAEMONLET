@@ -7,10 +7,20 @@ vi.mock("electron", () => ({ contextBridge: { exposeInMainWorld: mocks.expose },
 describe("Settings preload", () => {
   it("exposes a frozen narrow API without shell, filesystem, protocol, raw invoke or Electron events", async () => {
     await import("../electron/preload/settings-preload")
-    expect(mocks.expose.mock.calls.map(([name]) => name).sort()).toEqual(["appLanguage", "settingsDesktop", "updateDesktop"])
+    expect(mocks.expose.mock.calls.map(([name]) => name).sort()).toEqual(["appLanguage", "chatSettings", "settingsDesktop", "updateDesktop"])
     const [name, api] = mocks.expose.mock.calls.find(([name]) => name === "settingsDesktop")! as [string, SettingsDesktopApi]
     expect(name).toBe("settingsDesktop")
     expect(Object.isFrozen(api)).toBe(true)
+    const chatSettings = mocks.expose.mock.calls.find(([name]) => name === "chatSettings")![1]
+    expect(Object.isFrozen(chatSettings)).toBe(true)
+    expect(Object.keys(chatSettings).sort()).toEqual(["action", "onOpen", "subscribe"])
+    for(const forbidden of ["audio","onEvent","ready","played","scheduled","invoke","ipcRenderer"])expect(chatSettings).not.toHaveProperty(forbidden)
+    await chatSettings.action({type:"snapshot"})
+    expect(mocks.invoke).toHaveBeenCalledWith("chat-settings.action",{type:"snapshot"})
+    const settingsListener=vi.fn(),offSettings=chatSettings.subscribe(settingsListener)
+    const management=mocks.on.mock.calls.find(([channel])=>channel==="chat-settings.changed")![1]
+    management({private:"raw-event"},{revision:1});expect(settingsListener).toHaveBeenCalledExactlyOnceWith({revision:1});offSettings()
+    expect(mocks.removeListener).toHaveBeenCalledWith("chat-settings.changed",management)
     const updateApi = mocks.expose.mock.calls.find(([name]) => name === "updateDesktop")![1]
     expect(Object.isFrozen(updateApi)).toBe(true)
     expect(Object.keys(updateApi).sort()).toEqual(["act", "onChanged", "onOpen", "snapshot"])

@@ -4,7 +4,7 @@ import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {CharacterVoiceService} from '../electron/main/character-voice/CharacterVoiceService'
 import type {LocalChatSnapshot,ChatMessage} from '../electron/shared/character-chat-contract'
-import type {VoiceEvent} from '../electron/shared/character-voice-contract'
+import {isStreamingProfile,planSpeech,type SpeechPolicy,type ExecutionProfile,type VoiceEvent} from '../electron/shared/character-voice-contract'
 import type {TtsRuntimeSupervisor} from '../electron/main/character-voice/TtsRuntimeSupervisor'
 const roots:string[]=[],services:CharacterVoiceService[]=[]
 it.each(['event','changed','diagnostic'])('F3 %s callback cannot skip worker cleanup',async callback=>{
@@ -31,14 +31,14 @@ it('F4 failed pre-delete persistence preserves registration',async()=>{
  expect(JSON.parse(await readFile(join(f.root,'settings.json'),'utf8')).bindings['actual-id']).toBe('voice@1')
 })
 afterEach(async()=>{for(const s of services.splice(0))await s.close();for(const root of roots.splice(0))await rm(root,{recursive:true,force:true});vi.restoreAllMocks()})
-async function fixture(){const root=await mkdtemp(join(tmpdir(),'voice-service-'));roots.push(root)
+async function fixture(policy:SpeechPolicy='legacy-sentence-v1'){const root=await mkdtemp(join(tmpdir(),'voice-service-'));roots.push(root)
  const message:ChatMessage={id:'message',role:'assistant',status:'complete',text:'응. 다음 문장!',createdAt:'now',binding:{characterId:'actual-id',revision:'rev1',conversationId:'conversation',requestId:'request',epoch:1,modelId:'E4B',personaHash:'p',semanticHash:'s'}}
  const chat={epoch:1,model:'E4B',character:{id:'actual-id',revision:'rev1'},conversation:{id:'conversation',messages:[message]}} as LocalChatSnapshot
  let audio=0
  const runtime={sessionId:'session',running:false,get ready(){return runtime.running},retireSpeech:vi.fn(),start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),synthesize:vi.fn(async()=>({audioId:'audio-'+(++audio),bytes:new Uint8Array([1,2]),durationMs:10,generationMs:1,rtf:0.1}))}
  const cancelSpeech=vi.fn(async()=>{await runtime.stop();return {keptWarm:false,elapsedMs:0}});Object.assign(runtime,{cancelSpeech})
  const events:VoiceEvent[]=[]
- const service=new CharacterVoiceService(root,'/worker',()=>chat,()=>{},e=>events.push(e),()=>runtime as unknown as TtsRuntimeSupervisor);services.push(service)
+ const service=new CharacterVoiceService(root,'/worker',()=>chat,()=>{},e=>events.push(e),()=>runtime as unknown as TtsRuntimeSupervisor,undefined,undefined,policy);services.push(service)
  await service.initialize();(service as any).state.executionProfile='baseline';await service.configure('/python','/model');await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',name:'Synthetic',fingerprint:'fingerprint',adapterSha256:'adapter'}]
  await service.bind('actual-id','voice@1')
@@ -105,7 +105,7 @@ it('F2 hiding revokes a ready WAV before retrieval and late acknowledgement',asy
  await new Promise(r=>setTimeout(r,0));expect(f.runtime.synthesize).toHaveBeenCalledTimes(1)
 })
 it('streaming overlaps only the immediate next sentence and keeps separate audio capabilities',async()=>{
- const f=await fixture();(f.service as any).state.executionProfile='cached';f.message.text='응. 다음! 마지막.'
+ const f=await fixture('transition-v1');(f.service as any).state.executionProfile='cached';f.message.text=('가'.repeat(85)+'. ').repeat(3);expect(planSpeech(f.message.text).segments).toHaveLength(3)
  let index=0
  const stream=vi.fn(async(_text:string,_binding:any,_segment:number,accept:any)=>{
   const id=++index;void accept({audioId:`chunk-${id}`,bytes:new Uint8Array(20),durationMs:100,generationMs:1,rtf:.01,synthesisId:`s${id}`,chunkIndex:0,sampleOffset:0,sampleCount:4800,firstChunkReadyMs:1}).catch(()=>{})
@@ -211,4 +211,40 @@ it.each(['baseline','cached','compiled'] as const)('F1: default/external switch 
  ;(restored as any).state.profiles.push(external);await restored.bind('actual-id','voice@1')
  expect(restored.snapshot().executionProfile).toBe(mode)
  await restored.bind('actual-id','voxcpm2_default@base');expect(restored.snapshot().executionProfile).toBe('cuda-compiled-complete')
+})
+
+const groupingTexts=[
+ '비 소리 들으니까 밖은 진짜 축축하겠다. 우리 오늘은 그냥 가게 문 닫고 좀 쉴까? 아, 그래도 손님 오실 수도 있으니까 가게는 열어두고 안에서 쉬자. 그럼 내가 따뜻한 차라도 좀 더 끓여올게. 오빠도 옆에 앉아서 좀 쉬어, 오늘 고생 많았잖아.',
+ '아... 하, 안 돼... 그만...',
+]
+const groupingProfiles:ExecutionProfile[]=['baseline','cached','compiled','cuda-compiled','cuda-compiled-complete','gguf-metal-f16','gguf-metal-f16-complete']
+for(const policy of ['legacy-sentence-v1','utterance-v1','transition-v1'] as const)for(const profile of groupingProfiles)for(const builtin of [false,true])it(`${policy} grouping service ${profile} ${builtin?'default':'trained'} uses the same lossless inputs in both delivery modes`,async()=>{
+ const f=await fixture(policy);(f.service as any).state.executionProfile=profile
+ if(builtin){
+  const base={native:profile.startsWith('gguf'),profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/python',path:'/model',snapshot:()=>({supported:true,installed:true}),identity:async()=> 'stable',ready:async()=>'/model',cancelVerification:async()=>{},cancel:async()=>{}}
+  ;(f.service as any).base=base;(f.service as any).state.profiles.push(base.profile);(f.service as any).state.bindings['actual-id']='voxcpm2_default@base';(f.service as any).baseExecutionProfile=profile
+  Object.assign(f.runtime,{config:{python:'/python',model:'/model',nativeBase:base.native,windowsBase:!base.native}})
+ }
+ const stream=vi.fn(async(_text:string,_binding:any,_index:number,accept:any)=>{await accept({audioId:'group-'+Math.random(),bytes:new Uint8Array(20),durationMs:100,generationMs:1,rtf:.01,synthesisId:'group',chunkIndex:0,sampleOffset:0,sampleCount:4800,firstChunkReadyMs:1});return {totalChunks:1,totalSamples:4800}});Object.assign(f.runtime,{stream,busy:false})
+ ;(f.service as any).event=(e:VoiceEvent)=>{f.events.push(e);if(e.type==='audio')queueMicrotask(()=>{f.service.audio(e.audioId,e.epoch);f.service.played(e.audioId,e.epoch)})}
+ for(const text of groupingTexts){
+  f.message.text=text;stream.mockClear();f.runtime.synthesize.mockClear();await (f.service as any).read(f.message)
+  const used=isStreamingProfile(profile)?stream:f.runtime.synthesize,unused=isStreamingProfile(profile)?f.runtime.synthesize:stream
+  const expected=planSpeech(text,policy).segments.map(s=>s.text);expect(used).toHaveBeenCalledTimes(expected.length);expect(used.mock.calls.map((args:any)=>args[0])).toEqual(expected);expect(unused).not.toHaveBeenCalled();expect(f.service.snapshot().error).toBeNull()
+ }
+})
+for(const policy of ['utterance-v1','transition-v1'] as const)it.each(['auto','reread','test'])(`${policy} %s entry uses the common plan`,async mode=>{
+ const f=await fixture(policy);f.message.text=groupingTexts[0]
+ ;(f.service as any).event=(e:VoiceEvent)=>{if(e.type==='audio')queueMicrotask(()=>{f.service.audio(e.audioId,e.epoch);f.service.played(e.audioId,e.epoch)})}
+ if(mode==='auto')f.service.completed(f.message);else if(mode==='test')f.service.test();else f.service.readMessage(f.message.id)
+ const expected=planSpeech(mode==='test'?'응, 듣고 있어. 지금은 어떤 이야기를 할까?':groupingTexts[0],policy).segments.map(s=>s.text)
+ await vi.waitFor(()=>expect(f.runtime.synthesize).toHaveBeenCalledTimes(expected.length));await vi.waitFor(()=>expect(f.service.snapshot().status).toBe('idle'))
+ expect(f.runtime.synthesize.mock.calls.map((args:any)=>args[0])).toEqual(expected)
+})
+it.each(['stop','hide','off','close'])('grouped large input %s cancels while generation is pending',async action=>{
+ const f=await fixture('utterance-v1');f.message.text=groupingTexts[0];let release!:(value:any)=>void
+ f.runtime.synthesize.mockImplementationOnce(()=>new Promise(r=>{release=r}));f.service.readMessage(f.message.id)
+ await vi.waitFor(()=>expect(release).toBeTypeOf('function'))
+ if(action==='hide')f.service.setOutputReady(false);else if(action==='off')await f.service.enabled(false);else await (f.service as any)[action]()
+ release({audioId:'late-group',bytes:new Uint8Array(1),durationMs:1});await new Promise(r=>setTimeout(r,10));expect(f.events.some(e=>e.type==='audio')).toBe(false);expect(f.runtime.synthesize).toHaveBeenCalledTimes(1)
 })
