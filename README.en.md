@@ -4,23 +4,23 @@
 
 **A desktop character that reacts to Codex tasks and chats with you in a speech bubble.**
 
-Daemonlet reflects your task status through poses and speech bubbles, and lets you talk to your character using a local AI model. Start with the built-in **Gpichan (지피쨩)**, or import other characters as external `.petchar` packs.
+Daemonlet reflects your task status through poses and speech bubbles, and lets you talk to your character using a local AI model and listen to its replies. Start with the built-in **Gpichan (지피쨩)**, or import other characters as external `.petchar` packs.
 
 This is not an official OpenAI product and is not affiliated with OpenAI.
 
 <img src="docs/images/gpichan.png" width="360" alt="Gpichan running in Daemonlet for Codex">
 
-## Downloads — v0.8.1
+## Downloads — v0.8.2
 
 | Platform | Download | Notes |
 |---|---|---|
-| macOS · Apple Silicon | [Mac ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/Daemonlet-for-Codex-0.8.1-macOS-arm64.zip) | Developer ID signed and notarized by Apple |
-| Windows · x64 | [Installer](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/Daemonlet-for-Codex-0.8.1-windows-x64-Setup.exe) | Unsigned |
-| Windows · x64 | [Portable ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/Daemonlet-for-Codex-0.8.1-windows-x64.zip) | Extract and run without installation |
+| macOS · Apple Silicon | [Mac ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/Daemonlet-for-Codex-0.8.2-macOS-arm64.zip) | Developer ID signed and notarized by Apple |
+| Windows · x64 | [Installer](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/Daemonlet-for-Codex-0.8.2-windows-x64-Setup.exe) | Unsigned |
+| Windows · x64 | [Portable ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/Daemonlet-for-Codex-0.8.2-windows-x64.zip) | Extract and run without installation |
 
-[Release notes](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.1) · [SHA-256 checksums](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/SHA256SUMS.txt)
+[Release notes](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.2) · [SHA-256 checksums](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/SHA256SUMS.txt)
 
-The app needs no separate Node.js, Python, ComfyUI or manual server installation. **Local character chat requires installing an E4B or 12B model separately through the app.** Task status and authored click reactions do not need model weights. Both Windows packages are unsigned.
+The core app needs no separate Node.js, Python, ComfyUI or manual server installation. **Local chat and voice TTS each need a model installed separately through the app.** Windows default voice installation also prepares its Python/PyTorch environment. Task status and authored click reactions do not need model weights. Both Windows packages are unsigned.
 
 ## Quick start
 
@@ -29,7 +29,8 @@ The app needs no separate Node.js, Python, ComfyUI or manual server installation
    - **Windows:** Run the installer. For the portable ZIP, extract the entire folder.
 2. Run **Daemonlet for Codex**. The built-in Gpichan appears.
 3. Choose a feature:
-   - **Local chat:** Open **Character Chat · Local (캐릭터챗 · 로컬)** from the character context menu or menu bar/tray, install a model and send a message. No Codex login or parent conversation is required.
+   - **Local chat:** Open **Character Chat · Local (캐릭터챗 · 로컬)** from the character context menu or menu bar/tray, install a model in **Daemonlet Settings → Chat & voice**, and send a message. No Codex login or parent conversation is required.
+   - **Listen to replies:** In **Settings → Chat & voice → Voice installation & advanced settings**, choose **Install default voice**. After installation, open character chat, enable voice and choose **Test voice**.
    - **Task status:** Start a task in the **Codex desktop app** under the same OS user account.
 
 **The desktop connection does not require CLI Hooks.**
@@ -41,6 +42,8 @@ For installation, recovery and removal details, see the [Mac guide](docs/install
 ## Features
 
 - **Local character chat:** Talk in a speech bubble with streamed replies, cancellation and retry.
+- **Voice TTS · experimental:** Automatically read replies, reread saved answers, stop speech, and choose chunk or complete playback.
+- **Chat & voice settings:** Manage local models, voice installation/connections, playback mode and volume in Settings.
 - **Conversation management:** Save, resume and delete conversations per character; manage explicitly saved memories.
 - **Chat poses and motion:** Follow the pack's emotion/gesture declarations and retain the last reply pose until the next request.
 - **Task status:** Poses and task bubbles change as Codex works.
@@ -50,27 +53,54 @@ For installation, recovery and removal details, see the [Mac guide](docs/install
 - **Loading feedback:** See progress while importing characters and preparing the app at startup.
 - **Mac voice input:** Use Korean or English dictation to compose a message to send to Codex.
 
-## Local character chat — v0.8.0
+## Local character chat
 
 Choose **Character Chat · Local (캐릭터챗 · 로컬)** from the character context menu or menu bar/tray to open a messenger-style speech bubble beside the character.
 
-1. Install **Gemma 4 E4B or 12B**. Downloads support resume, cancellation and file verification; an exact matching official GGUF can also be imported. Model downloads start only when requested.
+1. Install **Gemma 4 E4B or 12B** under **Settings → Chat & voice → Local chat model**. Downloads support resume, cancellation and file verification; an exact matching official GGUF can also be imported. Model downloads start only when requested.
 2. Send a message to receive a streamed reply. Stop generation with the cancel button, then send another question.
-3. Use the **···** menu for new/saved conversations, retry, deletion, model selection and explicit memories. Empty new conversations are saved only after the first message.
+3. The bubble’s **···** menu contains only **character selection and saved conversations**. Use **Settings → Chat & voice** for new conversations, retry, deletion, models, voice and explicit memories. Empty new conversations are saved only after the first message.
 4. Drag the header to move the bubble and the bottom-right handle to resize it. Placement and size persist across restarts.
 
-After model installation, **reply generation runs locally**. It uses no paid external chat/evaluation API and provides no file-editing, shell or MCP tool permissions. This is text chat; TTS is not included.
+After model installation, **reply generation runs locally**. It uses no paid external chat/evaluation API and provides no file-editing, shell or MCP tool permissions. When enabled, TTS reads completed replies using a separate local voice engine.
 
 | Environment | Local chat runtime |
 |---|---|
 | Mac · Apple Silicon | Metal |
 | Windows · x64 + NVIDIA GPU | CUDA |
 
-E4B/12B multi-turn generation, cancellation and recovery were checked on both platforms, with representative UI verification on Mac and the Windows portable app. Windows installer execution was user-confirmed. **Minimum RAM/VRAM requirements have not been established.** Intel Mac and Windows AMD/Intel GPU paths are not presented as verified. See the [0.8.0 release notes](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.0) for verification limits.
+E4B/12B multi-turn generation, cancellation and recovery were checked on both platforms. The 0.8.2 notarized Mac app and official Windows installer were used for actual upgrades, with settings/conversation preservation and voice behavior checked. **Minimum RAM/VRAM requirements have not been established.** Intel Mac and Windows AMD/Intel GPU paths are not presented as verified. See the [0.8.2 release notes](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.2) for verification limits.
 
 Chat names, persona and emotional poses come from the pack. Legacy packs without chat metadata can still chat in their default pose. Fast replies skip the preparation pose, and the final reply pose remains until the next request. New conversations, cancellation, errors and character/model changes clear that state.
 
 [Usage, models and storage](docs/local-character-chat.md) · [Windows runtime guide](docs/windows-character-chat.md)
+
+## Voice TTS — experimental in v0.8.2
+
+Use **Settings → Chat & voice** to select a default or trained voice, playback mode, automatic reading and volume. Character chat must be open for test playback.
+
+1. Choose **Voice installation & advanced settings → Install default voice**. No trained pack, reference recording or LoRA is required.
+2. After installation and verification, turn on **Enable voice** and choose **Test voice**. The default uses a fixed female voice description and seed 42; the voice may still vary between sentences.
+3. Enable **Read new replies automatically**, or reread an existing answer. **Stop voice** stops speech; hiding or closing character chat also cancels it.
+
+| Environment | Default voice installation | Playback modes |
+|---|---|---|
+| Mac · Apple Silicon | Bundled Metal engine + about 5.1GB of separately downloaded GGUF models | Metal · chunk / complete playback |
+| Windows · x64 + BF16-capable NVIDIA GPU | Python/PyTorch CUDA environment + base model, about 8.6GB download; 30GB free space required | CUDA · chunk / complete playback |
+
+Installation starts only from the button and supports progress, cancellation, resume and checksum verification. Initial preparation includes model loading and may require compilation on Windows. Launching the app or enabling voice does not download models.
+
+Chunk mode plays audio as it is generated. Complete playback waits for **each utterance group** to finish synthesis and can leave gaps between groups. Short expressions stay together; longer replies split at conversational transitions. This is experimental: speed and quality vary with hardware and other running models.
+
+### Trained voice packs and distribution policy
+
+A trained voice pack is a folder separate from a `.petchar` character pack. It needs `voice.json`, complete checksums, LoRA configuration/weights, reference/preview audio, provenance and license notes. Use **Import voice package** to select the entire folder and bind it to a character. A standalone LoRA file is insufficient.
+
+Trained packs also need a compatible independent runtime and the pinned original VoxCPM2 model. Default voice installation does not automatically configure arbitrary trained-pack environments. On Mac, the first preparation creates and caches a separate GGUF with the selected LoRA applied, requiring 30GB of temporary free space. External Windows voices remain limited to the currently validated selected-package contract. **Arbitrary models and LoRAs are not universally compatible.** See the [required files, platform setup and import guide (Korean)](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/VOICE-PACK-GUIDE.md).
+
+Because trained voice packs can reproduce a specific person’s voice, **the project has no plans to distribute them separately.** Import is intended for compatible packs users prepare themselves and have permission to use. Releases do not include voice model weights, trained LoRAs, the Belle voice pack, external character packs or personal conversations/settings. The default voice model is downloaded separately through the app.
+
+[Default voice installation and validation](docs/character-chat-voice-base-install.md) · [Chat & voice settings](docs/character-chat-settings-ui.md)
 
 ## Desktop controls
 
@@ -97,6 +127,14 @@ Additional characters and settings are stored separately from the app installati
 | Windows | `%APPDATA%\Daemonlet for Codex` |
 
 Large packs or characters with many poses may take time to prepare. See [Privacy and local data](PRIVACY.md) for backup, deletion and reset instructions.
+
+## Codex usage display
+
+Task bubbles show account-wide Codex five-hour/weekly **used** percentages. Missing
+windows show `—`; outdated values and usage restrictions are labeled separately.
+Refresh from the bubble menu or disable **Show Codex usage** in settings. While
+visible, metadata is normally read every 60 seconds without model calls or creating
+conversations. See [behavior, privacy and verification](docs/codex-usage-display.md).
 
 ## Codex CLI connection — optional
 
@@ -142,7 +180,7 @@ Import a `.petchar` file from the [public character packs](https://huggingface.c
 
 ## Character creation and development
 
-[**Download the character creation skill 0.8.1 ZIP**](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/Daemonlet-creator-skill-0.8.1.zip) — includes authoring instructions and standalone runtime source.
+[**Download the character creation skill 0.8.1 ZIP**](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/Daemonlet-creator-skill-0.8.1.zip) — includes authoring instructions and standalone runtime source. The latest separately published creator skill ZIP remains 0.8.1, independent of app version 0.8.2.
 
 Export includes confirmed emotion/gesture meaning metadata. Use `upgrade-chat` to prepare a chat metadata update while preserving an existing pack's visual assets. See the [character chat authoring guide](skills/create-pet-character/references/character-chat.md).
 
@@ -177,7 +215,7 @@ npm run build:electron:production
 npm run electron:package
 ```
 
-To run local chat or package the app, prepare the platform-specific pinned runtime and stage it with `scripts/stage-chat-runtime.mjs` as described in the [runtime/build guide](docs/local-character-chat.md#런타임과-빌드). The commands above do not automatically install models or that runtime.
+To run local chat or package the app, prepare the platform-specific pinned runtime and stage it with `scripts/stage-chat-runtime.mjs` as described in the [runtime/build guide](docs/local-character-chat.md#런타임과-빌드). To package the Mac default TTS engine, also follow the [voice engine build/staging guide](docs/character-chat-voice-base-install.md#packaging). The commands above do not automatically install models or runtimes.
 
 Electron setup uses the local installation script from the lockfile-pinned dependency. Apps built from source do not automatically inherit the release binaries' signing or notarization.
 
@@ -194,9 +232,3 @@ The terms for the referenced community character designs, images and sheets are 
 External code, upstream assets, models and other character packs remain subject to [their own terms](THIRD_PARTY_NOTICES.md). Packaging files as `.petchar` does not place the entire pack under a single artwork license.
 
 The links above point to files in the source repository. In an installed app, notices are available in `resources/licenses/` on Windows/Linux and `Contents/Resources/licenses/` inside the macOS app bundle; you do not need to open the ASAR archive to read them. The existing MIT credit to `Momo Motion Lab contributors` is retained because there is no basis for changing the copyright holder.
-
-Task bubbles show account-wide Codex five-hour/weekly **used** percentages. Missing
-windows show `—`; outdated values and usage restrictions are labeled separately.
-Refresh from the bubble menu or disable **Show Codex usage** in settings. While
-visible, metadata is normally read every 60 seconds without model calls or creating
-conversations. See [behavior, privacy and verification](docs/codex-usage-display.md).
