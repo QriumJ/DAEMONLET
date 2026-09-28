@@ -7,7 +7,8 @@ voice never downloads a model. The user explicitly starts installation; the cont
 shows size, license, progress, verification, stop and retry/resume. Voice remains
 opt-in. Existing character bindings and external trained packages are preserved.
 
-Both platforms expose two playback modes; Mac labels them Metal and Windows CUDA:
+Managed default voice exposes two playback modes; Mac labels them Metal and Windows CUDA.
+External Windows packages preserve their existing baseline/cached/compiled choices:
 
 - **Metal · 청크 재생**: play generated 480ms chunks with the existing bounded queue.
 - **Metal · 완성 후 재생**: collect one completed sentence before delivering its WAV.
@@ -143,3 +144,6 @@ RTFs were 0.954–0.963; software playback-ended acknowledgements were observed.
 The prior Belle binding, Metal chunk mode and volume 0.5 were restored, and the app
 was left running. This adds native Mac GUI evidence; physical listening and Windows
 GUI deployment/playback remain unverified for this revision.
+
+See [PR #29 F1/F2 follow-up](character-chat-voice-pr29-fixes.md) for mode preservation,
+loading-boundary validation, full CI and measured warm-session verification costs.
