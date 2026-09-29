@@ -91,3 +91,13 @@ The `seed-ab` CLI supports trained/default/WAV configs, help, dry-run without mo
 Prepared **18 trained Metal clips**: six short/medium texts × 42, 17, 123, with manifest, unmodified PCM WAVs, offline page and blank review CSV. The initial failing set is preserved alongside the successful set. All subjective labels remain **PENDING_REVIEW**; naturalness, similarity, pronunciation and quality improvement are not claimed. Windows hardware WAVs/manifests exist on the isolated Windows host; a dedicated Windows 18-clip listening batch was NOT_RUN.
 
 Remaining: current Windows GUI, online Windows/Ubuntu CI, subjective listening, broader statistical/long-session or concurrent-LLM performance evaluation. These are not marked passed. Private logs, PCM, runtime copies, model/reference paths and candidate artifacts are kept outside Git. The local artifacts inventory identifies final candidates and intermediate experiments; no cleanup deletion was performed.
+
+## User confirmation after candidate setup
+
+On 2026-09-30 KST, the user confirmed both Mac and Windows after the latest
+isolated candidates were launched with the existing Belle character pack and
+selected trained voice package. This records the user's confirmation of that
+setup; it does not expand the automated test matrix or establish a subjective
+seed-quality ranking. The agent's Windows GUI limitation and unrun online CI
+remain as documented above. Original packs and installed applications were
+preserved, and the candidates were left running.
