@@ -1,5 +1,5 @@
 import {afterEach,expect,it,vi} from 'vitest'
-import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises'
+import {mkdtemp,mkdir,readFile,writeFile,rm,realpath} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {createHash} from 'node:crypto'
@@ -10,7 +10,7 @@ import {referenceWav} from './helpers/reference-wav'
 const cleanup:Array<()=>Promise<unknown>>=[]
 afterEach(async()=>{for(const fn of cleanup.splice(0))await fn();vi.restoreAllMocks()})
 async function fixture(native=true){
- const root=await mkdtemp(join(tmpdir(),'reference-service-')),source=join(root,'input.wav');await writeFile(source,referenceWav())
+ const root=await realpath(await mkdtemp(join(tmpdir(),'reference-service-'))),source=join(root,'input.wav');await writeFile(source,referenceWav())
  const store=new ReferenceProfileStore(join(root,'reference-profiles'),async(path,stage,signal)=>{if(signal.aborted)throw Error('VOICE_REFERENCE_CANCELLED');const bytes=await readFile(path),{wav,audio}=canonicalReferenceWav(bytes);await writeFile(join(stage,'reference.wav'),wav);return{sourceSha256:createHash('sha256').update(bytes).digest('hex'),referenceSha256:createHash('sha256').update(wav).digest('hex'),audio}})
  const base={native,profile:{kind:'base-default' as const,id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none' as const},executable:'/managed/runtime',path:'/managed/model',snapshot:()=>({supported:true,installed:true,phase:'idle' as const,bytes:1,total:1,error:null}),initialize:vi.fn(async()=>{}),identity:vi.fn(async()=>"stable"),ready:vi.fn(async()=>'/managed/model'),cancelVerification:vi.fn(async()=>{}),install:vi.fn(async()=>{}),cancel:vi.fn(async()=>{})}
  const message={id:'message',role:'assistant',status:'complete',text:'새로운 문장을 읽어요.',createdAt:'now',binding:{characterId:'test',revision:'1',conversationId:'chat',requestId:'request',epoch:1,modelId:'E4B',personaHash:'p',semanticHash:'s'}}
@@ -33,11 +33,15 @@ it.each([true,false])('managed WAV routing and warm reuse preserve reference acr
  expect(runtime.start).toHaveBeenCalledTimes(1);expect(f.base.ready).toHaveBeenCalledTimes(1);expect(f.store.list()[0].fingerprint).toBe(p.fingerprint)
  await f.service.bind('test','voxcpm2_default@base');await f.service.prepare();expect(f.runtimes.at(-1).start.mock.calls[0][2]).toBeUndefined()
 })
-it('missing selected reference stays bound after restart and never loads default',async()=>{
- const f=await fixture(process.platform==='darwin');await f.service.importReference(f.source,'Missing');const p=f.store.list()[0],key=p.id+'@'+p.version;await f.service.bind('test',key);await f.service.enabled(true)
- await rm(join(f.store.root,'profiles',p.id),{recursive:true});await f.service.close()
- const restarted=new CharacterVoiceService(f.root,'/worker',()=>f.chat,()=>{},()=>{},()=>{throw Error('NO_DEFAULT_FALLBACK')},()=>{},f.base,undefined,new ReferenceProfileStore(f.store.root));cleanup.push(()=>restarted.close());await restarted.initialize()
- expect(restarted.snapshot()).toMatchObject({bindings:{test:key},status:'unavailable',runtimeConfigured:false});restarted.setOutputReady(true);await restarted.prepare();expect(f.base.ready).not.toHaveBeenCalled()
+it.each([{platform:'darwin',arch:'arm64',native:true},{platform:'win32',arch:'x64',native:false}])('missing selected reference stays bound after restart on $platform and never loads default',async target=>{
+ const platform=Object.getOwnPropertyDescriptor(process,'platform')!,arch=Object.getOwnPropertyDescriptor(process,'arch')!
+ Object.defineProperty(process,'platform',{...platform,value:target.platform});Object.defineProperty(process,'arch',{...arch,value:target.arch})
+ try{
+  const f=await fixture(target.native);await f.service.importReference(f.source,'Missing');const p=f.store.list()[0],key=p.id+'@'+p.version;await f.service.bind('test',key);await f.service.enabled(true)
+  await rm(join(f.store.root,'profiles',p.id),{recursive:true});await f.service.close()
+  const restarted=new CharacterVoiceService(f.root,'/worker',()=>f.chat,()=>{},()=>{},()=>{throw Error('NO_DEFAULT_FALLBACK')},()=>{},f.base,undefined,new ReferenceProfileStore(f.store.root));cleanup.push(()=>restarted.close());await restarted.initialize()
+  expect(restarted.snapshot()).toMatchObject({bindings:{test:key},status:'unavailable',runtimeConfigured:false});restarted.setOutputReady(true);await restarted.prepare();expect(f.base.ready).not.toHaveBeenCalled()
+ }finally{Object.defineProperty(process,'platform',platform);Object.defineProperty(process,'arch',arch)}
 })
 it('tampering between warm utterances rejects voice without changing text or binding',async()=>{
  const f=await fixture();await f.service.importReference(f.source,'Reference');const p=f.store.list()[0],key=p.id+'@'+p.version;await f.service.bind('test',key);await f.service.enabled(true);f.service.setOutputReady(true);await f.service.prepare()
