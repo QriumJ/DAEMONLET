@@ -9,7 +9,7 @@ Status: **implemented; Mac acceptance substantially verified; Windows acceptance
 - Version remains **0.8.2**. No remote push, PR, main merge, tag, release, notarization submission, trained weight upload, or installed-app replacement was performed.
 - The dirty primary Mac checkout and original Windows checkout were preserved. The trained Belle manifest/checksum policy, original trained native builder, installed Python environments, original weights and selected adapter were not changed.
 - The selected package was verified before Mac inference. The unmerged managed Mac GGUF pair passed its pinned size/hash and runtime checks. Windows preflight checked all 9 managed model files, 30 upstream source hashes, 64 dependency metadata versions and the installation receipt; its source model had no LoRA tensor names.
-- Mac live voice settings, conversations, desktop settings and character registry hashes matched before relaunching the installed app. After relaunch, voice settings, conversations and the character registry still matched exactly; desktop-settings.json had been rewritten. Current selection remains Belle, Korean, scale 1 and visible; no forced rollback of that preferences file was attempted. Windows live voice settings, conversations and desktop settings hashes matched during restoration.
+- Mac live voice settings, conversations, desktop settings and character registry hashes matched before relaunching the installed app. After relaunch, voice settings, conversations and the character registry still matched exactly; desktop-settings.json had been rewritten. Current selection remains Belle, Korean, scale 1 and visible; no forced rollback of that preferences file was attempted. Windows live voice settings, conversations and desktop settings hashes matched during initial restoration. After the additional comparison run, voice settings and conversations still matched exactly; desktop-settings.json had subsequently been rewritten by the running installed app. No forced rollback was performed.
 
 ## Automated validation
 
@@ -28,10 +28,12 @@ Status: **implemented; Mac acceptance substantially verified; Windows acceptance
 | Windows v1 Python suites | 32 existing + 7 reference tests passed |
 | Windows v1 typecheck / source check / renderer / production / release verification | PASS |
 | Windows v1 + portable fixture full-suite rerun | PASS: 2,365 passed, 85 existing platform skips; 217 files passed, 4 skipped. Executed in the existing interactive user session |
-| Windows exact final Mac-source suite/build | NOT_RUN; final source transfer awaits approval |
+| Windows exact source `6aa07a3` | PASS: 2,368 tests passed, 85 existing platform skips; 217 files passed, 4 skipped |
+| Windows exact-source typecheck / source check / renderer / production / release verification / isolated portable build | PASS; clean checkout, no dependency installation |
+| Windows exact-source Python 3.11.15 suites | PASS: 32 existing worker + 7 reference tests |
 | GitHub Actions / Ubuntu execution | NOT_RUN; no remote source publication was authorized |
 
-W1 was a test-fixture portability failure: the missing-reference restart fixture saved a Mac execution mode while running on Windows. The final test explicitly scopes both `process.platform` and `process.arch` to each supported backend and restores them afterwards, with canonical temporary paths. Both Mac and Windows cases pass locally, including the unchanged assertions that the missing profile remains bound and no default worker loads. Production platform validation was not relaxed. The initial failure remains recorded. SSH reruns could not traverse the QA dependency junction even though the existing packages were present; restoring the original QA link and executing the same test command in the existing interactive user session passed. No package installation, security-policy change or assertion removal was used. This rerun covers v1 plus the portable fixture, not the final Mac source.
+W1 was a test-fixture portability failure: the missing-reference restart fixture saved a Mac execution mode while running on Windows. The final test explicitly scopes both `process.platform` and `process.arch` to each supported backend and restores them afterwards, with canonical temporary paths. Both Mac and Windows cases pass locally, including the unchanged assertions that the missing profile remains bound and no default worker loads. Production platform validation was not relaxed. The initial failure remains recorded. SSH reruns could not traverse the QA dependency junction even though the existing packages were present; restoring the original QA link and executing the same test command in the existing interactive user session passed. No package installation, security-policy change or assertion removal was used. That earlier rerun covers v1 plus the portable fixture. After explicit user approval, the final 53,174-byte source bundle (SHA256 `da0f9faf4dd414d5849b8bbb4a8cc4e7f86209846523628b9296c3d8ad57356a`) was transferred and verified. The v1 overlay was preserved in a stash in the isolated checkout, then clean `6aa07a3` was tested and packaged. Its 2,368-pass result includes the three additional IPC context cases. The first Python invocation used the host PATH Python 3.10 and failed because `hashlib.file_digest` requires Python 3.11; both suites passed with the existing voice Python 3.11.15. A PowerShell harness also initially treated successful unittest stderr output as an exception; redirecting the native command streams fixed the harness without changing the tests or environment.
 
 Coverage includes strict RIFF/chunk/alignment validation, all supported encodings/rates/channels, duration and quota boundaries, NaN/Infinity/silence, links/junctions, owned snapshots, source removal, staging cancellation/recovery, atomic publication failure, damaged registry/profile isolation, name/fingerprint stability, worker compatibility rejection, settings/dialog context revocation and warm lease reuse. Existing F1–F5 and R1/R2 tests remain in the full suite.
 
@@ -68,7 +70,7 @@ In the actual app, initial verification/loading cost more than a warm utterance.
 
 Host: Windows 11 Pro, version 10.0.26200 (build 26200); NVIDIA RTX 4090, 24 GiB. Runtime: managed Python 3.11.15, torch/torchaudio 2.8.0+cu128, Triton 3.4.0.post21; original VoxCPM2 revision `32279effe8c19989596f05d353d1447f51d9e915`, upstream `f772e498a45fbb5fb8e13fbf9b9c48be9fe33e69`.
 
-**Source boundary:** Windows testing used baseline plus the verified v1 source overlay (ZIP SHA256 `021d20bb4629d786a067b2170ba993023fc1f879345285d63d60f9785f6d77e7`). It is not claimed to have tested the final Mac commit. A final Git source synchronization was blocked by automatic approval review and remains pending user approval. Already copied later archives are not counted as applied/tested.
+**Source boundary:** The earlier service and GUI results below used baseline plus the verified v1 source overlay (ZIP SHA256 `021d20bb4629d786a067b2170ba993023fc1f879345285d63d60f9785f6d77e7`). Following explicit approval, clean `6aa07a3` was synchronized, fully tested and packaged as a separate final Windows candidate. This does not retroactively upgrade v1 GUI observations to final-candidate GUI acceptance. Windows Codex remote coordination and RustDesk UI retries remained unavailable; SSH validation remained functional.
 
 | Actual test | Result |
 |---|---|
@@ -89,12 +91,30 @@ Initial managed reference worker initialization took 274.4 s, including 25.2 s c
 
 Mac and Windows benchmark texts/runners were not a matched comparative corpus; these numbers describe each executed case and must not be presented as a controlled speed or voice-quality comparison.
 
+## Matched trained/WAV listening set
+
+At the user's request, clean runtime source `6aa07a3` generated the same three Korean cases on each platform: a short hesitant phrase, a calm conversation, and a longer emotional transition split into the same three segments. Both sides used the selected Belle package's exact reference WAV (SHA256 `171296e4a9138fc118c4d858ce350fccff530477ef3d3ef1fc85e8c22d9ccb40`), seed 42, CFG 2 and 10 steps. Twelve output WAVs and a private offline comparison page were prepared outside Git. No generated/recorded audio or model is included in source or candidate packages.
+
+- Mac trained audit: existing derivative cache, 384 merged adapter keys, 192 matrices, zero missing/skipped keys. WAV audit: managed unmerged model, no adapter/default prefix, reference cache built once.
+- Windows exact-source trained audit: 384 loaded adapter keys. WAV audit: zero loaded adapter keys, no adapter/default prefix, reference cache built once; all four compiled targets had real graph executions.
+- Each voice kind reused one worker for all five synthesis segments, then the owned worker exited. Fresh package/base integrity verification ran before loading. There was no per-utterance full model verification in this direct supervisor harness.
+- Files are raw 48 kHz mono PCM16. Segment PCM is concatenated without added silence; no loudness normalization, trimming or denoising was applied. All transferred outputs passed SHA256 and WAV structure checks. The local browser decoded both sets; A-to-B playback reached both `ended` states on each platform tab. This is software playback confirmation, not a human listening verdict or final Windows app GUI acceptance.
+
+| Platform / voice | Output seconds: short / calm / transition | Aggregate generation RTF for those cases |
+|---|---|---|
+| Mac trained | 4.16 / 5.60 / 19.52 | 0.966 / 0.969 / 0.952 |
+| Mac WAV only | 2.24 / 5.60 / 18.40 | 0.977 / 0.951 / 0.942 |
+| Windows trained | 4.48 / 6.72 / 20.48 | 0.550 / 0.546 / 0.545 |
+| Windows WAV only | 2.56 / 6.24 / 18.24 | 0.528 / 0.527 / 0.519 |
+
+These are single-run, immediate-credit production-worker measurements, without concurrent LLM generation or audio-device pacing. RTF excludes initial integrity checks and model preparation. Windows trained initialization was 95.5 s and reference initialization was 241.5 s in this run, including first compiled warmup. The matched corpus supports direct listening; it is not a statistically controlled cross-device benchmark or proof of equivalent voice quality. The original Mac app was restored after this additional run; Windows's existing app had no active voice worker and remained running while the isolated workers were tested.
+
 ## Remaining acceptance boundaries
 
 - User listening and speaker-similarity judgement: **NOT_RUN** on both platforms. Different output hashes do not prove voice similarity.
 - A clean authorized second speaker and A → B → A cache-contamination listening: **BLOCKED_MISSING_ASSETS**. No substitute speaker or retraining was introduced.
-- A matched three-sentence comparison across default/reference/trained voices: **NOT_RUN** as a complete matrix; the executed synthesis/regression cases above are narrower.
-- Final exact-source Windows full tests/build: **pending source-transfer approval**. The remaining GUI matrix and normal app exit also need a functioning Windows UI validation connection.
+- Matched trained/reference comparison: **generated on both platforms**, with the limits above. The additional default-voice arm of the three-way listening matrix remains **NOT_RUN**.
+- Final exact-source Windows full tests/build: **PASS** at `6aa07a3`. The remaining GUI matrix and normal app exit still need a functioning Windows UI validation connection.
 - Init/reference-encode/compile cancellation at every real GPU subphase: not comprehensively exercised; protocol/unit cancellation and the measured generation/credit cases are reported separately.
 - Distribution signing/notarization and release: **not requested, not performed**.
 
