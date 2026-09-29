@@ -27,10 +27,11 @@ Status: **implemented; Mac acceptance substantially verified; Windows acceptance
 | Windows v1 full Vitest suite | 2,363 passed, 1 failed, 85 platform skips; see W1 below |
 | Windows v1 Python suites | 32 existing + 7 reference tests passed |
 | Windows v1 typecheck / source check / renderer / production / release verification | PASS |
-| Windows final full-suite rerun | BLOCKED in SSH execution context: QA dependency junction could not resolve Vitest/Vite packages. No dependency installation or validation bypass performed |
+| Windows v1 + portable fixture full-suite rerun | PASS: 2,365 passed, 85 existing platform skips; 217 files passed, 4 skipped. Executed in the existing interactive user session |
+| Windows exact final Mac-source suite/build | NOT_RUN; final source transfer awaits approval |
 | GitHub Actions / Ubuntu execution | NOT_RUN; no remote source publication was authorized |
 
-W1 was a test-fixture portability failure: the missing-reference restart fixture saved a Mac execution mode while running on Windows. The final test explicitly scopes both `process.platform` and `process.arch` to each supported backend and restores them afterwards, with canonical temporary paths. Both Mac and Windows cases pass locally, including the unchanged assertions that the missing profile remains bound and no default worker loads. Production platform validation was not relaxed. Windows' initial failure and blocked rerun remain recorded rather than reported as passing.
+W1 was a test-fixture portability failure: the missing-reference restart fixture saved a Mac execution mode while running on Windows. The final test explicitly scopes both `process.platform` and `process.arch` to each supported backend and restores them afterwards, with canonical temporary paths. Both Mac and Windows cases pass locally, including the unchanged assertions that the missing profile remains bound and no default worker loads. Production platform validation was not relaxed. The initial failure remains recorded. SSH reruns could not traverse the QA dependency junction even though the existing packages were present; restoring the original QA link and executing the same test command in the existing interactive user session passed. No package installation, security-policy change or assertion removal was used. This rerun covers v1 plus the portable fixture, not the final Mac source.
 
 Coverage includes strict RIFF/chunk/alignment validation, all supported encodings/rates/channels, duration and quota boundaries, NaN/Infinity/silence, links/junctions, owned snapshots, source removal, staging cancellation/recovery, atomic publication failure, damaged registry/profile isolation, name/fingerprint stability, worker compatibility rejection, settings/dialog context revocation and warm lease reuse. Existing F1–F5 and R1/R2 tests remain in the full suite.
 
@@ -93,7 +94,7 @@ Mac and Windows benchmark texts/runners were not a matched comparative corpus; t
 - User listening and speaker-similarity judgement: **NOT_RUN** on both platforms. Different output hashes do not prove voice similarity.
 - A clean authorized second speaker and A → B → A cache-contamination listening: **BLOCKED_MISSING_ASSETS**. No substitute speaker or retraining was introduced.
 - A matched three-sentence comparison across default/reference/trained voices: **NOT_RUN** as a complete matrix; the executed synthesis/regression cases above are narrower.
-- Final exact-source Windows full tests/build/GUI matrix and normal app exit: **pending source-transfer approval and a functioning Windows validation connection**.
+- Final exact-source Windows full tests/build: **pending source-transfer approval**. The remaining GUI matrix and normal app exit also need a functioning Windows UI validation connection.
 - Init/reference-encode/compile cancellation at every real GPU subphase: not comprehensively exercised; protocol/unit cancellation and the measured generation/credit cases are reported separately.
 - Distribution signing/notarization and release: **not requested, not performed**.
 
