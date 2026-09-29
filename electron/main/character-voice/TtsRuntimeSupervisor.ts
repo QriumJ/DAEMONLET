@@ -1,3 +1,4 @@
+import {validVoiceSeed} from '../../shared/voice-seed'
 import {spawn,type ChildProcessWithoutNullStreams,type SpawnOptionsWithoutStdio} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
 import {join,isAbsolute,dirname} from 'node:path'
@@ -114,15 +115,16 @@ export class TtsRuntimeSupervisor {
      if(v.type==='error'){this.fail(Error(typeof v.code==='string'&&/^[A-Z_]{1,60}$/.test(v.code)?v.code:'VOICE_WORKER_ERROR'));void this.stop().catch(()=>{});return}
      if(v.type!==p.expected)throw Error('VOICE_PROTOCOL')
      this.pending=null;clearTimeout(p.timer);p.resolve(v)
-    }catch{this.fail(Error('VOICE_PROTOCOL'));void this.stop().catch(()=>{});return}
+    }catch(e){this.fail(e instanceof Error&&e.message==='VOICE_SEED_MISMATCH'?e:Error('VOICE_PROTOCOL'));void this.stop().catch(()=>{});return}
    }
   })
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
-  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:this.config.windowsBase===true||this.config.nativeBase===true,...(conditioning?{conditioning}:{}),compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');if(conditioning&&(this.audit?.mode!=='wav-reference'||this.audit.referenceContract!==1||this.audit.referenceSha256!==conditioning.sha256||this.audit.conditioningFingerprint!==conditioning.fingerprint||this.audit.referenceCacheBuilds!==1||this.audit.adapterSha256!==null||this.audit.defaultVoice!=null))throw Error('VOICE_REFERENCE_RUNTIME');this.key=fingerprint}
+  try {this.audit=await this.call('init','ready',{package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:this.config.windowsBase===true||this.config.nativeBase===true,...(conditioning?{conditioning}:{}),compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');if(this.audit?.seedContract!==1)throw Error('VOICE_SEED_UNSUPPORTED');if(conditioning&&(this.audit?.mode!=='wav-reference'||this.audit.referenceContract!==1||this.audit.referenceSha256!==conditioning.sha256||this.audit.conditioningFingerprint!==conditioning.fingerprint||this.audit.referenceCacheBuilds!==1||this.audit.adapterSha256!==null||this.audit.defaultVoice!=null))throw Error('VOICE_REFERENCE_RUNTIME');this.key=fingerprint}
   catch(e){await this.stop();throw e}
  }
  async synthesize(text:string,binding:SpeechBinding,segmentIndex:number):Promise<AudioResult> {
+  if(!validVoiceSeed(binding.effectiveSeed))throw Error('VOICE_SEED_INVALID')
   if(['gguf-metal-f16-complete','cuda-compiled-complete'].includes(this.config.executionProfile||'')){
    const parts:Buffer[]=[];let header:Buffer|undefined,samples=0
    const result=await this.stream(text,binding,segmentIndex,async chunk=>{
@@ -137,13 +139,15 @@ export class TtsRuntimeSupervisor {
   }
   const audioId=randomUUID(),cache=this.cache
   if(!cache||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
-  const result=await this.call('synthesize','audio-ready',{audioId,text,binding,segmentIndex,style:null})
+  const result=await this.call('synthesize','audio-ready',{audioId,text,binding,seed:binding.effectiveSeed,segmentIndex,style:null})
+  if(result.effectiveSeed!==binding.effectiveSeed)throw Error('VOICE_SEED_MISMATCH');
   if(result.audioId!==audioId||result.segmentIndex!==segmentIndex||JSON.stringify(result.binding)!==JSON.stringify(binding)||cache!==this.cache)throw Error('VOICE_AUDIO_BINDING')
   const path=join(cache,audioId+'.wav')
   try {const stat=await lstat(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>5_800_000)throw Error('VOICE_INVALID_WAV');const bytes=await readFile(path),durationMs=verifyWav(bytes);return {audioId,bytes,durationMs,generationMs:result.generationMs,rtf:result.rtf,peakAllocatedBytes:result.peakAllocatedBytes,peakReservedBytes:result.peakReservedBytes}}
   finally {await rm(path,{force:true}).catch(()=>{})}
  }
  async stream(text:string,binding:SpeechBinding,segmentIndex:number,accept:(audio:AudioChunk)=>Promise<void>) {
+  if(!validVoiceSeed(binding.effectiveSeed))throw Error('VOICE_SEED_INVALID')
   if(this.conditioning&&binding.conditioningFingerprint!==this.conditioning.fingerprint)throw Error('VOICE_REFERENCE_BINDING')
   const synthesisId=randomUUID(),cache=this.cache,child=this.child
   if(!cache||!child||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
@@ -164,7 +168,8 @@ export class TtsRuntimeSupervisor {
   const failStream=(error:Error)=>{failure=error;if(!retired&&this.child===child){this.fail(error);void this.stop().catch(()=>{})}}
   const ids=new Set<string>()
   try{
-  const result=await this.call('stream','synthesis-finished',{streamVersion:1,synthesisId,text,binding,segmentIndex,style:null},v=>{
+  const result=await this.call('stream','synthesis-finished',{streamVersion:1,synthesisId,text,binding,seed:binding.effectiveSeed,segmentIndex,style:null},v=>{
+   if(v.effectiveSeed!==binding.effectiveSeed)throw Error('VOICE_SEED_MISMATCH');
    if(v.synthesisId!==synthesisId||v.segmentIndex!==segmentIndex||JSON.stringify(v.binding)!==JSON.stringify(binding)||v.chunkIndex!==index||v.sampleOffset!==offset||!Number.isSafeInteger(v.sampleCount)||v.sampleCount<1||v.sampleCount>48000||v.sampleRate!==48000||!/^[-a-f0-9]{36}$/.test(v.audioId)||offset+v.sampleCount>48000*60)throw Error('VOICE_STREAM_SEQUENCE')
    if(ids.has(v.audioId))throw Error('VOICE_STREAM_SEQUENCE')
    ids.add(v.audioId);++index;offset+=v.sampleCount
@@ -186,6 +191,7 @@ export class TtsRuntimeSupervisor {
   await reads
   if(retired)throw Error('VOICE_CANCELLED')
   if(failure)throw failure
+  if(result.effectiveSeed!==binding.effectiveSeed)throw Error('VOICE_SEED_MISMATCH');
   if(result.synthesisId!==synthesisId||result.totalSamples!==offset||result.totalChunks!==index||!index)throw Error('VOICE_STREAM_TOTAL')
   return result
   }catch(e){failStream(e as Error);throw e}

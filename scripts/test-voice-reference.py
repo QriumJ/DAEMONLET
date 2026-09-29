@@ -82,7 +82,7 @@ class WindowsRoutingTests(unittest.TestCase):
             for cloning in [True,False]:
                 worker=module.create_worker(Parent)();request=dict(baseModel=True,executionProfile='compiled',cache=str(Path(tmp)/str(cloning)),model=tmp,compilerCache=tmp)
                 if cloning:request['conditioning']={'fixture':True}
-                audit=worker.initialize(request);self.assertIsNone(audit['adapterSha256']);self.assertEqual(audit['effectiveSeed'],42)
+                audit=worker.initialize(request);self.assertIsNone(audit['adapterSha256']);self.assertEqual(audit['warmupSeed'],42)
                 self.assertEqual(audit['mode'],'wav-reference' if cloning else 'base');self.assertEqual(engines[-1].reference,condition['path'] if cloning else None)
                 if cloning:
                     self.assertIsNone(engines[-1].description);self.assertEqual(audit['referenceCacheBuilds'],1)

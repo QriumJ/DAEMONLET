@@ -85,7 +85,7 @@ def main():
     for name in ['ggml-metal.metal','ggml-common.h','ggml-metal-impl.h']:shutil.copyfile(source/a.build_dir/'bin'/name,out/name)
     (out/'licenses').mkdir();shutil.copyfile(source/'LICENSE',out/'licenses/llama-cpp-MIT.txt');shutil.copyfile(a.package/'VOXCPM-LICENSE',out/'licenses/VoxCPM-LICENSE')
     names=['daemonlet-voice-engine','ggml-metal.metal','ggml-common.h','ggml-metal-impl.h','licenses/llama-cpp-MIT.txt','licenses/VoxCPM-LICENSE']
-    receipt=dict(sourceCommit=PIN,originalRuntimeSha256=sha(original),cachedRuntimeSha256=sha(patched),nativeSourceSha256=sha(worker_source),cacheRecipeSha256=sha(Path(__file__)),nativeFiles={'native/'+name:sha(out/name) for name in names},dynamicLibraries=dependencies)
+    receipt=dict(seedContractSha256=sha(ROOT/'electron/voice/seed_contract.h'),sourceCommit=PIN,originalRuntimeSha256=sha(original),cachedRuntimeSha256=sha(patched),nativeSourceSha256=sha(worker_source),cacheRecipeSha256=sha(Path(__file__)),nativeFiles={'native/'+name:sha(out/name) for name in names},dynamicLibraries=dependencies)
     if a.base:receipt.update(baseVoiceDefaultsSha256=sha(defaults),referencePolicySha256=sha(ROOT/'electron/voice/reference-policy.json'),referenceValidatorSha256=sha(ROOT/'electron/voice/reference_wav.h'))
     (out/'native-build.json').write_text(json.dumps(receipt,indent=2)+'\n');print(json.dumps({k:v for k,v in receipt.items() if k!='dynamicLibraries'}))
 

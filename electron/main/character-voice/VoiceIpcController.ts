@@ -109,6 +109,8 @@ export class VoiceIpcController {
     }finally{if(this.referencePicker===pick){this.referencePicker=null;this.picking=false}}
     return
    }
+   case 'seedSettings':return this.service.seedSettings(v.value,contextCurrent)
+   case 'replay':case 'reroll':case 'reproduce':if(typeof v.messageId!=='string'||v.messageId.length>80)throw Error('VOICE_ACTION');return this.service.readMessage(v.messageId,v.type)
    case 'read':if(typeof v.messageId!=='string'||v.messageId.length>80)throw Error('VOICE_ACTION');return this.service.readMessage(v.messageId)
    case 'test':return this.service.test()
    case 'played':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||v.error!==undefined&&typeof v.error!=='boolean')throw Error('VOICE_ACTION');return this.service.played(v.audioId,v.epoch,v.error)

@@ -16,8 +16,10 @@ External Windows packages preserve their existing baseline/cached/compiled choic
   latency and group gaps for complete-group playback. Both modes produce the
   same PCM and use the same request/speech ownership and cancellation protocol.
 
-The default model uses the same built-in female voice description and seed 42 on
-both platforms, from `electron/voice/base-voice-defaults.json`. The model receives
+The default model uses the same built-in female voice description on both
+platforms, from `electron/voice/base-voice-defaults.json`. User synthesis follows
+the [reply seed policy](character-chat-voice-seeds.md); 42 remains the controlled
+preparation/legacy default, not a forced seed on every reply. The model receives
 a parenthesized description prefix: “An adult female voice, warm and gentle, clear
 and natural, with a calm conversational pace.” No extra recording or adapter is
 needed. The description is applied to base-only synthesis, including warmup, and

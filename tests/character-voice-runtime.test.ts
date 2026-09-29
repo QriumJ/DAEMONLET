@@ -11,7 +11,7 @@ async function worker(){const root=await mkdtemp(join(tmpdir(),'tts-runtime-'));
  // Hosted Windows startup can exceed 500 ms under the full suite. Keep a bounded
  // failure deadline without turning process scheduling into a cancellation race.
  const w=new TtsRuntimeSupervisor({python:process.execPath,model:root,worker:resolve('tests/fixtures/voice-worker.cjs'),cacheRoot:root},2000,(_exe,_args,options)=>spawn(process.execPath,[resolve('tests/fixtures/voice-worker.cjs')],options));workers.push(w);return{w,root}}
-const binding=(w:TtsRuntimeSupervisor)=>({runtimeSessionId:w.sessionId,characterId:'test',requestId:'request',speechEpoch:1}) as SpeechBinding
+const binding=(w:TtsRuntimeSupervisor)=>({effectiveSeed:42,runtimeSessionId:w.sessionId,characterId:'test',requestId:'request',speechEpoch:1}) as SpeechBinding
 it('reuses a ready worker, validates WAV bytes and deletes generated files',async()=>{const {w,root}=await worker();await w.start(root,'fingerprint');const id=w.sessionId;await w.start(root,'fingerprint');expect(w.sessionId).toBe(id);const audio=await w.synthesize('synthetic',binding(w),0);expect(audio.durationMs).toBe(100);expect(audio.bytes.byteLength).toBe(9644);await w.stop();expect(w.running).toBe(false);expect(await readdir(root)).toEqual([])})
 it.each(['crash','contaminate','partial'])('rejects %s without leaving an owned worker',async mode=>{const {w,root}=await worker();await expect(w.start(join(root,mode),'x')).rejects.toThrow();await w.stop();expect(w.running).toBe(false)})
 it.each(['oom','corrupt','hang'])('rejects %s and recovers after restart',async text=>{const {w,root}=await worker();await w.start(root,'x');await expect(w.synthesize(text,binding(w),0)).rejects.toThrow();await w.stop();await w.start(root,'x');expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)})
@@ -75,3 +75,6 @@ it.each(['initialization','baseline'])('R2 %s keeps owned-process termination fa
  expect(result.keptWarm).toBe(false);expect(result.fallback).toBe('non-streaming');expect(await pending).toBe('VOICE_CANCELLED');expect(w.running).toBe(false)
  await w.start(root,'x');expect((await w.synthesize('valid',binding(w),0)).durationMs).toBe(100)
 })
+it('rejects legacy seed capability before starting speech',async()=>{const {w,root}=await worker();await expect(w.start(join(root,'old-seed'),'old')).rejects.toThrow('VOICE_SEED_UNSUPPORTED');expect(w.running).toBe(false)})
+it.each([0,-1,1.5,true,'42',undefined,2147483648])('rejects invalid supervisor seed %s',async seed=>{const {w,root}=await worker();await w.start(root,'valid');await expect(w.stream('stream',{...binding(w),effectiveSeed:seed} as any,0,async()=>{})).rejects.toThrow('VOICE_SEED_INVALID')})
+it.each(['stream','synthesize'] as const)('rejects mismatched applied seed before %s audio delivery',async mode=>{const {w,root}=await worker();await w.start(root,'valid');const delivered=vi.fn(async()=>{});await expect(mode==='stream'?w.stream('wrong-seed',binding(w),0,delivered):w.synthesize('wrong-seed',binding(w),0)).rejects.toThrow('VOICE_SEED_MISMATCH');expect(delivered).not.toHaveBeenCalled()})

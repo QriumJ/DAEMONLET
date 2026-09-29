@@ -1,8 +1,11 @@
-import {mkdir,readdir,readFile,rm,writeFile} from 'node:fs/promises'
+import {DEFAULT_VOICE_SEED,validSeedSettings,validVoiceSeed,type VoiceSeedSettings,type VoiceGenerationPlan} from '../../shared/voice-seed'
+import {VoiceReplayCache,type ReplayCandidate} from './VoiceReplayCache'
+import {VoiceAssetIdentity} from './VoiceAssetIdentity'
+import {mkdir,readdir,readFile,rm,writeFile,realpath} from 'node:fs/promises'
 import {dirname,join} from 'node:path'
-import {createHash,randomUUID} from 'node:crypto'
+import {createHash,randomUUID,randomInt} from 'node:crypto'
 import type {ChatMessage,LocalChatSnapshot} from '../../shared/character-chat-contract'
-import {isManagedVoice,isReferenceProfile,DEFAULT_SPEECH_POLICY,planSpeech,type SpeechPolicy,isStreamingProfile,voiceCapabilities,type SpeechBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
+import {isManagedVoice,isReferenceProfile,DEFAULT_SPEECH_POLICY,planSpeech,type SpeechPolicy,isStreamingProfile,voiceCapabilities,type SpeechBinding,type PlaybackBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
 import {importVoicePackage,profileKey,SELECTED_VOICE,verifyVoicePackage} from './VoicePackage'
 import {TtsRuntimeSupervisor,type TtsConfig,type AudioChunk} from './TtsRuntimeSupervisor'
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
@@ -11,7 +14,8 @@ import {ReferenceProfileStore,referenceKey,workerReferenceConverter,type Referen
 import {replaceFile} from '../character-chat/replaceFile'
 
 export class CharacterVoiceService {
- private state:VoiceSnapshot={epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'gguf-metal-f16':'baseline'}
+ private state:VoiceSnapshot={seedSettings:{...DEFAULT_VOICE_SEED},seedError:false,epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'gguf-metal-f16':'baseline'}
+ private replay=new VoiceReplayCache()
  readonly references:ReferenceProfileStore
  private referenceOperation:{controller:AbortController;task:Promise<void>}|null=null
  private referenceImportError:string|null=null
@@ -38,14 +42,17 @@ export class CharacterVoiceService {
  private spokenRequestAt=0
  private firstPlayback=false
  private lastPlaybackEndAt=0
- constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation,private speechPolicy:SpeechPolicy=DEFAULT_SPEECH_POLICY,referenceStore?:ReferenceProfileStore){this.references=referenceStore??new ReferenceProfileStore(join(root,'reference-profiles'),workerReferenceConverter(join(dirname(worker),'reference-import-worker.cjs')))}
+ constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation,private speechPolicy:SpeechPolicy=DEFAULT_SPEECH_POLICY,referenceStore?:ReferenceProfileStore,private chooseRandom:()=>number=()=>randomInt(1,0x80000000)){this.references=referenceStore??new ReferenceProfileStore(join(root,'reference-profiles'),workerReferenceConverter(join(dirname(worker),'reference-import-worker.cjs')))}
  snapshot(){
+  this.syncReplayScope()
   const s=structuredClone(this.state),selected=this.selectedProfile(),managed=isManagedVoice(selected)
+  s.results=this.replay.infos()
   s.executionProfile=this.activeProfile();s.runtimeConfigured=!!this.configured();s.referenceImport={busy:!!this.referenceOperation,error:this.referenceImportError}
   if(this.base){s.baseInstall=this.base.snapshot();if(s.baseInstall.supported){s.defaultProfile=this.baseKey();if(!this.base.native)s.availableProfiles=managed?['cuda-compiled','cuda-compiled-complete']:['baseline','cached','compiled']}}
   if(this.state.enabled&&((managed&&!s.runtimeConfigured)||isReferenceProfile(selected)&&selected.error||referenceKey(this.bindingKey(this.chat().character?.id||''))&&!selected)){
    s.status='unavailable';s.error=isReferenceProfile(selected)&&selected.error?selected.error:!selected?'VOICE_REFERENCE_UNAVAILABLE':s.error||'VOICE_BASE_NOT_INSTALLED'
   }
+  if(s.seedError){s.status='error';s.error='VOICE_SEED_SETTINGS'}
   return s
  }
  private baseKey(){return this.base?profileKey(this.base.profile):BASE_KEY}
@@ -87,6 +94,7 @@ export class CharacterVoiceService {
    try{const saved=JSON.parse(await readFile(join(this.root,'settings.json'),'utf8'))
     if(saved.version!==1||typeof saved.enabled!=='boolean'||typeof saved.autoRead!=='boolean'||!Number.isFinite(saved.volume)||saved.volume<0||saved.volume>1||!saved.bindings||typeof saved.bindings!=='object'||Array.isArray(saved.bindings))throw Error('VOICE_SETTINGS')
     this.pendingRemoval=new Set(Array.isArray(saved.pendingRemoval)?saved.pendingRemoval.filter((v:unknown)=>typeof v==='string'&&/^[a-z0-9_-]+@[a-zA-Z0-9._-]+$/.test(v)):[])
+    if(Object.hasOwn(saved,'seedSettings')){if(validSeedSettings(saved.seedSettings))this.state.seedSettings={...saved.seedSettings};else{this.state.seedError=true;this.state.error='VOICE_SEED_SETTINGS'}}
     this.state.enabled=saved.enabled;this.state.autoRead=saved.autoRead;this.state.volume=saved.volume
     const supported=this.state.availableProfiles||[], selected=saved.executionProfile||'baseline'
     if(supported.includes(selected))this.state.executionProfile=selected
@@ -113,7 +121,7 @@ export class CharacterVoiceService {
  }
  private async save(){
   await mkdir(this.root,{recursive:true});const temp=join(this.root,'settings-'+randomUUID()+'.tmp')
-  try{await writeFile(temp,JSON.stringify({version:1,enabled:this.state.enabled,autoRead:this.state.autoRead,volume:this.state.volume,bindings:this.state.bindings,runtime:this.config,pendingRemoval:[...this.pendingRemoval],executionProfile:this.state.executionProfile||'baseline',baseExecutionProfile:this.baseExecutionProfile})+'\n',{flag:'wx'});await replaceFile(temp,join(this.root,'settings.json'))}
+  try{await writeFile(temp,JSON.stringify({version:1,enabled:this.state.enabled,autoRead:this.state.autoRead,volume:this.state.volume,bindings:this.state.bindings,runtime:this.config,pendingRemoval:[...this.pendingRemoval],executionProfile:this.state.executionProfile||'baseline',baseExecutionProfile:this.baseExecutionProfile,seedSettings:this.state.seedError?{invalid:true}:this.state.seedSettings})+'\n',{flag:'wx'});await replaceFile(temp,join(this.root,'settings.json'))}
   finally{await rm(temp,{force:true}).catch(()=>{})}
  }
  private mutate(work:()=>Promise<void>){const task=this.serial.then(async()=>{if(this.disposed)return;const previous=structuredClone(this.state),config=this.config,baseMode=this.baseExecutionProfile,removals=new Set(this.pendingRemoval);try{await work();await this.save();this.emit()}catch(e){this.state={...previous,epoch:this.state.epoch};this.config=config;this.baseExecutionProfile=baseMode;this.pendingRemoval=removals;this.error(e)}});this.serial=task.catch(()=>{});return task}
@@ -135,6 +143,7 @@ export class CharacterVoiceService {
  renameReference(profile:string,name:string,current=()=>true){const task=this.serial.then(async()=>{if(this.disposed||!current())throw Error('CHAT_SETTINGS_EXPIRED');await this.references.rename(profile,name,()=>!this.disposed&&current());const p=this.references.list().find(p=>profileKey(p)===profile);if(p)this.state.profiles=this.state.profiles.map(old=>profileKey(old)===profile?p:old);this.emit()});this.serial=task.catch(()=>{});return task}
  configure(python:string,model:string){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-')||this.state.executionProfile?.startsWith('gguf-metal-'))await verifyMacInterpreter(python,this.state.executionProfile);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
  enabled(value:boolean){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();this.state.enabled=value;this.state.status=value?'idle':'off';this.state.error=null})}
+ seedSettings(value:VoiceSeedSettings,current=()=>true){if(!validSeedSettings(value))throw Error('VOICE_SEED_INVALID');return this.mutate(async()=>{if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.state.seedSettings={...value};this.state.seedError=false;if(this.state.error==='VOICE_SEED_SETTINGS')this.state.error=null})}
  auto(value:boolean){return this.mutate(async()=>{this.state.autoRead=value})}
  volume(value:number){return this.mutate(async()=>{this.state.volume=value})}
  executionProfile(value:ExecutionProfile){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(isManagedVoice(this.selectedProfile())&&this.base&&!this.base.native)this.baseExecutionProfile=value;else this.state.executionProfile=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
@@ -170,7 +179,7 @@ export class CharacterVoiceService {
  prepare():Promise<void>{
   if(this.preparing)return this.preparing
   const profile=this.selectedProfile()
-  if(this.disposed||!this.outputReady||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.activeProfile())&&!this.activeProfile().endsWith('-complete'))||this.currentSpeech)return Promise.resolve()
+  if(this.disposed||this.state.seedError||!this.outputReady||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.activeProfile())&&!this.activeProfile().endsWith('-complete'))||this.currentSpeech)return Promise.resolve()
   const operation=this.operation,runtime=this.getRuntime()
   this.state.status='loading';this.emit()
   const task=this.startRuntime(profile,runtime,()=>operation===this.operation&&this.outputReady&&!this.disposed&&this.state.enabled).then(()=>{
@@ -210,7 +219,8 @@ export class CharacterVoiceService {
   if(this.outputReady&&!this.disposed)this.allowedRequests.add(id)
   if(this.observedRequests.size>1000){const old=this.observedRequests.values().next().value!;this.observedRequests.delete(old);this.allowedRequests.delete(old)}
  }
- onChatChanged(){if(this.currentSpeech&&!this.currentSpeech())this.cancel()}
+ private syncReplayScope(){const s=this.chat();if(this.replay.setScope(JSON.stringify([s.character?.id,s.character?.revision,s.conversation?.id,s.epoch,s.model,this.bindingKey(s.character?.id||'')]))){this.state.lastGeneration=undefined}}
+ onChatChanged(){this.syncReplayScope();if(this.currentSpeech&&!this.currentSpeech())this.cancel()}
  completed(message:ChatMessage){
   const id=message.binding?.requestId
   const allowed=!!id&&this.allowedRequests.delete(id)
@@ -220,22 +230,56 @@ export class CharacterVoiceService {
   this.seen.add(key);if(this.seen.size>1000)this.seen.delete(this.seen.values().next().value!)
   void this.read(message,false,true).catch(e=>this.error(e))
  }
- readMessage(id:string){const m=this.chat().conversation?.messages.find(m=>m.id===id);if(!m)throw Error('VOICE_MESSAGE');void this.read(m).catch(e=>this.error(e))}
+ readMessage(id:string,mode:'read'|'replay'|'reroll'|'reproduce'='read'){const m=this.chat().conversation?.messages.find(m=>m.id===id);if(!m)throw Error('VOICE_MESSAGE');void this.read(m,false,false,mode).catch(e=>this.error(e))}
  test(){const chat=this.chat(),character=chat.character;if(!character)throw Error('VOICE_CHARACTER');const id=randomUUID();void this.read({id,role:'assistant',status:'complete',text:'응, 듣고 있어. 지금은 어떤 이야기를 할까?',createdAt:new Date().toISOString(),binding:{characterId:character.id,revision:character.revision,conversationId:chat.conversation?.id||'',personaHash:'test',semanticHash:'test',modelId:chat.model,requestId:id,epoch:chat.epoch}},true).catch(e=>this.error(e))}
- private async read(message:ChatMessage,test=false,automatic=false){
+ private async read(message:ChatMessage,test=false,automatic=false,mode:'read'|'replay'|'reroll'|'reproduce'='read'){
   const requestedAt=Date.now()
   if(this.disposed||!this.outputReady||!this.state.enabled)return
   if(message.role!=='assistant'||message.status!=='complete'||!message.binding)throw Error('VOICE_MESSAGE')
+  if(this.state.seedError&&mode!=='replay')throw Error('VOICE_SEED_SETTINGS')
+  this.syncReplayScope()
+  const seedSettings={...(this.state.seedSettings||DEFAULT_VOICE_SEED)},executionProfile=this.activeProfile()
   const before=this.chat(),source=structuredClone(message),profile=this.selectedProfile()
-  if(!profile)throw Error(referenceKey(this.bindingKey(before.character?.id||''))?'VOICE_REFERENCE_UNAVAILABLE':'VOICE_NOT_INSTALLED');if(isReferenceProfile(profile)&&profile.error)throw Error(profile.error);if(!this.configured())throw Error(isManagedVoice(profile)?'VOICE_BASE_NOT_INSTALLED':'VOICE_RUNTIME_MISSING')
+  if(!profile)throw Error(referenceKey(this.bindingKey(before.character?.id||''))?'VOICE_REFERENCE_UNAVAILABLE':'VOICE_NOT_INSTALLED');if(isReferenceProfile(profile)&&profile.error)throw Error(profile.error);if(mode!=='replay'&&!this.configured())throw Error(isManagedVoice(profile)?'VOICE_BASE_NOT_INSTALLED':'VOICE_RUNTIME_MISSING')
   const op=++this.operation;await this.stop(false);if(op!==this.operation||this.disposed)return
   const epoch=this.state.epoch,origin=before.character
   const current=()=>{const s=this.chat();return !this.disposed&&this.outputReady&&this.state.enabled&&op===this.operation&&epoch===this.state.epoch&&s.character?.id===source.binding!.characterId&&s.character.revision===source.binding!.revision&&s.epoch===before.epoch&&s.model===before.model&&s.conversation?.id===before.conversation?.id&&this.bindingKey(s.character.id)===profileKey(profile)&&(test||!!s.conversation?.messages.some(m=>m.id===source.id&&m.status==='complete'&&m.text===source.text))}
   if(!origin||!current())return
   this.currentSpeech=current
+  let candidate:ReplayCandidate|undefined
   try {
    const plan=planSpeech(source.text,this.speechPolicy),segments=plan.segments
    this.diagnose({type:'speech-plan',policy:plan.policy,preferredLength:plan.preferredLength,segments:segments.map(({start,end,index,cutReason,readableGraphemes,tinyReason})=>({start,end,index,cutReason,readableGraphemes,tinyReason}))})
+   const speechPlanFingerprint=createHash('sha256').update(JSON.stringify(plan)).digest('hex')
+   const identity=await this.replayIdentity(source,profile,speechPlanFingerprint,executionProfile)
+   if(!current())return
+   const previousResult=this.replay.previous(source.id,identity)
+   if(mode==='replay'){
+    const recorded=this.replay.get(source.id,identity)
+    if(!recorded){if(!previousResult)this.replay.forget(source.id);throw Error('VOICE_REPLAY_MISSING')}
+    this.speechStartedAt=requestedAt;this.firstPlayback=false;this.lastPlaybackEndAt=0;this.spokenRequestAt=0
+    const binding:PlaybackBinding={...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,playbackId:randomUUID(),sourceGenerationId:recorded.plan.generationId,effectiveSeed:recorded.plan.effectiveSeed}
+    this.diagnose({type:'voice-replay',generationId:recorded.plan.generationId,effectiveSeed:recorded.plan.effectiveSeed,cache:'hit'})
+    const streams=new Map<number,string>(),inflight:Promise<void>[]=[]
+    for(const part of recorded.parts){
+     if(!current())return
+     if(createHash('sha256').update(part.bytes).digest('hex')!==part.hash)throw Error('VOICE_REPLAY_CHANGED')
+     const durationMs=(part.bytes.byteLength-44)/96,audio={audioId:randomUUID(),bytes:Uint8Array.from(part.bytes),durationMs,generationMs:0,rtf:0}
+     if(part.stream){if(!streams.has(part.segmentIndex))streams.set(part.segmentIndex,randomUUID());inflight.push(this.enqueueChunk({...audio,...part.stream,synthesisId:streams.get(part.segmentIndex)!,firstChunkReadyMs:0},binding,part.segmentIndex));if(inflight.length>=3)await inflight.shift()}
+     else{await Promise.all(inflight.splice(0));await this.playComplete(audio,binding,part.segmentIndex)}
+    }
+    await Promise.all(inflight)
+    if(current()){this.currentSpeech=null;this.state.status='idle';this.emit()}return
+   }
+   if(mode==='reproduce'&&!previousResult){this.replay.forget(source.id);throw Error('VOICE_REPRODUCE_CHANGED')}
+   let effectiveSeed=mode==='reproduce'?previousResult!.effectiveSeed:seedSettings.mode==='fixed'&&mode!=='reroll'?seedSettings.fixedSeed:this.chooseRandom()
+   if(mode==='reroll'&&previousResult&&effectiveSeed===previousResult.effectiveSeed){
+    // Uniform draw over the remaining range; production retries unbiased OS draws.
+    let attempts=0;do{if(++attempts>32)throw Error('VOICE_SEED_INVALID');effectiveSeed=this.chooseRandom()}while(effectiveSeed===previousResult.effectiveSeed)
+   }
+   if(!validVoiceSeed(effectiveSeed))throw Error('VOICE_SEED_INVALID')
+   const generation:VoiceGenerationPlan=Object.freeze({generationId:randomUUID(),effectiveSeed,seedPolicy:mode==='reroll'?'reroll':mode==='reproduce'?'reproduce':seedSettings.mode,messageId:source.id,voiceFingerprint:profile.fingerprint,speechPlanFingerprint})
+   this.diagnose({type:'voice-generation',...generation,cache:'miss'})
    const runtime=this.getRuntime()
    this.speechStartedAt=requestedAt;this.spokenRequestAt=automatic?(this.requestTimes.get(source.binding!.requestId)||this.speechStartedAt):0;this.firstPlayback=false;this.lastPlaybackEndAt=0
    this.state.error=null;this.state.status=runtime.running?'synthesizing':'loading';this.emit()
@@ -243,7 +287,8 @@ export class CharacterVoiceService {
    await this.startRuntime(profile,runtime,current)
    if(!current())return
    this.diagnose({type:'runtime-ready',at:Date.now(),session:runtime.sessionId,audit:runtime.audit})
-   const binding:SpeechBinding={...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,runtimeSessionId:runtime.sessionId,executionProfile:this.activeProfile(),...(isReferenceProfile(profile)?{conditioningFingerprint:String(runtime.audit?.conditioningFingerprint||'')}: {})}
+   candidate=this.replay.begin(identity,generation,{runtimeFingerprint:runtime.audit?.runtimeFingerprint,modelRevision:runtime.audit?.modelRevision,sourceCommit:runtime.audit?.sourceCommit,adapterSha256:runtime.audit?.adapterSha256,referenceSha256:runtime.audit?.referenceSha256,executionProfile})
+   const binding:SpeechBinding={effectiveSeed:generation.effectiveSeed,generationId:generation.generationId,...source.binding!,messageId:source.id,speechEpoch:epoch,voiceProfileId:profile.id,voiceProfileVersion:profile.version,voiceFingerprint:profile.fingerprint,runtimeSessionId:runtime.sessionId,executionProfile,...(isReferenceProfile(profile)?{conditioningFingerprint:String(runtime.audit?.conditioningFingerprint||'')}: {})}
    if(isStreamingProfile(binding.executionProfile)){
     let previous=Promise.resolve()
     for(const segment of segments){
@@ -253,6 +298,7 @@ export class CharacterVoiceService {
      this.state.status='synthesizing';this.emit()
      const result=await runtime.stream(segment.text,binding,segment.index,audio=>{
       if(!current())return Promise.reject(Error('VOICE_CANCELLED'))
+      this.replay.append(candidate!,audio.bytes,segment.index,{chunkIndex:audio.chunkIndex,sampleOffset:audio.sampleOffset,sampleCount:audio.sampleCount})
       const done=this.enqueueChunk(audio,binding,segment.index);consumed.push(done);return done
      })
      if(!current())return
@@ -271,18 +317,23 @@ export class CharacterVoiceService {
     const audio=await runtime.synthesize(segment.text,binding,segment.index)
     if(!current())return
     this.diagnose({type:'audio-ready',at:Date.now(),epoch,index:segment.index,audioId:audio.audioId,textLength:segment.text.length,durationMs:audio.durationMs,generationMs:audio.generationMs,rtf:audio.rtf,peakAllocatedBytes:audio.peakAllocatedBytes,peakReservedBytes:audio.peakReservedBytes})
-    // Backpressure: only one bounded WAV exists; next synthesis follows playback ack.
-    await new Promise<void>((resolve,reject)=>{
-     const timer=setTimeout(()=>{if(this.active?.id===audio.audioId){this.active=null;reject(Error('VOICE_PLAYBACK_TIMEOUT'))}},audio.durationMs+30_000)
-     this.active={id:audio.audioId,epoch,bytes:audio.bytes,claimed:false,resolve,reject,timer}
-     this.state.status='playing';this.emit();this.notify({type:'audio',audioId:audio.audioId,epoch,binding,segmentIndex:segment.index})
-    })
+    this.replay.append(candidate!,audio.bytes,segment.index)
+    await this.playComplete(audio,binding,segment.index)
    }
    }
-   if(current()){this.currentSpeech=null;this.state.status='idle';this.emit()}
-  }catch(e){if(current()){await this.stop();this.error(e)}}
+   if(current()){this.state.lastGeneration=this.replay.publish(candidate!);candidate=undefined;this.currentSpeech=null;this.state.status='idle';this.emit()}
+  }catch(e){if(current()){await this.stop(true,true,false);this.error(e)}}finally{if(candidate)this.replay.discard(candidate)}
  }
- private enqueueChunk(audio:AudioChunk,binding:SpeechBinding,segmentIndex:number){
+ private async replayAssets(profile:VoiceSnapshot['profiles'][number]){return new VoiceAssetIdentity(profile.fingerprint,[this.config!.model,dirname(this.worker),dirname(dirname(this.config!.python)),join(this.root,'profiles',profileKey(profile))],[{path:await realpath(this.config!.python)}]).snapshot()}
+ private async replayIdentity(message:ChatMessage,profile:VoiceSnapshot['profiles'][number],speechPlan:string,execution:ExecutionProfile){
+  const reference=isReferenceProfile(profile)?(await this.references.resolve(profileKey(profile))).sha256:undefined
+  const assets=isManagedVoice(profile)?await this.base!.identity():await this.replayAssets(profile)
+  return createHash('sha256').update(JSON.stringify({binding:message.binding,messageId:message.id,text:message.text,profile:profile.fingerprint,reference,assets,execution,speechPlan,config:isManagedVoice(profile)?null:this.config})).digest('hex')
+ }
+ private playComplete(audio:{audioId:string;bytes:Uint8Array;durationMs:number},binding:PlaybackBinding,segmentIndex:number){
+  return new Promise<void>((resolve,reject)=>{const epoch=binding.speechEpoch,timer=setTimeout(()=>{if(this.active?.id===audio.audioId){this.active=null;reject(Error('VOICE_PLAYBACK_TIMEOUT'))}},audio.durationMs+30_000);this.active={id:audio.audioId,epoch,bytes:audio.bytes,claimed:false,resolve,reject,timer};this.state.status='playing';this.emit();this.notify({type:'audio',audioId:audio.audioId,epoch,binding,segmentIndex})})
+ }
+ private enqueueChunk(audio:AudioChunk,binding:PlaybackBinding,segmentIndex:number){
   if(this.chunks.size>=6||[...this.chunks.values()].reduce((n,a)=>n+a.durationMs,0)+audio.durationMs>6000)throw Error('VOICE_QUEUE_LIMIT')
   const done=new Promise<void>((resolve,reject)=>{
    const timer=setTimeout(()=>{this.chunks.delete(audio.audioId);reject(Error('VOICE_PLAYBACK_TIMEOUT'))},30_000)
@@ -300,10 +351,12 @@ export class CharacterVoiceService {
  }
  audio(id:string,epoch:number){const a=this.chunks.get(id)||(this.active?.id===id?this.active:null);if(!a||a.epoch!==epoch||epoch!==this.state.epoch||a.claimed||!this.currentSpeech?.())throw Error('VOICE_AUDIO_EXPIRED');a.claimed=true;const bytes=a.bytes;if(this.chunks.has(id))a.bytes=new Uint8Array();return bytes}
  played(id:string,epoch:number,error=false){const a=this.chunks.get(id)||(this.active?.id===id?this.active:null);if(!a||a.epoch!==epoch)return;this.chunks.delete(id);if(this.active?.id===id)this.active=null;clearTimeout(a.timer);this.lastPlaybackEndAt=Date.now();this.diagnose({type:error?'playback-error':'playback-ended',at:Date.now(),epoch,audioId:id,claimed:a.claimed});if(error)a.reject(Error('VOICE_PLAYBACK'));else if(a.claimed)a.resolve();else a.reject(Error('VOICE_PLAYBACK_UNCLAIMED'))}
- async stop(invalidate=true,unload=true){
+ async stop(invalidate=true,unload=true,clearReplay=invalidate&&unload){
   const stopStartedAt=Date.now()
   const hadSpeech=!!this.currentSpeech
+  this.replay.discardPending()
   const verification=this.base?.cancelVerification()
+  if(clearReplay){this.replay.clear();this.state.lastGeneration=undefined}
   if(invalidate)++this.operation
   ++this.state.epoch;this.currentSpeech=null
   // Revoke producer callbacks before resolving consumers. The same warm child

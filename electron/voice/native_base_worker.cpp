@@ -22,6 +22,7 @@ static void emit(const std::string&type,const std::string&id,J data=J::object())
 static std::string audio_id(){
  static uint64_t count=0;char value[37];snprintf(value,sizeof(value),"%08x-0000-4000-8000-%012llx",unsigned(getpid()),(unsigned long long)++count);return value;
 }
+#include "seed_contract.h"
 int main(){
  const pid_t parent=getppid();std::thread([parent]{while(true){std::this_thread::sleep_for(std::chrono::milliseconds(100));if(getppid()!=parent)std::_Exit(70);}}).detach();
  VoxCPM2Runtime runtime;std::string cache,line,initial;ManagedReference reference;bool cloning=false;const auto initStarted=std::chrono::steady_clock::now();double referenceMs=0;
@@ -34,7 +35,7 @@ int main(){
   ggml_time_init();if(!runtime.init((model/"VoxCPM2-BaseLM-F16.gguf").string(),(model/"VoxCPM2-Acoustic-F16.gguf").string(),-1,true))throw std::runtime_error("UNSUPPORTED_DEVICE");
   if(std::string(ggml_backend_name(runtime.residual_lm.backend)).find("MTL")!=0)throw std::runtime_error("UNSUPPORTED_DEVICE");
   if(cloning){auto begin=std::chrono::steady_clock::now();if(runtime.encode_reference_audio(reference.samples,reference.rate).empty())throw std::runtime_error("VOICE_REFERENCE_RUNTIME");referenceMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count();runtime.reset_state();}
-  emit("ready",initial,{{"modelRevision","169f64d8b98bbaab1761e4ca3a83e6af653456cc"},{"sourceCommit","873056743b74e1a4ce5dcf7290e2298428e214db"},{"workerPid",getpid()},{"backend","Metal"},{"mode",cloning?"wav-reference":"base"},{"referenceContract",1},{"defaultVoice",cloning?J(nullptr):J{{"description",BASE_VOICE_DESCRIPTION},{"seed",BASE_VOICE_SEED}}},{"effectiveSeed",BASE_VOICE_SEED},{"conditioningFingerprint",cloning?J(reference.fingerprint):J(nullptr)},{"referenceSha256",cloning?J(reference.hash):J(nullptr)},{"adapterRepresentation","none"},{"adapterSha256",nullptr},{"referenceCacheBuilds",daemonlet_reference_cache_builds(&runtime)},{"conditioningMs",referenceMs},{"loadMs",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-initStarted).count()}});
+  emit("ready",initial,{{"seedContract",1},{"modelRevision","169f64d8b98bbaab1761e4ca3a83e6af653456cc"},{"sourceCommit","873056743b74e1a4ce5dcf7290e2298428e214db"},{"workerPid",getpid()},{"backend","Metal"},{"mode",cloning?"wav-reference":"base"},{"referenceContract",1},{"defaultVoice",cloning?J(nullptr):J{{"description",BASE_VOICE_DESCRIPTION},{"seed",BASE_VOICE_SEED}}},{"warmupSeed",BASE_VOICE_SEED},{"conditioningFingerprint",cloning?J(reference.fingerprint):J(nullptr)},{"referenceSha256",cloning?J(reference.hash):J(nullptr)},{"adapterRepresentation","none"},{"adapterSha256",nullptr},{"referenceCacheBuilds",daemonlet_reference_cache_builds(&runtime)},{"conditioningMs",referenceMs},{"loadMs",std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-initStarted).count()}});
  }catch(const std::exception&e){const std::string error=e.what();emit("error",initial,{{"code",error=="VOICE_REFERENCE_CHANGED"||error=="VOICE_REFERENCE_RUNTIME"?error:"VOICE_BASE_RUNTIME"}});return 3;}
  std::mutex mutex;std::condition_variable cv;bool quit=false,cancel=false;J activeTarget=nullptr,cancelRequest=nullptr,lastTarget=nullptr;
  std::string activeRequest;int produced=0,credited=0;std::deque<J> requests;std::map<std::string,std::pair<int,int>> tails;std::map<std::string,std::vector<fs::path>> tailFiles;
@@ -71,7 +72,8 @@ int main(){
   try{
    const auto text=request.at("text").get<std::string>();if(text.empty()||text.size()>1600||request.at("streamVersion")!=1||!request.at("style").is_null())throw std::runtime_error("SYNTHESIS_INPUT");
    if(cloning&&request.at("binding").value("conditioningFingerprint","")!=reference.fingerprint)throw std::runtime_error("VOICE_REFERENCE_BINDING");
-   emit("synthesis-started",rid);VoxCPM2GenerateParams params;params.reference_sample_rate=reference.rate;params.seed=BASE_VOICE_SEED;params.inference_timesteps=10;params.cfg_value=2;params.temperature=1;params.target_sr=48000;params.max_steps=std::min(600,int(runtime.tokenize_text(text,false,true).size())*6+10);
+   VoxCPM2GenerateParams params;params.reference_sample_rate=reference.rate;params.seed=voice_request_seed(request);params.inference_timesteps=10;params.cfg_value=2;params.temperature=1;params.target_sr=48000;params.max_steps=std::min(600,int(runtime.tokenize_text(text,false,true).size())*6+10);
+   emit("synthesis-started",rid,{{"effectiveSeed",params.seed}});
    auto waitCredit=[&](std::unique_lock<std::mutex>&lock){const auto begin=std::chrono::steady_clock::now();const bool ready=cv.wait_for(lock,std::chrono::seconds(30),[&]{return quit||cancel||produced-credited<3;});blocked+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count();return ready;};
    std::vector<float> pending;int patches=0;
    auto publish=[&](bool terminal=false){
@@ -82,7 +84,7 @@ int main(){
     if(total+pending.size()>48000*60||pending.size()>48000)throw std::runtime_error("INVALID_WAVEFORM");
     const std::string aid=audio_id();const fs::path path=fs::path(cache)/(aid+".wav"),part=fs::path(cache)/(aid+".partial");files.push_back(path);files.push_back(part);
     write_wav(part.string(),pending,48000);fs::rename(part,path);if(!produced)first=milliseconds();
-    emit("audio-chunk",rid,{{"audioId",aid},{"binding",request.at("binding")},{"synthesisId",request.at("synthesisId")},{"segmentIndex",request.at("segmentIndex")},{"chunkIndex",produced++},{"sampleOffset",total},{"sampleCount",pending.size()},{"sampleRate",48000},{"firstChunkReadyMs",first}});
+    emit("audio-chunk",rid,{{"effectiveSeed",params.seed},{"audioId",aid},{"binding",request.at("binding")},{"synthesisId",request.at("synthesisId")},{"segmentIndex",request.at("segmentIndex")},{"chunkIndex",produced++},{"sampleOffset",total},{"sampleCount",pending.size()},{"sampleRate",48000},{"firstChunkReadyMs",first}});
     total+=pending.size();pending.clear();
     if(!terminal&&produced-credited>=3&&!waitCredit(lock))throw std::runtime_error("STREAM_CREDIT");
     return !quit&&!cancel;
@@ -95,11 +97,11 @@ int main(){
    ok=cloning?runtime.generate_with_clone_streaming(text,reference.samples,callback,params):runtime.generate_streaming(std::string("(")+BASE_VOICE_DESCRIPTION+") "+text,callback,params);
    if(ok&&!publish(true))ok=false;
    runtime.reset_state();
-  }catch(const std::exception&e){error=std::string(e.what())=="VOICE_REFERENCE_BINDING"?"VOICE_REFERENCE_BINDING":"TTS_FAILED";runtime.reset_state();}
+  }catch(const std::exception&e){const std::string code=e.what();error=code=="VOICE_REFERENCE_BINDING"||code=="VOICE_SEED_INVALID"||code=="VOICE_SEED_MISMATCH"?code:"TTS_FAILED";runtime.reset_state();}
   {std::lock_guard<std::mutex>lock(mutex);
    if(cancel){for(const auto&p:files){std::error_code ignored;fs::remove(p,ignored);}if(!quit&&!cancelRequest.is_null())emit("cancelled",cancelRequest.at("requestId"),{{"target",activeTarget},{"cleanupComplete",true},{"keptWarm",true},{"boundary","chunk-boundary"},{"reuseAudit",{{"referenceCacheBuilds",daemonlet_reference_cache_builds(&runtime)},{"nativePid",getpid()}}}});}
    else if(!ok||!error.empty()||!total){emit("error",rid,{{"code",error.empty()?"TTS_FAILED":error}});quit=true;}
-   else {struct rusage usage{};getrusage(RUSAGE_SELF,&usage);if(credited<produced){tails[rid]={credited,produced};tailFiles[rid]=files;}emit("synthesis-finished",rid,{{"synthesisId",request.at("synthesisId")},{"totalSamples",total},{"totalChunks",produced},{"firstChunkReadyMs",first},{"generationMs",milliseconds()},{"producerBlockedMs",blocked},{"computeMs",milliseconds()-blocked},{"referenceCacheBuilds",daemonlet_reference_cache_builds(&runtime)},{"peakRssBytes",usage.ru_maxrss},{"rtf",milliseconds()/(total/48.0)}});}
+   else {struct rusage usage{};getrusage(RUSAGE_SELF,&usage);if(credited<produced){tails[rid]={credited,produced};tailFiles[rid]=files;}emit("synthesis-finished",rid,{{"effectiveSeed",voice_request_seed(request)},{"synthesisId",request.at("synthesisId")},{"totalSamples",total},{"totalChunks",produced},{"firstChunkReadyMs",first},{"generationMs",milliseconds()},{"producerBlockedMs",blocked},{"computeMs",milliseconds()-blocked},{"referenceCacheBuilds",daemonlet_reference_cache_builds(&runtime)},{"peakRssBytes",usage.ru_maxrss},{"rtf",milliseconds()/(total/48.0)}});}
    lastTarget=activeTarget;activeTarget=nullptr;activeRequest.clear();
   }
  }

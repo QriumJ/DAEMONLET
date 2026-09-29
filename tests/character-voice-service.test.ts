@@ -1,3 +1,4 @@
+import {beforeEach as seedBeforeEach} from 'vitest'
 import {afterEach,expect,it,vi} from 'vitest'
 import {mkdtemp,rm,readFile,mkdir,writeFile,stat} from 'node:fs/promises'
 import {join} from 'node:path'
@@ -248,3 +249,6 @@ it.each(['stop','hide','off','close'])('grouped large input %s cancels while gen
  if(action==='hide')f.service.setOutputReady(false);else if(action==='off')await f.service.enabled(false);else await (f.service as any)[action]()
  release({audioId:'late-group',bytes:new Uint8Array(1),durationMs:1});await new Promise(r=>setTimeout(r,10));expect(f.events.some(e=>e.type==='audio')).toBe(false);expect(f.runtime.synthesize).toHaveBeenCalledTimes(1)
 })
+
+// These service fixtures use synthetic paths and no installed model/runtime.
+seedBeforeEach(()=>{vi.spyOn(CharacterVoiceService.prototype as any,'replayAssets').mockResolvedValue('synthetic-asset-identity')})

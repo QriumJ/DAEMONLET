@@ -19,7 +19,7 @@ function fixture(){
 it('settings snapshot carries management state without conversation text or audio',async()=>{
  const f=fixture(),s=await f.call({type:'snapshot'});expect(s.chat.conversation).toEqual({id:'c1',title:'synthetic',messageCount:1});expect(JSON.stringify(s)).not.toContain('PRIVATE_DIALOGUE');expect(s.playbackReady).toBe(false);expect(s).not.toHaveProperty('audio')
 })
-it.each(['ready','read','played','scheduled','outputStopped'])('settings cannot acquire playback operation %s',async type=>{
+it.each(['ready','read','replay','reroll','reproduce','played','scheduled','outputStopped'])('settings cannot acquire playback operation %s',async type=>{
  const f=fixture();await expect(f.call({type:'voice',action:{type},context:f.context()})).rejects.toThrow('CHAT_SETTINGS_ACTION');expect(f.chat.voice.manage).not.toHaveBeenCalled()
 })
 it.each(['send','character','conversation','attention','codex-mode','import-pack'])('settings rejects unexposed chat action %s',async type=>{

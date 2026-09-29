@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <atomic>
 using Json=nlohmann::json;
+#include "seed_contract.h"
 int main(int argc,char**argv){
  if(argc!=4)return 2;
  // An abruptly killed adapter cannot leave an orphaned Metal model resident.
@@ -21,7 +22,7 @@ int main(int argc,char**argv){
  int sr=0;auto ref=load_wav_mono(argv[3],sr);if(ref.empty())return 5;
  if(runtime.encode_reference_audio(ref,sr).empty())return 6;
  std::mutex mutex;std::condition_variable cv;bool quit=false,cancel=false,pending=false;
- std::string id,text;int produced=0,credited=0;
+ std::string id,text;int seed=42,produced=0,credited=0;
  auto emit=[](const Json&j){std::cout<<j.dump()<<std::endl;};
  std::thread input([&]{
   std::string line;
@@ -33,7 +34,7 @@ int main(int argc,char**argv){
     if(type=="generate"&&id.empty()){
      auto next=j.at("id").get<std::string>(),value=j.at("text").get<std::string>();
      if(next.empty()||next.size()>64||value.empty()||value.size()>1600)continue;
-     id=next;text=value;produced=credited=0;cancel=false;pending=true;cv.notify_all();
+     try{seed=voice_request_seed(j);}catch(...){emit({{"type","error"},{"id",next},{"code","VOICE_SEED_INVALID"}});continue;}id=next;text=value;produced=credited=0;cancel=false;pending=true;cv.notify_all();
     }else if(j.value("id","")==id&&!id.empty()){
      if(type=="cancel")cancel=true;
      if(type=="credit"){
@@ -47,13 +48,13 @@ int main(int argc,char**argv){
   }
   std::lock_guard<std::mutex> lock(mutex);quit=true;cancel=true;cv.notify_all();
  });
- emit({{"type","ready"},{"pid",getpid()},{"backend","Metal"},{"referenceCacheBuilds",1}});
+ emit({{"seedContract",1},{"type","ready"},{"pid",getpid()},{"backend","Metal"},{"referenceCacheBuilds",1}});
  while(true){
-  std::string current,utterance;
-  {std::unique_lock<std::mutex>lock(mutex);cv.wait(lock,[&]{return pending||quit;});if(quit)break;pending=false;current=id;utterance=text;}
+  std::string current,utterance;int currentSeed;
+  {std::unique_lock<std::mutex>lock(mutex);cv.wait(lock,[&]{return pending||quit;});if(quit)break;pending=false;current=id;utterance=text;currentSeed=seed;}
   auto start=std::chrono::steady_clock::now();int offset=0;bool ok=false;std::string error;
   try{
-   VoxCPM2GenerateParams p;p.seed=42;p.reference_sample_rate=sr;p.inference_timesteps=10;p.cfg_value=2;p.temperature=1;p.target_sr=48000;
+   VoxCPM2GenerateParams p;p.seed=currentSeed;p.reference_sample_rate=sr;p.inference_timesteps=10;p.cfg_value=2;p.temperature=1;p.target_sr=48000;
    p.max_steps=std::min(600,int(runtime.tokenize_text(utterance,false,true).size())*6+10);
    ok=runtime.generate_with_clone_streaming(utterance,ref,[&](const std::vector<float>&pcm,bool final){
     std::unique_lock<std::mutex>lock(mutex);
@@ -62,8 +63,10 @@ int main(int argc,char**argv){
     if(pcm.empty())return true;
     for(float v:pcm)if(!std::isfinite(v))throw std::runtime_error("nonfinite PCM");
     if(pcm.size()>48000||offset+int(pcm.size())>48000*60)throw std::runtime_error("audio limit");
-    int index=produced++;const bool terminal=final||index+1>=p.max_steps;lock.unlock();
-    emit({{"type","chunk"},{"id",current},{"index",index},{"offset",offset},{"pcm",pcm},{"final",terminal},{"seconds",std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()}});
+    int index=produced++;// Only upstream can declare its final PCM callback. A max-step boundary may
+    // still require a credit before the VAE flush callback and terminal response.
+    const bool terminal=final;lock.unlock();
+    emit({{"effectiveSeed",p.seed},{"type","chunk"},{"id",current},{"index",index},{"offset",offset},{"pcm",pcm},{"final",terminal},{"seconds",std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()}});
     offset+=int(pcm.size());
     if(offset>48000*60)throw std::runtime_error("audio duration limit");
     if(terminal)return true;
@@ -77,7 +80,7 @@ int main(int argc,char**argv){
   }catch(const std::exception&e){error=e.what();runtime.reset_state();}
   bool wasCancelled;
   {std::lock_guard<std::mutex>lock(mutex);wasCancelled=cancel;id.clear();}
-  emit({{"type","end"},{"id",current},{"pid",getpid()},{"cancelled",wasCancelled},{"cleanupComplete",true},{"error",error},{"samples",offset},{"seconds",std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()}});
+  emit({{"effectiveSeed",currentSeed},{"type","end"},{"id",current},{"pid",getpid()},{"cancelled",wasCancelled},{"cleanupComplete",true},{"error",error},{"samples",offset},{"seconds",std::chrono::duration<double>(std::chrono::steady_clock::now()-start).count()}});
  }
  input.join();runtime.free();emit({{"type","shutdown"},{"pid",getpid()}});common_log_flush(common_log_main());return 0;
 }

@@ -12,7 +12,7 @@ Open Character Chat to enable **Test playback**. It synthesizes a new sentence. 
 
 Rename changes only the display name. Import another recording to change the reference. Deletion identifies affected character bindings and stops active speech; it deletes only the imported app-owned profile. The original WAV stays untouched. Moving or deleting the original after import does not break a saved profile.
 
-Missing or damaged selected WAV profiles remain selected with an error. The app does not silently speak with a different voice. Text chat remains usable. Select default voice to restore the existing fixed feminine description and seed 42, or select an existing trained package to use its original pipeline.
+Missing or damaged selected WAV profiles remain selected with an error. The app does not silently speak with a different voice. Text chat remains usable. Select default voice to restore the existing fixed feminine description with the current reply seed policy, or select an existing trained package to use its original pipeline.
 
 ## Supported input
 
@@ -44,7 +44,9 @@ Main retains the existing speech epoch/session/profile binding and chat-owned au
 
 ## Inference and build boundary
 
-Both reference paths keep CFG 2, 10 steps, seed 42 and bounded 48kHz mono PCM16 output. They add no feminine description, LoRA tensors, merging, or per-recording GGUF conversion. Windows retains the existing four-component compiled graph/execution checks. Mac uses `encode_reference_audio()` and `generate_with_clone_streaming()` in the pinned native runtime, with an owner-thread reference cache.
+Both reference paths keep CFG 2, 10 steps and bounded 48kHz mono PCM16 output.
+They use the [reply seed and session replay policy](character-chat-voice-seeds.md),
+without changing the reference or model. They add no feminine description, LoRA tensors, merging, or per-recording GGUF conversion. Windows retains the existing four-component compiled graph/execution checks. Mac uses `encode_reference_audio()` and `generate_with_clone_streaming()` in the pinned native runtime, with an owner-thread reference cache.
 
 The managed native build uses `scripts/build-voice-reference-native.py` with a fresh external CMake build and private output, then `scripts/stage-voice-base-runtime.mjs`. The original trained-voice builder and runtime policy are unchanged. Candidate native hashes, source/recipe hashes and license files remain pinned in `runtime-base-macos.json`.
 

@@ -53,7 +53,7 @@ export async function segmentationAb(args:string[]){
  const save=async()=>{await writeFile(join(data,'report.json'),JSON.stringify(report,null,2)+'\n');await writeFile(join(data,'listening.csv'),csv.join('\n')+'\n')}
  try{
   const load=performance.now();await worker.start(source,verified.profile.fingerprint+':'+profile);report.loadMs=performance.now()-load;report.audit=worker.audit
-  const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:verified.profile.id,voiceProfileVersion:verified.profile.version,voiceFingerprint:verified.profile.fingerprint,runtimeSessionId:worker.sessionId,executionProfile:profile}
+  const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:verified.profile.id,voiceProfileVersion:verified.profile.version,voiceFingerprint:verified.profile.fingerprint,effectiveSeed:42,runtimeSessionId:worker.sessionId,executionProfile:profile}
   for(let repeat=0;repeat<repeats;repeat++)for(const c of plans){
    const files:Record<string,string>={}
    for(const arm of c.arms){

@@ -3,7 +3,7 @@ const readline=require('node:readline'),fs=require('node:fs'),path=require('node
 let cache
 let stream
 let cancelMode=''
-const send=(r,type,extra={})=>process.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...extra})+'\n')
+const send=(r,type,extra={})=>process.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...(r.seed===undefined?{}:{effectiveSeed:r.text==='wrong-seed'?r.seed+1:r.seed}),...extra})+'\n')
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const r=JSON.parse(line)
  if(r.type==='cancel-stream'){
@@ -22,7 +22,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(r.package.endsWith('crash')){process.exit(2);return}
   if(r.package.endsWith('contaminate')){process.stdout.write('upstream log\n');return}
   if(r.package.endsWith('partial')){process.stdout.write('{"protocolVersion":');return}
-  send(r,'ready');return
+  send(r,'ready',r.package.endsWith('old-seed')?{}:{seedContract:1});return
  }
  if(r.type==='synthesize'){
   if(r.text==='hang')return

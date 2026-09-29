@@ -15,3 +15,4 @@ it('settings form keeps cancellation available while preparing and never owns a 
 it('base installation and two Metal modes remain available in the management form',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,baseInstall:{...voice.baseInstall,phase:'idle'}},characterId:'belle',act:()=>{},playbackReady:true}));expect(html).toContain('기본 음성 설치');expect(html).toContain('Metal · 청크 재생');expect(html).toContain('Metal · 완성 후 재생');expect(html).not.toContain('MPS')
 })
+it('seed form distinguishes random policy and fixed numeric editing without promising quality',()=>{const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,seedSettings:{mode:'fixed',fixedSeed:777}},characterId:'belle',act:()=>{},playbackReady:true}));expect(html).toContain('답변마다 무작위');expect(html).toContain('고정 시드');expect(html).toContain('value="777"');expect(html).toContain('다음 합성부터 적용');expect(html).not.toContain('더 고품질')})

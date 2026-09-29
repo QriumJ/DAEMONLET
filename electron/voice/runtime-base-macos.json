@@ -10,7 +10,7 @@
         "configuration": "Release",
         "sharedLibraries": false,
         "mode": "base-default-or-wav-reference",
-        "nativeSourceSha256": "158487e2d1e8d45128d24a92fc70d924e82a3fb91780fb0e77335e008505b45c",
+        "nativeSourceSha256": "7d55e58e8ad4d93c6bc13f95ed84706c2b9c03632a0c28a419939ada9a535251",
         "deploymentTarget": "13.0",
         "nativeCpuInstructions": false,
         "validatedHost": "Apple Silicon / macOS 27",
@@ -18,12 +18,14 @@
         "referenceContract": 1,
         "referencePolicySha256": "8e42df36990dd6f858cc5dd6db387f9c1ea88de3698801774218c49301397804",
         "referenceValidatorSha256": "afa1cb9e48b5b358e726d87ca7ae45f6287958c513fcd4894cf2417af8e6e792",
-        "cacheRecipeSha256": "e5af703672961e05aa39615785c1e10fd5a411b6572a8b5636bcb971d97b0087"
+        "cacheRecipeSha256": "fba127906d2f8e2ed3484d3fcc99a6272388e352b3dab01ef99b6ecd317250ec",
+        "seedContractSha256": "1e9736fddb2dcac03b936425936f7ba710e409a0e7d9a6fd66bc0de74095c470",
+        "seedContract": 1
       },
       "files": {
         "daemonlet-voice-engine": {
-          "bytes": 4754792,
-          "sha256": "9ed9241d11f270711295f7dbb193c988edb57ce7ad8b3fad82378450bc666284"
+          "bytes": 4755704,
+          "sha256": "867e8652625a0db3234bba00392d46303affa25d850c4d6e5df21404a0d28cad"
         },
         "ggml-metal.metal": {
           "bytes": 450832,

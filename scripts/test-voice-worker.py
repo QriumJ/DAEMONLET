@@ -177,8 +177,8 @@ class CacheTests(unittest.TestCase):
         fake = SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda: None))
         with patch.dict('sys.modules', {'torch': fake}):
             engine.prepare()
-            list(engine.generate('응.\n  다음 문장'))
-            list(engine.generate('새 문장'))
+            list(engine.generate('응.\n  다음 문장', seed=42))
+            list(engine.generate('새 문장', seed=42))
         self.assertEqual(engine.cache_builds, 1)
         self.assertEqual([c[0] for c in calls], ['reference', 'generate', 'generate'])
         first, second = calls[1][1], calls[2][1]
@@ -200,8 +200,8 @@ class CacheTests(unittest.TestCase):
         tts.generate_with_prompt_cache_streaming = streaming
         with patch.dict('sys.modules', {'torch': SimpleNamespace()}):
             engine.prepare()
-            list(engine.generate('안녕.'))
-            list(engine.generate('안녕.', streaming=True))
+            list(engine.generate('안녕.', seed=42))
+            list(engine.generate('안녕.', seed=42, streaming=True))
         self.assertEqual(engine.cache_builds, 0)
         self.assertEqual([c[0] for c in calls], ['generate', 'stream'])
         for _, kwargs in calls:
@@ -221,7 +221,7 @@ class CacheTests(unittest.TestCase):
             finally:
                 events.append('closed')
         tts.generate_with_prompt_cache_streaming = streaming
-        generated = engine.generate('응', streaming=True)
+        generated = engine.generate('응', seed=42, streaming=True)
         self.assertEqual(next(generated), [0.1, 0.2])
         self.assertEqual(events, ['first'])
         generated.close()
@@ -268,11 +268,11 @@ class CacheTests(unittest.TestCase):
             worker.backend = CudaDevice
             worker.cache = Path(cache)
             worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
-            worker.engine = SimpleNamespace(generate=lambda *a, **k: iter_chunks())
+            worker.engine = SimpleNamespace(effective_seed=42, compile_counts={}, cache_builds=1, generate=lambda *a, **k: iter_chunks())
             def iter_chunks():
                 yield SimpleNamespace(ndim=1, size=7680, peak=0)
                 yield SimpleNamespace(ndim=1, size=13, peak=0.1)
-            result = worker.stream(dict(text='응.', style=None, streamVersion=1, requestId='s', binding={}, synthesisId='s', segmentIndex=0), lambda index: None)
+            result = worker.stream(dict(text='응.', style=None, seed=42, streamVersion=1, requestId='s', binding={}, synthesisId='s', segmentIndex=0), lambda index: None)
         self.assertEqual(result['totalSamples'], 7693)
         self.assertEqual(result['totalChunks'], 2)
         self.assertEqual([v['sampleOffset'] for v in emitted], [0, 7680])
@@ -327,7 +327,7 @@ class CancellationTests(unittest.TestCase):
         module = runpy.run_path(str(WORKER))
         emitted, events = [], []
         module['emit'].__globals__['emit'] = lambda *a, **k: emitted.append(k)
-        request = dict(streamVersion=1, requestId='old', synthesisId='s', text='test', binding=dict(runtimeSessionId='session', speechEpoch=1))
+        request = dict(seed=42, streamVersion=1, requestId='old', synthesisId='s', text='test', binding=dict(runtimeSessionId='session', speechEpoch=1))
         target = dict(requestId='old', synthesisId='s', **request['binding'])
         def generate(*args, **kwargs):
             try:
@@ -343,7 +343,7 @@ class CancellationTests(unittest.TestCase):
                 worker.backend = CudaDevice
                 worker.cache = Path(cache)
                 worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
-                worker.engine = SimpleNamespace(generate=generate)
+                worker.engine = SimpleNamespace(effective_seed=42, compile_counts={}, cache_builds=1, generate=generate)
                 with self.assertRaises(StreamCancelled) as raised:
                     worker.stream(request, StreamControl(inbox, request, lambda _: False))
                 self.assertEqual(raised.exception.boundary, 'chunk-boundary')

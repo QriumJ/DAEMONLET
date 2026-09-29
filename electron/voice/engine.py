@@ -6,6 +6,7 @@ import re
 import time
 
 from backend import CudaDevice
+from seed_contract import valid_seed
 
 PROFILES = {'baseline', 'cached', 'compiled', 'mps-fp32-baseline', 'mps-fp32'}
 BASELINES = {'baseline', 'mps-fp32-baseline'}
@@ -63,17 +64,21 @@ class Engine:
             except Exception as error:
                 raise ValueError('COMPILE_UNAVAILABLE') from error
 
-    def generate(self, text, streaming=False):
+    def generate(self, text, streaming=False, *, seed):
+        seed = valid_seed(seed)
+        settings = dict(self.settings, seed=seed)
         if self.voice_description:
             text = f"({self.voice_description}) {text}"
         if self.profile in BASELINES:
             if streaming:
                 raise ValueError('EXECUTION_PROFILE')
-            yield self.model.generate(text=text, reference_wav_path=str(self.reference), **self.settings)
+            self.effective_seed = settings['seed']
+            yield self.model.generate(text=text, reference_wav_path=str(self.reference), **settings)
             return
         text = re.sub(r'\s+', ' ', text.replace('\n', ' '))
-        settings = {key: self.settings[key] for key in ('cfg_value', 'inference_timesteps', 'retry_badcase', 'max_len', 'seed')}
+        settings = {key: settings[key] for key in ('cfg_value', 'inference_timesteps', 'retry_badcase', 'max_len', 'seed')}
         tts = self.model.tts_model
+        self.effective_seed = settings['seed']
         if streaming:
             result = tts.generate_with_prompt_cache_streaming(target_text=text, prompt_cache=self.cache, **settings)
             try:
@@ -91,7 +96,7 @@ class Engine:
         import torch
         start = time.perf_counter()
         try:
-            for _ in self.generate('응, 듣고 있어. 지금은 어떤 이야기를 할까?'):
+            for _ in self.generate('응, 듣고 있어. 지금은 어떤 이야기를 할까?', seed=42):
                 pass
             self.backend.synchronize(torch)
             if self.profile == 'compiled':
