@@ -219,7 +219,7 @@ export class CharacterVoiceService {
   if(this.outputReady&&!this.disposed)this.allowedRequests.add(id)
   if(this.observedRequests.size>1000){const old=this.observedRequests.values().next().value!;this.observedRequests.delete(old);this.allowedRequests.delete(old)}
  }
- private syncReplayScope(){const s=this.chat();if(this.replay.setScope(JSON.stringify([s.character?.id,s.character?.revision,s.conversation?.id,s.epoch,s.model,this.bindingKey(s.character?.id||'')]))){this.state.lastGeneration=undefined}}
+ private syncReplayScope(){const s=this.chat();if(this.replay.setScope(JSON.stringify([s.character?.id,s.character?.revision,s.conversation?.id,s.model,this.bindingKey(s.character?.id||'')]))){this.state.lastGeneration=undefined}}
  onChatChanged(){this.syncReplayScope();if(this.currentSpeech&&!this.currentSpeech())this.cancel()}
  completed(message:ChatMessage){
   const id=message.binding?.requestId
