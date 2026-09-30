@@ -11,22 +11,26 @@ export class PlaybackMouthMeter {
  private lastSent = -Infinity
  private lastSample = -Infinity
  private listening = false
+ private resetTick = false
  constructor(private context: AudioContext, private analyser: AnalyserNode, private sink: MouthSink, private epoch: () => number, private audible: () => boolean, private clock: MouthClock = browserClock) {
   analyser.fftSize = this.samples.length
   analyser.smoothingTimeConstant = 0
   context.addEventListener('statechange', this.stateChanged)
  }
- private stateChanged = () => {if (this.context.state !== 'running') this.reset(); else if (this.listening) this.schedule()}
+ private stateChanged = () => {if (this.context.state === 'closed') this.stop(); else {if (this.context.state !== 'running') this.reset(); if (this.listening) this.schedule()}}
  start() {this.listening = true; this.schedule()}
- private schedule() {if (this.frame === null && this.listening && this.context.state === 'running') this.frame = this.clock.request(this.tick)}
+ private schedule() {if (this.frame === null && this.listening && this.context.state !== 'closed') this.frame = this.clock.request(this.tick)}
  private emit(level: MouthLevel, now: number, force = false) {
   if (force || level !== this.level || now - this.lastSent >= 100) {this.level = level; this.lastSent = now; try {this.sink(level, this.epoch())} catch { /* Animation cannot interrupt playback. */ }}
  }
  private tick = (now: number) => {
   this.frame = null
   if (!this.listening) return
-  if (this.context.state !== 'running') {this.reset(); return}
-  if (!this.audible()) {this.stop(); return}
+  if (this.resetTick) {this.lastSent = now; this.resetTick = false}
+  if (this.context.state === 'closed') {this.stop(); return}
+  // Muted/paused output still owns the mouth. Renew a bounded zero lease without
+  // reading PCM; stop/end disposes this loop and releases the authored expression.
+  if (this.context.state !== 'running' || !this.audible()) {this.envelope = 0; this.emit(0, now); this.schedule(); return}
   if (now - this.lastSample >= 30) {
    this.lastSample = now
    this.analyser.getFloatTimeDomainData(this.samples)
@@ -39,7 +43,7 @@ export class PlaybackMouthMeter {
   }
   this.schedule()
  }
- reset() {if (this.frame !== null) this.clock.cancel(this.frame); this.frame = null; this.envelope = 0; this.lastSample = -Infinity; this.emit(0, 0, true)}
+ reset() {if (this.frame !== null) this.clock.cancel(this.frame); this.frame = null; this.envelope = 0; this.lastSample = -Infinity; this.emit(0, 0, true); this.resetTick = true}
  stop() {this.listening = false; this.reset()}
  dispose() {this.stop(); this.context.removeEventListener('statechange', this.stateChanged); this.analyser.disconnect()}
 }

@@ -1,4 +1,4 @@
-import {mouthLayerParameters} from './AudioMouth'
+import {mouthLayerParameters, speechClosedExpression, speechMouthWeights} from './AudioMouth'
 import { meshGridFor } from "./MeshLimits"
 import { FRAGMENT_SHADER, VERTEX_SHADER } from "./shaders"
 import { blendSpringOffset, DEFAULT_HAIR_PHYSICS, mergeHairPhysics, rootWeightedAmount, stepSpring, tuningForLayer } from "./HairPhysicsConfig"
@@ -600,7 +600,11 @@ export class Anime25DRenderer {
 
   private fadeAlpha(layer: MeshLayer, parameters: RenderParameters) {
     const anchors = layer.independent?.anchors ?? this.anchors
-    if (layer.mouthExpression && anchors?.mouth.morph) {const mouth=mouthLayerParameters(layer,parameters,this.audioMouth);return mouthMorphWeights(mouth.mouthOpen, mouth.mouthForm, anchors.mouth.morph)[layer.mouthExpression]}
+    if (layer.mouthExpression && anchors) {
+      const mouth = mouthLayerParameters(layer, parameters, this.audioMouth)
+      const profile = mouth !== parameters ? anchors.mouth.speechMorph ?? anchors.mouth.morph : anchors.mouth.morph
+      if (profile) return (mouth !== parameters ? speechMouthWeights(mouth.mouthOpen, profile) : mouthMorphWeights(mouth.mouthOpen, mouth.mouthForm, profile))[layer.mouthExpression]
+    }
     return computeLayerFadeAlpha(layer, parameters)
   }
 
@@ -614,6 +618,8 @@ export class Anime25DRenderer {
     }
     const mouth=mouthLayerParameters(layer,p,this.audioMouth)
     const anchors = (layer.independent?.anchors ?? this.anchors) as RigAnchors
+    const mouthProfile = mouth !== p ? anchors.mouth.speechMorph ?? anchors.mouth.morph : anchors.mouth.morph
+    const speechClosed = mouth !== p && mouthProfile ? speechClosedExpression(mouthProfile) ?? undefined : undefined
     const base = layer.base
     const output = layer.current
     const isHead = layer.group === "head"
@@ -648,7 +654,7 @@ export class Anime25DRenderer {
         x = cx + (x - cx) * scale
         y = cy + (y - cy) * scale
       }
-      if (layer.mouthExpression && anchors.mouth.morph) [x, y] = deformMouthPoint(x, y, layer.mouthExpression, mouth.mouthOpen, mouth.mouthForm, anchors.mouth.morph)
+      if (layer.mouthExpression && mouthProfile) [x, y] = deformMouthPoint(x, y, layer.mouthExpression, mouth.mouthOpen, mouth.mouthForm, mouthProfile, speechClosed)
       if (layer.baseName === "mouth_open" || layer.baseName === "mouth_close" || layer.mouthExpression) {
         x = anchors.mouth.cx + (x - anchors.mouth.cx) * p.mouthScale
         y = anchors.mouth.cy + (y - anchors.mouth.cy) * p.mouthScale

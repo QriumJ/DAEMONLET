@@ -26,7 +26,7 @@ export type MouthMorphProfile = {
   open: MouthShape
   smile: MouthShape
 }
-export type MouthAnchor = Bounds & Point & { morph?: MouthMorphProfile }
+export type MouthAnchor = Bounds & Point & { morph?: MouthMorphProfile; speechMorph?: MouthMorphProfile }
 
 export type RigAnchors = {
   face: FaceBounds

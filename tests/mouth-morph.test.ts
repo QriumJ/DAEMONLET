@@ -76,3 +76,10 @@ describe("continuous own-pose mouth contours", () => {
     expect(rig.anchors.mouth).toHaveProperty("morph")
   })
 })
+
+it('rejects invalid speech-only contours independently and preserves authored morph',()=>{
+ const rig={layers:[],anchors:{mouth:{cx:80,cy:60,morph:profile,speechMorph:{...profile,angleDeg:NaN}}},warnings:[]} as unknown as RigDefinition
+ const checked=applyRigOverrides(rig,{})
+ expect(checked.anchors.mouth.speechMorph).toBeUndefined();expect(checked.anchors.mouth.morph).toBe(profile)
+ expect(rig.anchors.mouth.speechMorph).toBeDefined()
+})

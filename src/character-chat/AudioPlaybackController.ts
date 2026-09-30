@@ -21,7 +21,7 @@ export class AudioPlaybackController {
  private lastSegment=-1
  constructor(private api:Pick<VoiceApi,'action'|'audio'>,private createContext=()=>new AudioContext({sampleRate:48000}),private mouth?:{sink:MouthSink;clock?:MouthClock}){}
  setVisible(value:boolean){this.visible=value;if(!value)this.stop()}
- setVolume(value:number){this.volume=value;if(this.gain)this.gain.gain.value=value;if(value===0)this.meter?.stop();else if(this.sources.size)this.meter?.start()}
+ setVolume(value:number){this.volume=value;if(this.gain)this.gain.gain.value=value;if(value===0)this.meter?.reset();if(this.sources.size)this.meter?.start()}
  stop(){++this.generation;this.meter?.stop();for(const source of this.sources){source.onended=null;try{source.stop()}catch{}source.disconnect()}this.sources.clear();this.source=null;this.nextTime=0;this.streaming=false;this.queued=0;this.streams.clear();this.lastSegment=-1;this.decoding=Promise.resolve()}
  async receive(event:VoiceEvent){
   if(event.epoch<this.epoch)return

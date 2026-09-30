@@ -1,5 +1,7 @@
 # Belle audio mouth pilot
 
+Historical one-pose evidence. The current expansion is documented in [all-pose candidate](belle-audio-lipsync-all-poses.md).
+
 The UX checkpoint is `c378a033ca30d95c9044b17166997a2ddd12fdcc`. The pilot continues on `codex/belle-audio-lipsync-v1`; the candidate is opt-in and does not update an installed Belle pack implicitly.
 
 ## Contract and rendering

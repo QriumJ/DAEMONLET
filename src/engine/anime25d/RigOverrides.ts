@@ -172,9 +172,11 @@ export function applyRigOverrides(rig: RigDefinition, overrides: RigOverrides): 
       anchors[side] = legacyEye
     }
   }
-  if (anchors.mouth?.morph && !isValidMouthMorphProfile(anchors.mouth.morph)) {
-    const { morph: _invalidMorph, ...legacyMouth } = anchors.mouth
-    anchors.mouth = legacyMouth
+  for (const key of ['morph', 'speechMorph'] as const) {
+    if (anchors.mouth?.[key] && !isValidMouthMorphProfile(anchors.mouth[key])) {
+      anchors.mouth = { ...anchors.mouth }
+      delete anchors.mouth[key]
+    }
   }
   const result = {
     ...rig,

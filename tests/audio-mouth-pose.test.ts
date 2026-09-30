@@ -3,7 +3,8 @@ import {audioMouthParameters,mouthLayerParameters} from '../src/engine/anime25d/
 import {DEFAULT_PARAMETERS} from '../src/engine/anime25d/Anime25DParameters'
 import {parsePoseManifest} from '../src/pose/PoseManifest'
 const manifest:any={schemaVersion:1,id:'talk',label:'Talk',source:'source.png',psd:'model.psd',strategy:'independent-model',registration:{strategy:'identity',maxScaleDelta:0,maxRotationDeg:0,maxAnchorErrorPx:0},layers:{sharedFromBase:[],replaceFromBase:[],useFromPose:[],addFromPose:[]},transition:{enterMs:300,exitMs:280,swapStart:.35,swapEnd:.65}}
-const asset=()=>({manifest:{...manifest,audioLipSync:'amplitude-3'},result:{model:{rig:{anchors:{mouth:{morph:{}}},layers:[{mouthExpression:'neutral'},{mouthExpression:'open'}]}}}} as any)
+const shape={u0:-2,u1:2,upper:[0,0],lower:[0,0]},profile={center:{cx:0,cy:0},angleDeg:0,neutral:shape,smile:shape,open:{...shape,upper:[-1,-1],lower:[1,1]}}
+const asset=()=>({manifest:{...manifest,audioLipSync:'amplitude-3'},result:{model:{rig:{anchors:{mouth:{morph:profile}},layers:[{mouthExpression:'neutral'},{mouthExpression:'open'}]}}}} as any)
 it('old manifests are unchanged; capability is bounded and explicitly opt-in',()=>{
  expect(parsePoseManifest(manifest).value.audioLipSync).toBeUndefined()
  expect(parsePoseManifest({...manifest,audioLipSync:'amplitude-3'}).warnings).toEqual([])
@@ -31,4 +32,11 @@ it('voice changes mouth layers only, with identical face/jaw/head and normal mot
  for(const layer of [{name:'face',pose:true,independent:{}},{name:'head',pose:true,independent:{}},{mouthExpression:'open',pose:false,independent:{}},{mouthExpression:'open',pose:true,outgoing:true,independent:{}}])expect(mouthLayerParameters(layer,original,mouth)).toBe(original)
  const applied=mouthLayerParameters({mouthExpression:'open',pose:true,independent:{}},original,mouth)
  expect(applied).toEqual({...original,mouthOpen:.7,mouthForm:0,mouthEase:0});expect(original.mouthOpen).toBe(.2)
+})
+
+it('speech-only contours opt in without changing the authored non-audio rig',()=>{
+ const a=asset();delete a.result.model.rig.anchors.mouth.morph;a.result.model.rig.anchors.mouth.speechMorph=profile
+ expect(audioMouthParameters(DEFAULT_PARAMETERS,2,a,'ACTIVE_LOOP',false).mouthOpen).toBe(.7)
+ expect(a.result.model.rig.anchors.mouth.morph).toBeUndefined()
+ expect(audioMouthParameters(DEFAULT_PARAMETERS,null,a,'ACTIVE_LOOP',false)).toBe(DEFAULT_PARAMETERS)
 })

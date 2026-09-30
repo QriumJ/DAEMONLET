@@ -29,10 +29,10 @@ it('complete and cached replay use the same output graph and close immediately o
  await f.player.receive(f.event('cached-replay'));f.tick(.025,2);expect(f.levels.at(-1)?.[0]).toBe(1);expect(f.api.audio).toHaveBeenCalledTimes(2)
  f.player.dispose()
 })
-it.each(['stop','hide','mute','pause','dispose'])('closes immediately on %s with no orphan sampling loop',async boundary=>{
+it.each(['stop','hide','mute','pause','dispose'])('closes immediately on %s; only still-owned output keeps a bounded zero heartbeat',async boundary=>{
  const f=fixture();await f.player.receive(f.event('speech'));f.tick(.15,2);expect(f.levels.at(-1)?.[0]).toBe(2)
  if(boundary==='stop')await f.player.receive({type:'stop',epoch:2});else if(boundary==='hide')f.player.setVisible(false);else if(boundary==='mute')f.player.setVolume(0);else if(boundary==='pause'){f.context.state='suspended';for(const listener of f.listeners)listener()}else f.player.dispose()
- expect(f.levels.at(-1)?.[0]).toBe(0);expect(f.callbacks.size).toBe(0);f.tick(.15,3);expect(f.levels.at(-1)?.[0]).toBe(0)
+ expect(f.levels.at(-1)?.[0]).toBe(0);expect(f.callbacks.size).toBe(boundary==='mute'||boundary==='pause'?1:0);f.tick(.15,3);expect(f.levels.at(-1)?.[0]).toBe(0)
  if(boundary==='mute'){f.player.setVolume(.8);f.tick(.025,2);expect(f.levels.at(-1)?.[0]).toBe(1)}
  if(boundary==='pause'){f.context.state='running';for(const listener of f.listeners)listener();f.tick(.025,2);expect(f.levels.at(-1)?.[0]).toBe(1)}
  f.player.dispose()
@@ -48,12 +48,19 @@ it('invalid or cancelled stream never leaves a speaking mouth',async()=>{
  expect(f.levels.at(-1)?.[0]).toBe(0);expect(f.callbacks.size).toBe(0);f.player.dispose()
 })
 
-it('mute emits one immediate close rather than a stream of zero callbacks',async()=>{
- const f=fixture();await f.player.receive(f.event('speech'));f.tick(.15,2);f.player.setVolume(0)
- const count=f.levels.length;f.tick(.15,180);expect(f.levels).toHaveLength(count);expect(f.callbacks.size).toBe(0);f.player.dispose()
+it.each(['mute','pause'])('owned %s emits immediate zero and bounded heartbeats, then retires at playback end',async boundary=>{
+ const f=fixture();await f.player.receive(f.event('speech'));f.tick(.15,2)
+ const reads=vi.spyOn(f.analyser,'getFloatTimeDomainData')
+ if(boundary==='mute')f.player.setVolume(0);else{f.context.state='suspended';for(const listener of f.listeners)listener()}
+ const count=f.levels.length;f.tick(.15,1);expect(f.levels).toHaveLength(count)
+ f.tick(.15,180);const emitted=f.levels.length-count
+ expect(emitted).toBeGreaterThan(0);expect(emitted).toBeLessThanOrEqual(61);expect(reads).not.toHaveBeenCalled();expect(f.callbacks.size).toBe(1)
+ expect(f.levels.slice(count).every(([level])=>level===0)).toBe(true)
+ f.sources[0].onended();expect(f.callbacks.size).toBe(0);const ended=f.levels.length;f.tick(.15,10);expect(f.levels).toHaveLength(ended);f.player.dispose()
 })
 
-it('starting new audio while already muted never creates repeated zero callbacks',async()=>{
+it('starting new audio while muted renews only bounded closed ownership until end',async()=>{
  const f=fixture();f.player.setVolume(0);await f.player.receive(f.event('silent-output'));f.tick(.15,1)
- const count=f.levels.length;f.tick(.15,180);expect(f.levels).toHaveLength(count);expect(f.callbacks.size).toBe(0);f.player.dispose()
+ const count=f.levels.length;f.tick(.15,180);expect(f.levels.length-count).toBeLessThanOrEqual(61);expect(f.levels.every(([level])=>level===0)).toBe(true)
+ f.sources[0].onended();expect(f.callbacks.size).toBe(0);f.player.dispose()
 })
