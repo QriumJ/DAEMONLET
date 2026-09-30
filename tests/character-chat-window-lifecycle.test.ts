@@ -10,7 +10,7 @@ import {ChatSettingsIpcController} from '../electron/main/character-chat/ChatSet
 import {randomUUID} from 'node:crypto'
 import {ConversationStore} from '../electron/main/character-chat/ConversationStore'
 const environment=vi.hoisted(()=>({root:'',windows:vi.fn(),confirm:vi.fn()}))
-vi.mock('electron',async()=>({app:{getPath:()=>environment.root,isPackaged:false},BrowserWindow:environment.windows,ipcMain:{handle:vi.fn(),removeHandler:vi.fn()},screen:new (await import('node:events')).EventEmitter(),dialog:{showMessageBox:environment.confirm}}))
+vi.mock('electron',async()=>({app:{getPath:()=>environment.root,isPackaged:false},BrowserWindow:environment.windows,ipcMain:{handle:vi.fn(),removeHandler:vi.fn(),on:vi.fn(),removeListener:vi.fn()},screen:new (await import('node:events')).EventEmitter(),dialog:{showMessageBox:environment.confirm}}))
 vi.mock('../electron/main/SecurityPolicy',()=>({secureWebContents:vi.fn(),expectedRendererUrl:()=> 'pet://app/character-chat.html',isTrustedSender:()=>true}))
 import {CharacterChatWindow} from '../electron/main/character-chat/CharacterChatWindow'
 const roots:string[]=[]

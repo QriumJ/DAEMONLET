@@ -47,6 +47,8 @@ export type PoseManifest = {
     swapEnd: number
   }
   motion?: PoseMotion
+  /** Opt-in, authored neutral/open mouth morph; unsupported rigs remain unchanged. */
+  audioLipSync?: "amplitude-3"
   interactionScale?: Partial<Record<InteractionId, number>>
 }
 

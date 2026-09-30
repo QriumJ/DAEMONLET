@@ -1,3 +1,4 @@
+import {VOICE_MOUTH_IPC,validVoiceMouth,type VoiceMouthInput} from '../../shared/voice-mouth'
 import {DOT_IPC} from '../../shared/dot-presentation'
 import {appText,appLanguage} from '../AppLanguage'
 import {settingsContext,VOICE_MANAGEMENT_ACTIONS,type VoiceManagementAction} from '../../shared/chat-settings-contract'
@@ -14,6 +15,8 @@ export class VoiceIpcController {
  readonly service:CharacterVoiceService
  private initialized:Promise<void>|null=null
  private petOutput:BrowserWindow|null=null
+ private localAudioEpoch=-1
+ private localAudioClaims=new Set<string>()
  private petReady=false
  private presentationOutput=false
  private presentationGeneration=0
@@ -56,8 +59,16 @@ export class VoiceIpcController {
  private attached:BrowserWindow|null=null
  private closing:Promise<void>|null=null
  private detach:Array<()=>unknown>=[]
- constructor(root:string,worker:string,private window:()=>BrowserWindow|null,private chat:CharacterChatService,private devServerUrl?:string){
+ constructor(root:string,worker:string,private window:()=>BrowserWindow|null,private chat:CharacterChatService,private devServerUrl?:string,private petWindow:()=>BrowserWindow|null=()=>null){
   this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>console.info('[voice]',JSON.stringify(value)),process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
+  const mouth = (event:Electron.IpcMainEvent,value:unknown) => {
+   if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl)||!validVoiceMouth(value))return
+   const state=this.service.snapshot()
+   if(value.epoch!==state.epoch||this.presentationOutput||!this.playbackReady)return
+   if(value.level&&(this.localAudioEpoch!==value.epoch||!this.localAudioClaims.size||state.volume===0))return
+   this.publishMouth(value)
+  }
+  ipcMain.on(VOICE_MOUTH_IPC,mouth);this.detach.push(()=>ipcMain.removeListener(VOICE_MOUTH_IPC,mouth))
   this.detach.push(chat.subscribeVoiceStart(id=>this.service.requestStarted(id)),chat.subscribeVoice(message=>{if(message)this.service.completed(message);else this.service.cancel()}),chat.subscribe(()=>this.service.onChatChanged()))
   ipcMain.handle(VOICE_IPC.action,async(event,value:VoiceAction)=>{
    if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl))throw Error('UNTRUSTED_SENDER')
@@ -69,12 +80,19 @@ export class VoiceIpcController {
   })
   ipcMain.handle(VOICE_IPC.audio,(event,id:unknown,epoch:unknown)=>{
    if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl)||typeof id!=='string'||id.length!==36||!Number.isSafeInteger(epoch))throw Error('UNTRUSTED_AUDIO')
-   return this.service.audio(id,epoch as number)
+   const bytes=this.service.audio(id,epoch as number)
+   if(this.localAudioEpoch!==epoch){this.localAudioClaims.clear();this.localAudioEpoch=epoch as number}
+   this.localAudioClaims.add(id);return bytes
   })
+ }
+ private publishMouth(value:VoiceMouthInput|null){
+  const pet=this.petWindow(),character=this.chat.snapshot().character
+  if(pet&&!pet.isDestroyed()&&!pet.webContents.isDestroyed())try{pet.webContents.send(VOICE_MOUTH_IPC,value&&character?{...value,characterId:character.id,revision:character.revision}:null)}catch{}
  }
  private publishManagement(){for(const listener of this.managementListeners){try{listener()}catch{}}}
  private send(channel:string,value:unknown){
-  if(channel===VOICE_IPC.changed)this.publishManagement()
+  if(channel===VOICE_IPC.changed){this.publishManagement();const state=value as {epoch:number;status:string;volume:number};if(state.epoch!==this.localAudioEpoch||['off','unavailable','stopped','error'].includes(state.status)){this.localAudioClaims.clear();this.publishMouth(null)}else if(state.volume===0)this.publishMouth(null)}
+  if(channel===VOICE_IPC.event&&(value as {type:string}).type==='stop'){this.localAudioClaims.clear();this.publishMouth(null)}
   const win=this.presentationOutput?this.petOutput:this.window()
   if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed()){
    try{win.webContents.send(this.presentationOutput?(channel===VOICE_IPC.event?DOT_IPC.voiceEvent:DOT_IPC.volumeChanged):channel,this.presentationOutput&&channel===VOICE_IPC.changed?(value as any).volume:value)}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}
@@ -83,7 +101,7 @@ export class VoiceIpcController {
  attachWindow(win:BrowserWindow){
   ++this.outputGeneration;this.attached=win;this.rendererReady=false;this.service.setOutputReady(false);this.publishManagement()
   const current=()=>this.attached===win
-  const deny=()=>{if(current()){++this.outputGeneration;this.service.setOutputReady(false);this.publishManagement()}}
+  const deny=()=>{if(current()){this.localAudioClaims.clear();this.publishMouth(null);++this.outputGeneration;this.service.setOutputReady(false);this.publishManagement()}}
   const reset=()=>{if(current()){this.rendererReady=false;deny()}}
   win.on('hide',deny);win.on('close',reset);win.on('closed',reset)
   win.on('show',()=>{if(current())this.updateOutput()})
@@ -141,7 +159,7 @@ export class VoiceIpcController {
    case 'replay':case 'reroll':case 'reproduce':if(typeof v.messageId!=='string'||v.messageId.length>80)throw Error('VOICE_ACTION');return this.service.readMessage(v.messageId,v.type)
    case 'read':if(typeof v.messageId!=='string'||v.messageId.length>80)throw Error('VOICE_ACTION');return this.service.readMessage(v.messageId)
    case 'test':return this.service.test()
-   case 'played':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||v.error!==undefined&&typeof v.error!=='boolean')throw Error('VOICE_ACTION');return this.service.played(v.audioId,v.epoch,v.error)
+   case 'played':if(!this.presentationOutput&&v.epoch===this.localAudioEpoch){this.localAudioClaims.delete(v.audioId);if(!this.localAudioClaims.size)this.publishMouth(null)}if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||v.error!==undefined&&typeof v.error!=='boolean')throw Error('VOICE_ACTION');return this.service.played(v.audioId,v.epoch,v.error)
    case 'scheduled':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.delayMs)||v.delayMs<0||v.delayMs>6000||!Number.isFinite(v.gapMs)||v.gapMs<0||v.gapMs>180_000)throw Error('VOICE_ACTION');return this.service.scheduled(v.audioId,v.epoch,v.delayMs,v.gapMs)
    case 'outputStopped':if(!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.elapsedMs)||v.elapsedMs<0||v.elapsedMs>180_000)throw Error('VOICE_ACTION');return this.service.outputStopped(v.epoch,v.elapsedMs)
    case 'import':case 'configure':{
@@ -167,6 +185,7 @@ export class VoiceIpcController {
  close():Promise<void>{
   if(this.closing)return this.closing
   this.rendererReady=false
+  this.publishMouth(null)
   if(this.referencePicker)this.referencePicker.cancelled=true
   this.managementListeners.clear()
   const work=[()=>ipcMain.removeHandler(DOT_IPC.volume),()=>ipcMain.removeHandler(DOT_IPC.voiceAction),()=>ipcMain.removeHandler(DOT_IPC.audio),()=>ipcMain.removeHandler(VOICE_IPC.action),()=>ipcMain.removeHandler(VOICE_IPC.audio),...this.detach,()=>this.service.close()]

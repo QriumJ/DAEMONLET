@@ -5,7 +5,7 @@ import {join} from 'node:path'
 import {dialog,ipcMain} from 'electron'
 import {VoiceIpcController} from '../electron/main/character-voice/VoiceIpcController'
 import {VOICE_IPC} from '../electron/shared/character-voice-contract'
-vi.mock('electron',()=>({ipcMain:{handle:vi.fn(),removeHandler:vi.fn()},dialog:{showOpenDialog:vi.fn(),showMessageBox:vi.fn()}}))
+vi.mock('electron',()=>({ipcMain:{handle:vi.fn(),removeHandler:vi.fn(),on:vi.fn(),removeListener:vi.fn()},dialog:{showOpenDialog:vi.fn(),showMessageBox:vi.fn()}}))
 vi.mock('../electron/main/SecurityPolicy',()=>({isTrustedSender:()=>true}))
 const cleanup:Array<()=>Promise<unknown>>=[]
 afterEach(async()=>{for(const fn of cleanup.splice(0))await fn();vi.restoreAllMocks();vi.clearAllMocks()})

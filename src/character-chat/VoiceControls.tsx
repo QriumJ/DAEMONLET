@@ -12,7 +12,7 @@ export function VoiceControls({showStatus=true}:{showStatus?:boolean}){
  const act=(v:VoiceAction)=>window.characterVoice.action(v).then(s=>setState(old=>old&&old.epoch>s.epoch?old:s)).catch(()=>{})
  useEffect(()=>{
   if(!window.characterVoice)return
-  const player=new AudioPlaybackController(window.characterVoice)
+  const player=new AudioPlaybackController(window.characterVoice,undefined,{sink:(level,epoch)=>window.characterVoice.mouth?.({level,epoch})})
   const off=window.characterVoice.subscribe(s=>{player.setVolume(s.volume);setState(old=>old&&old.epoch>s.epoch?old:s)})
   const events=window.characterVoice.onEvent(e=>void player.receive(e))
   const hide=()=>{player.setVisible(!document.hidden);void act({type:document.hidden?'stop':'ready'})}

@@ -1,3 +1,5 @@
+import {LocalMouthWatchdog} from '../character-chat/LocalMouthWatchdog'
+import type {VoiceMouthFrame} from '../../electron/shared/voice-mouth'
 import {DotPresentationController,dotBubble} from './DotPresentationController'
 import {AudioPlaybackController} from '../character-chat/AudioPlaybackController'
 import {type DotFrame,type DotPresentationApi} from '../../electron/shared/dot-presentation'
@@ -5,7 +7,7 @@ import type {VoiceApi,VoiceEvent} from '../../electron/shared/character-voice-co
 declare global{interface Window{dotPresentation:DotPresentationApi;dotVoice:Pick<VoiceApi,'action'|'audio'|'onEvent'>&{getVolume():Promise<number>;onVolume(listener:(volume:number)=>void):()=>void}}}
 import {ChatPresentationController} from '../character-chat/ChatPresentationController'
 import type {LocalChatPresentation} from '../../electron/shared/character-chat-contract'
-declare global{interface Window{localChatPresentation:{get():Promise<LocalChatPresentation>;subscribe(listener:(value:LocalChatPresentation)=>void):()=>void}}}
+declare global{interface Window{localChatPresentation:{onMouth(listener:(value:VoiceMouthFrame|null)=>void):()=>void;get():Promise<LocalChatPresentation>;subscribe(listener:(value:LocalChatPresentation)=>void):()=>void}}}
 import { useT } from "../i18n/useLanguage"
 import { useEffect, useRef, useState } from "react"
 import type { DesktopSettingsV1 } from "../../electron/shared/desktop-settings"
@@ -66,22 +68,31 @@ export default function PetApp() {
     const localPresentation=new ChatPresentationController(session)
     const dotController=new DotPresentationController(session)
     let dotState:DotFrame|null=null
-    const dotPlayer=new AudioPlaybackController(window.dotVoice)
+    const dotPlayer=new AudioPlaybackController(window.dotVoice,undefined,{sink:level=>{if(dotState)session.runtime.setAudioMouth(level)}})
     const unsubscribeDotVolume=window.dotVoice.onVolume(value=>dotPlayer.setVolume(value))
     const unsubscribeDotAudio=window.dotVoice.onEvent(e=>void dotPlayer.receive(e))
+    const localMouth=new LocalMouthWatchdog(level=>session.runtime.setAudioMouth(level),()=>!dotState)
     const receiveDot=(frame:DotFrame|null)=>{
+      localMouth.revoke()
       if(frame)void window.dotVoice.getVolume().then(value=>dotPlayer.setVolume(value)).catch(()=>{})
       dotState=frame
       if(frame&&(frame.characterId!==successfulKey?.split('/')[0]||frame.revision!==successfulKey?.split('/')[1]||!visible||inLayout||dragging||loadingCharacter))dotState=null
       setDotFrame(dotState);dotController.update(dotState)
-      if(!dotState){dotPlayer.stop();syncLocal();session.dialogue.setEnabled(!localState?.active&&!!currentSettings?.speechBubblesEnabled)}
+      if(!dotState){dotPlayer.stop();session.runtime.setAudioMouth(0);syncLocal();session.dialogue.setEnabled(!localState?.active&&!!currentSettings?.speechBubblesEnabled)}
       void window.dotPresentation.ready(visible&&!inLayout&&!dragging&&!loadingCharacter&&!loadFailed&&!!successfulKey&&!document.hidden).catch(()=>{})
     }
     const unsubscribeDot=window.dotPresentation.subscribe(receiveDot)
     void window.dotPresentation.get().then(receiveDot).catch(()=>{})
     let localState:LocalChatPresentation|null=null
     const syncLocal=()=>{if(dotState)return;if(localState){localPresentation.update(localState,successfulKey?.split('/')[0]??null,successfulKey?.split('/')[1]??null);if(localState.active){session.dialogue.setEnabled(false);session.setInteractionEnabled(false)}else if(currentSettings)session.dialogue.setEnabled(currentSettings.speechBubblesEnabled)}}
-    const receiveLocal=(value:LocalChatPresentation)=>{localState=value;syncLocal()}
+    let mouthEpoch=-1
+    const clearLocalMouth=()=>localMouth.stop()
+    const receiveLocal=(value:LocalChatPresentation)=>{if(!value.active||value.characterId!==localState?.characterId||value.revision!==localState?.revision)clearLocalMouth();localState=value;syncLocal()}
+    const unsubscribeMouth=window.localChatPresentation.onMouth(frame=>{
+      if(!frame){clearLocalMouth();return}
+      if(dotState||!localState?.active||!visible||inLayout||dragging||loadingCharacter||document.hidden||frame.characterId!==successfulKey?.split('/')[0]||frame.revision!==successfulKey?.split('/')[1]||frame.epoch<mouthEpoch)return
+      mouthEpoch=frame.epoch;localMouth.receive(frame.level)
+    })
     const unsubscribeLocal=window.localChatPresentation.subscribe(receiveLocal)
     void window.localChatPresentation.get().then(receiveLocal)
 
@@ -95,6 +106,7 @@ export default function PetApp() {
       const available = visible && !inLayout && !dragging && !loadFailed && !loadingCharacter && Boolean(successfulKey) && !document.hidden
       session.dialogue.setAvailable(available)
       dotPlayer.setVisible(available)
+      if(!available)clearLocalMouth()
       if(!available&&dotState)receiveDot(null)
       void window.dotPresentation.ready(available).catch(()=>{})
       setPresentation(old => old.available === available && old.epoch === loadEpoch ? old : { available, epoch: loadEpoch })
@@ -235,7 +247,7 @@ export default function PetApp() {
       source.dispose()
       client.dispose()
       unsubscribeDot();unsubscribeDotAudio();unsubscribeDotVolume();dotPlayer.dispose();dotController.dispose();void window.dotPresentation.ready(false).catch(()=>{})
-      unsubscribeLocal()
+      unsubscribeLocal();unsubscribeMouth();clearLocalMouth()
       localPresentation.dispose()
       session.dispose()
       alphaRef.current = null

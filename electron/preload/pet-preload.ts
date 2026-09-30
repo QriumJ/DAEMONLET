@@ -1,3 +1,4 @@
+import {VOICE_MOUTH_IPC,type VoiceMouthFrame} from '../shared/voice-mouth'
 import {DOT_IPC,type DotPresentationApi} from '../shared/dot-presentation'
 import {LOCAL_CHAT_IPC,type LocalChatPresentation} from '../shared/character-chat-contract'
 import { exposeAppLanguage } from "./app-language"
@@ -61,7 +62,7 @@ const api: PetDesktopApi = {
 
 contextBridge.exposeInMainWorld("petDesktop", Object.freeze(api))
 
-contextBridge.exposeInMainWorld('localChatPresentation',{get:()=>ipcRenderer.invoke(LOCAL_CHAT_IPC.getPresentation),subscribe:(listener:(value:LocalChatPresentation)=>void)=>subscription(LOCAL_CHAT_IPC.presentation,listener)})
+contextBridge.exposeInMainWorld('localChatPresentation',{onMouth:(listener:(value:VoiceMouthFrame|null)=>void)=>subscription(VOICE_MOUTH_IPC,listener),get:()=>ipcRenderer.invoke(LOCAL_CHAT_IPC.getPresentation),subscribe:(listener:(value:LocalChatPresentation)=>void)=>subscription(LOCAL_CHAT_IPC.presentation,listener)})
 
 contextBridge.exposeInMainWorld('dotPresentation',Object.freeze({get:()=>ipcRenderer.invoke(DOT_IPC.get),subscribe:listener=>subscription(DOT_IPC.changed,listener),ready:value=>ipcRenderer.invoke(DOT_IPC.ready,value)} satisfies DotPresentationApi))
 contextBridge.exposeInMainWorld('dotVoice',Object.freeze({getVolume:()=>ipcRenderer.invoke(DOT_IPC.volume),onVolume:(listener:(value:number)=>void)=>subscription(DOT_IPC.volumeChanged,listener),audio:(id:string,epoch:number)=>ipcRenderer.invoke(DOT_IPC.audio,id,epoch),action:(value:unknown)=>ipcRenderer.invoke(DOT_IPC.voiceAction,value),onEvent:(listener:(value:unknown)=>void)=>subscription(DOT_IPC.voiceEvent,listener)}))

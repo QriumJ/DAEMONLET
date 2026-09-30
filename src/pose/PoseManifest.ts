@@ -91,12 +91,13 @@ export function parsePoseManifest(input: unknown): ValidationResult<PoseManifest
   const layers = object(root.layers, "pose.layers")
   const transition = object(root.transition, "pose.transition")
   const warnings: string[] = []
-  warnUnknown(root, ["schemaVersion", "id", "label", "source", "psd", "overrides", "strategy", "registration", "layers", "transition", "motion", "interactionScale"], "pose", warnings)
+  warnUnknown(root, ["schemaVersion", "id", "label", "source", "psd", "overrides", "strategy", "registration", "layers", "transition", "motion", "interactionScale", "audioLipSync"], "pose", warnings)
   warnUnknown(registration, ["strategy", "maxScaleDelta", "maxRotationDeg", "maxAnchorErrorPx"], "pose.registration", warnings)
   warnUnknown(layers, ["sharedFromBase", "replaceFromBase", "useFromPose", "addFromPose", "renderBehindBase", "renderInFrontOfBase"], "pose.layers", warnings)
   warnUnknown(transition, ["enterMs", "exitMs", "swapStart", "swapEnd"], "pose.transition", warnings)
   if (root.strategy !== "semantic-layer-swap" && root.strategy !== "independent-model") throw new Error("pose.strategy must be 'semantic-layer-swap' or 'independent-model'")
   const independent = root.strategy === "independent-model"
+  if (root.audioLipSync !== undefined && (root.audioLipSync !== "amplitude-3" || !independent)) throw new Error("pose.audioLipSync requires amplitude-3 on an independent-model")
   const registrationStrategy = independent ? "identity" : "eyes-and-neck"
   if (registration.strategy !== registrationStrategy) throw new Error(`pose.registration.strategy must be '${registrationStrategy}' for ${root.strategy}`)
   const renderBehindBase = layers.renderBehindBase === undefined ? [] : (() => {
@@ -182,6 +183,7 @@ export function parsePoseManifest(input: unknown): ValidationResult<PoseManifest
       swapEnd: number(transition.swapEnd, "pose.transition.swapEnd"),
     },
     ...(motion ? { motion } : {}),
+    ...(root.audioLipSync === undefined ? {} : {audioLipSync: "amplitude-3" as const}),
     ...(interactionScale ? { interactionScale } : {}),
   }
   if (parsed.registration.maxScaleDelta < 0 || parsed.registration.maxRotationDeg < 0 || parsed.registration.maxAnchorErrorPx < 0) throw new Error("pose.registration tolerances must be non-negative")
