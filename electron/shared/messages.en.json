@@ -1087,5 +1087,6 @@
   "이 음성 엔진은 요청별 시드를 지원하지 않습니다. 새 후보 엔진을 연결해 주세요.": "This engine does not support per-request seeds. Connect the updated candidate engine.",
   "음성 엔진이 요청과 다른 시드를 적용했습니다.": "The engine applied a different seed than requested.",
   "보관된 음성이 없습니다. 재합성 동작을 선택해 주세요.": "Saved audio is unavailable. Choose an explicit synthesis action.",
-  "생성 조건이 바뀌었습니다. 현재 설정으로 다시 합성해 주세요.": "Generation conditions changed. Synthesize with current settings."
+  "생성 조건이 바뀌었습니다. 현재 설정으로 다시 합성해 주세요.": "Generation conditions changed. Synthesize with current settings.",
+  "이 장치에서는 음성을 지원하지 않습니다. Windows CUDA 또는 Apple Silicon Metal 환경이 필요합니다.": "Voice is not supported on this device. Windows CUDA or Apple Silicon Metal is required."
 }

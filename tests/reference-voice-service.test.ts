@@ -20,6 +20,8 @@ async function fixture(native=true){
   const runtime:any={config,sessionId:'session-'+runtimes.length,running:false,busy:false,audit:{},get ready(){return this.running},retireSpeech:vi.fn(),start:vi.fn(async(_path,_key,c)=>{runtime.running=true;runtime.audit={conditioningFingerprint:c?.fingerprint}}),stop:vi.fn(async()=>{runtime.running=false}),cancelSpeech:vi.fn(async()=>({keptWarm:true,elapsedMs:0})),stream:vi.fn(async(_text,binding,_segment,accept)=>{void accept({audioId:'audio-'+events.length,bytes:new Uint8Array(2),durationMs:100,synthesisId:'s',chunkIndex:0,sampleOffset:0,sampleCount:4800,firstChunkReadyMs:1});expect(binding.conditioningFingerprint).toBe(runtime.audit.conditioningFingerprint);return{totalSamples:4800,totalChunks:1}})};configs.push(config);runtimes.push(runtime);return runtime
  },()=>{},base,undefined,store)
  cleanup.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})});await service.initialize()
+ // The injected native runtime is supported regardless of the test host.
+ if(native)(service as any).state.availableProfiles=['gguf-metal-f16','gguf-metal-f16-complete']
  return{root,source,service,store,base,chat,message,configs,runtimes,events}
 }
 it.each([true,false])('managed WAV routing and warm reuse preserve reference across rename (native=%s)',async native=>{

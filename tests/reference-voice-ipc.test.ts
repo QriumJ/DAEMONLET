@@ -36,3 +36,11 @@ it('reference deletion is confirmed with affected bindings and expires with init
 })
 it('seed management rejects stale context while queued without interrupting current speech',async()=>{const f=await fixture();let release!:()=>void;(f.controller.service as any).serial=new Promise<void>(r=>release=r);const stop=vi.spyOn(f.controller.service,'stop');const pending=f.manage({type:'seedSettings',value:{mode:'fixed',fixedSeed:777}});await new Promise(r=>setTimeout(r,0));f.state.conversation.id='different';release();await pending;expect(f.controller.service.snapshot().seedSettings?.mode).toBe('random-per-reply');expect(stop).not.toHaveBeenCalled()})
 it.each([true,'42',null,0,2147483648,1.5])('settings seed IPC rejects invalid numeric value %s',async value=>{const f=await fixture();await expect(f.manage({type:'seedSettings',value:{mode:'fixed',fixedSeed:value}})).rejects.toThrow('VOICE_SEED_INVALID');expect(f.controller.service.snapshot().seedSettings?.mode).toBe('random-per-reply')})
+
+it('both settings and chat IPC activation respect unsupported-platform service guard',async()=>{
+ const f=await fixture();(f.controller.service as any).state.availableProfiles=[]
+ await f.manage({type:'enabled',value:true});expect(f.controller.service.snapshot()).toMatchObject({enabled:false,error:'UNSUPPORTED_DEVICE'})
+ const state=await f.action({type:'enabled',value:true});expect(state).toMatchObject({enabled:false,error:'UNSUPPORTED_DEVICE'})
+ await f.manage({type:'enabled',value:false});expect(f.controller.service.snapshot()).toMatchObject({enabled:false,error:null})
+ expect(await f.action({type:'snapshot'})).toMatchObject({enabled:false})
+})

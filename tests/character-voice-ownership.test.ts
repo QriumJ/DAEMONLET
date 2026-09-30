@@ -57,7 +57,9 @@ async function fixture(policy:SpeechPolicy='legacy-sentence-v1'){
  const chat={epoch:1,model:'E4B',character:{id:'test',revision:'rev'},conversation:{id:'chat',messages:[message]}} as LocalChatSnapshot
  const service=new CharacterVoiceService(root,join(root,'synthetic'),()=>chat,()=>{},e=>events.push(e),()=>runtime,undefined,undefined,policy)
  cleanup.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})})
- await service.initialize();(service as any).state.executionProfile='baseline';await service.configure(process.execPath,root);await service.enabled(true)
+ await service.initialize();
+ // Synthetic external runtime supports these modes independently of the test host.
+ ;(service as any).state.availableProfiles=['baseline','cached','compiled'];(service as any).state.executionProfile='baseline';await service.configure(process.execPath,root);await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',fingerprint:'fingerprint'}]
  await service.bind('test','voice@1');service.setOutputReady(true)
  ;(service as any).state.executionProfile='cached'

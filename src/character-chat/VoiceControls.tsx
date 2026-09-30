@@ -25,7 +25,7 @@ export function VoiceControls({showStatus=true}:{showStatus?:boolean}){
  return <section className="voice-controls" aria-label={t('캐릭터 음성')}><div role="status">{t(statuses[state.status])} {state.enabled&&<button onClick={()=>void act({type:'stop'})}>{t('음성만 중단')}</button>}</div>{state.error&&<p role="alert">{t(errors[state.error]||'음성 설정을 확인해 주세요.')}</p>}</section>
 }
 export function VoiceSettings({state,characterId,act,playbackReady,busy=false}:{state:VoiceSnapshot;characterId?:string;act:(value:VoiceAction)=>unknown;playbackReady:boolean;busy?:boolean}){
- const t=useT(),selected=state.bindings[characterId||'']??state.defaultProfile??''
+ const t=useT(),selected=state.bindings[characterId||'']??state.defaultProfile??'',unsupported=!state.availableProfiles?.length
  const builtin=!!state.defaultProfile&&selected===state.defaultProfile,install=state.baseInstall,profile=state.profiles.find(p=>p.id+'@'+p.version===selected),reference=isReferenceProfile(profile)?profile:null,managed=builtin||!!reference||selected.startsWith('wav-')
  const [name,setName]=useState(''),[acknowledged,setAcknowledged]=useState(false),[rename,setRename]=useState('')
  useEffect(()=>setRename(reference?.name||''),[reference?.id,reference?.name])
@@ -42,7 +42,8 @@ export function VoiceSettings({state,characterId,act,playbackReady,busy=false}:{
    {state.referenceImport?.error&&<p role="alert">{t(errors[state.referenceImport.error]||'WAV를 가져오지 못했습니다. 파일을 확인하고 다시 시도해 주세요.')}</p>}
    <small>{t('저장 후 캐릭터 음성 목록에서 직접 선택하면 적용됩니다. 가져오기만으로 현재 음성을 바꾸거나 모델을 다운로드하지 않습니다.')}</small>
   </div>
-  <label><input disabled={busy} type="checkbox" checked={state.enabled} onChange={e=>void act({type:'enabled',value:e.target.checked})}/>{t('음성 사용')}</label>
+  <label><input disabled={busy||unsupported&&!state.enabled} aria-describedby={unsupported?'voice-platform-support':undefined} type="checkbox" checked={state.enabled} onChange={e=>void act({type:'enabled',value:e.target.checked})}/>{t('음성 사용')}</label>
+  {unsupported&&<p id="voice-platform-support" className="notice">{t(errors.UNSUPPORTED_DEVICE)}</p>}
   <label>{t('캐릭터 음성')}<select disabled={busy||!characterId} aria-label={t('캐릭터 음성')} value={selected} onChange={e=>void act({type:'bind',profile:e.target.value||null})}>{selected&&!profile&&<option value={selected}>{t('선택한 WAV 음성을 찾을 수 없습니다')}</option>}{!state.defaultProfile&&<option value="">{t('없음')}</option>}{state.profiles.map(p=><option value={p.id+'@'+p.version} key={p.id+'@'+p.version}>{p.id+'@'+p.version===state.defaultProfile?t('기본 음성 · VoxCPM2'):p.name}{p.id+'@'+p.version===state.defaultProfile?'':isReferenceProfile(p)?' · WAV':' · '+p.version}</option>)}</select></label>
   {reference&&<div className="voice-reference-info"><strong>{t('WAV 기준 클로닝 · 학습 없음')}</strong>{!reference.error&&<small>{t('기준 음성')}: {(reference.reference.durationMs/1000).toFixed(1)}s · {reference.reference.sampleRate}Hz · {t('모노')}</small>}<label>{t('음성 이름')}<input aria-label={t('음성 이름')} value={rename} maxLength={80} disabled={busy} onChange={e=>setRename(e.target.value)}/></label><button disabled={busy||!rename.trim()||rename.trim()===reference.name} onClick={()=>void act({type:'renameReference',profile:selected,name:rename})}>{t('이름 변경')}</button></div>}
   <SeedSettings state={state} act={act} busy={busy}/>

@@ -16,3 +16,13 @@ it('base installation and two Metal modes remain available in the management for
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,baseInstall:{...voice.baseInstall,phase:'idle'}},characterId:'belle',act:()=>{},playbackReady:true}));expect(html).toContain('기본 음성 설치');expect(html).toContain('Metal · 청크 재생');expect(html).toContain('Metal · 완성 후 재생');expect(html).not.toContain('MPS')
 })
 it('seed form distinguishes random policy and fixed numeric editing without promising quality',()=>{const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,seedSettings:{mode:'fixed',fixedSeed:777}},characterId:'belle',act:()=>{},playbackReady:true}));expect(html).toContain('답변마다 무작위');expect(html).toContain('고정 시드');expect(html).toContain('value="777"');expect(html).toContain('다음 합성부터 적용');expect(html).not.toContain('더 고품질')})
+
+it.each([false,true])('unsupported voice settings explain the platform and preserve turning off (enabled=%s)',enabled=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,status:'off',availableProfiles:[],enabled},characterId:'belle',act:()=>{},playbackReady:false}))
+ const checkbox=html.match(/<input[^>]*aria-describedby="voice-platform-support"[^>]*>/)![0]
+ expect(checkbox.includes('disabled=""')).toBe(!enabled);expect(html).toContain('이 장치에서는 음성을 지원하지 않습니다.');expect(html).toContain('id="voice-platform-support"')
+})
+it('supported idle voice settings keep activation available without an unsupported warning',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,status:'off',enabled:false},characterId:'belle',act:()=>{},playbackReady:false}))
+ expect(html).toContain('<input type="checkbox"/>음성 사용');expect(html).not.toContain('voice-platform-support')
+})
