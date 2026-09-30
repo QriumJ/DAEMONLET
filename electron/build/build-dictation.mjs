@@ -7,6 +7,7 @@ const root = resolve(import.meta.dirname, "../..")
 const native = resolve(root, "dist-electron/native")
 await mkdir(native, { recursive: true })
 const targetPlatform = process.env.PET_BUILD_PLATFORM ?? process.platform
+const macTarget = (process.env.PET_BUILD_ARCH ?? process.arch) === "arm64" ? "arm64-apple-macos13.0" : "x86_64-apple-macos13.0"
 if (targetPlatform === "darwin" && process.platform !== "darwin") throw new Error("Build the macOS speech helper on macOS")
 if (targetPlatform === "darwin") {
   const bundle = resolve(native, "DaemonletDictation.app/Contents")
@@ -29,7 +30,7 @@ if (targetPlatform === "darwin") {
   await cp(resolve(root, "electron/assets/locales"), resolve(bundle, "Resources"), { recursive: true })
   const cache = resolve(root, ".generated/swift-module-cache")
   await mkdir(cache, { recursive: true })
-  await promisify(execFile)("/usr/bin/xcrun", ["swiftc", "-O", "-module-cache-path", cache,
+  await promisify(execFile)("/usr/bin/xcrun", ["swiftc", "-O", "-target", macTarget, "-module-cache-path", cache,
     resolve(root, "electron/native/Dictation.swift"), "-o", resolve(bundle, "MacOS/DaemonletDictation"),
     "-framework", "AVFoundation", "-framework", "Speech"], { timeout: 120_000, maxBuffer: 1024 * 1024 })
 }
