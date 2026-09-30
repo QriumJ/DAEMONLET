@@ -434,3 +434,67 @@ it.each(['save','delete'])('settings memory %s cannot cross a queued character s
  await select;await caught;expect(service.snapshot().memories).toEqual([])
  await service.selectCharacter('gpichan');expect(service.snapshot().memories!.map(m=>m.text)).toEqual(['original'])
 })
+
+
+it('keeps session drafts isolated by character and conversation, without storing them on disk',async()=>{
+ const {service,root}=await fixture(),original=service.snapshot().conversation!.id
+ const initial=service.snapshot().draft!;service.updateDraft(initial.key,'미전송 비밀 초안',1)
+ // Hiding/reopening a window uses this same service snapshot.
+ expect(service.snapshot().draft!.text).toBe('미전송 비밀 초안')
+ await service.newChat();expect(service.snapshot().draft!.text).toBe('')
+ service.updateDraft(service.snapshot().draft!.key,'새 대화 초안',1)
+ await service.selectCharacter('synthetic-b');expect(service.snapshot().draft!.text).toBe('')
+ service.updateDraft(initial.key,'stale cross-character input',2)
+ expect(service.snapshot().draft!.text).toBe('')
+ await service.selectCharacter('gpichan');expect(service.snapshot().draft!.text).toBe('새 대화 초안')
+ await service.selectConversation(original);expect(service.snapshot().draft!.text).toBe('미전송 비밀 초안')
+ expect(await readFile(join(root,'conversations.json'),'utf8')).not.toContain('미전송 비밀 초안')
+ await service.deleteConversation(original)
+ expect((service as any).drafts.get(initial.key).text).toBe('')
+})
+it('failed admission retains the draft; successful admission clears only the submitted revision',async()=>{
+ const {service}=await fixture(),draft=service.snapshot().draft!
+ service.updateDraft(draft.key,'보낼 문장',1)
+ vi.mocked(service.models.installed).mockResolvedValue([]);await service.refreshModels()
+ await expect(service.send('보낼 문장',draft.key,1)).rejects.toThrow('설치')
+ expect(service.snapshot().draft!.text).toBe('보낼 문장')
+ vi.mocked(service.models.installed).mockResolvedValue(['E4B']);await service.refreshModels()
+ vi.spyOn(service.runtime,'generate').mockResolvedValue({text:'답변',meaning:neutralMeaning()})
+ await service.send('보낼 문장',draft.key,1)
+ expect(service.snapshot().draft!.text).toBe('');expect(service.snapshot().acceptedDraft).toEqual({key:draft.key,revision:1})
+ service.updateDraft(draft.key,'다음 초안',2)
+ await service.stop()
+ await service.send('보낼 문장',draft.key,1)
+ expect(service.snapshot().draft!.text).toBe('다음 초안')
+})
+it('new-conversation admission transfers later typing, including an old-context update racing the first snapshot',async()=>{
+ const {service}=await fixture();await service.newChat()
+ const draft=service.snapshot().draft!;service.updateDraft(draft.key,'첫 문장',1)
+ vi.spyOn(service.runtime,'generate').mockResolvedValue({text:'답변',meaning:neutralMeaning()})
+ service.updateDraft(draft.key,'다음 문장',2)
+ await service.send('첫 문장',draft.key,1)
+ const current=service.snapshot().draft!;expect(current.key).not.toBe(draft.key);expect(current.text).toBe('다음 문장')
+ service.updateDraft(draft.key,'더 입력한 다음 문장',3)
+ expect(service.snapshot().draft!.text).toBe('더 입력한 다음 문장')
+ await service.newChat();service.updateDraft(draft.key,'late old input',4)
+ expect(service.snapshot().draft!.text).toBe('')
+})
+
+it('an admission write failure never consumes a draft and a fresh app session does not load unsent text',async()=>{
+ const {service,root,store}=await fixture(),draft=service.snapshot().draft!;service.updateDraft(draft.key,'keep on failure',1)
+ const save=vi.spyOn(store,'save').mockRejectedValueOnce(Error('disk full'))
+ await expect(service.send('keep on failure',draft.key,1)).rejects.toThrow('저장')
+ expect(service.snapshot().draft!.text).toBe('keep on failure');save.mockRestore()
+ await service.close();const fresh=await fixture(undefined,{root})
+ expect(fresh.service.snapshot().draft!.text).toBe('')
+})
+it('typing while admission is awaiting storage survives the acknowledgment',async()=>{
+ const {service,store}=await fixture();await service.newChat();const draft=service.snapshot().draft!
+ service.updateDraft(draft.key,'submitted',1)
+ const original=store.save.bind(store);let release!:()=>void,entered=false
+ vi.spyOn(store,'save').mockImplementationOnce(async data=>{entered=true;await new Promise<void>(resolve=>{release=resolve});await original(data)})
+ vi.spyOn(service.runtime,'generate').mockResolvedValue({text:'answer',meaning:neutralMeaning()})
+ const pending=service.send('submitted',draft.key,1);await vi.waitFor(()=>expect(entered).toBe(true))
+ service.updateDraft(draft.key,'typed while saving',2);release();await pending
+ expect(service.snapshot().draft!.text).toBe('typed while saving')
+})

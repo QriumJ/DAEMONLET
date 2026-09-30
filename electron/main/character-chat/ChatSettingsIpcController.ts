@@ -32,7 +32,7 @@ export class ChatSettingsIpcController{
   })
  }
  private snapshot():ChatSettingsSnapshot{
-  const {conversation,meaning:_,...chat}=this.chat.service.snapshot()
+  const {conversation,meaning:_,draft:_draft,acceptedDraft:_acceptedDraft,...chat}=this.chat.service.snapshot()
   return {revision:++this.revision,context:settingsContext(this.chat.service.snapshot()),chat:{...chat,conversation:conversation?{id:conversation.id,title:conversation.title,messageCount:conversation.messages.length}:null},voice:this.chat.voice.service.snapshot(),playbackReady:this.chat.voice.playbackReady}
  }
  dispose(){this.disposed=true;ipcMain.removeHandler(CHAT_SETTINGS_IPC.action);this.detach.splice(0).forEach(off=>off())}

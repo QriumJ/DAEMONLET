@@ -121,3 +121,10 @@ describe("dot controls at the display edge", () => {
     expect(dotQuiet).toHaveBeenCalledWith(true); expect(dotMuted).toHaveBeenCalledWith(false); expect(dotCancel).toHaveBeenCalledOnce()
   })
 })
+
+it('labels explicitly distinguish local character chat from Codex task chat and preserve their routes',async()=>{
+ const {buildTrayMenu}=await import('../electron/main/TrayController')
+ const openCharacterChat=vi.fn(),openSideChat=vi.fn(),openTaskControl=vi.fn()
+ const menu=buildTrayMenu(defaultDesktopSettings(),{state:'READY',message:null,restartCount:0},{openCharacterChat,openSideChat,openTaskControl} as never)
+ for(const [label,fn] of [['로컬 캐릭터 대화',openCharacterChat],['Codex 작업 대화',openSideChat],['Codex 작업 제어 · 음성 입력',openTaskControl]] as const){const item=menu.find(item=>item.label===label)!;expect(item).toBeDefined();item.click?.({} as never,{} as never,{} as never);expect(fn).toHaveBeenCalledOnce()}
+})

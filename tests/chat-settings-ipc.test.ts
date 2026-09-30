@@ -17,7 +17,7 @@ function fixture(){
  return {state,chat,settings,controller,call:(v:any)=>handle({} as any,v),context:()=>settingsContext(state),expire:()=>{owner='settings-2'},emit:()=>{chatListener();voiceListener()},stop}
 }
 it('settings snapshot carries management state without conversation text or audio',async()=>{
- const f=fixture(),s=await f.call({type:'snapshot'});expect(s.chat.conversation).toEqual({id:'c1',title:'synthetic',messageCount:1});expect(JSON.stringify(s)).not.toContain('PRIVATE_DIALOGUE');expect(s.playbackReady).toBe(false);expect(s).not.toHaveProperty('audio')
+ const f=fixture();f.state.draft={key:'private',text:'PRIVATE_DRAFT',revision:1};f.state.acceptedDraft={key:'private',revision:1};const s=await f.call({type:'snapshot'});expect(s.chat.conversation).toEqual({id:'c1',title:'synthetic',messageCount:1});expect(JSON.stringify(s)).not.toContain('PRIVATE_DIALOGUE');expect(JSON.stringify(s)).not.toContain('PRIVATE_DRAFT');expect(s.chat).not.toHaveProperty('draft');expect(s.chat).not.toHaveProperty('acceptedDraft');expect(s.playbackReady).toBe(false);expect(s).not.toHaveProperty('audio')
 })
 it.each(['ready','read','replay','reroll','reproduce','played','scheduled','outputStopped'])('settings cannot acquire playback operation %s',async type=>{
  const f=fixture();await expect(f.call({type:'voice',action:{type},context:f.context()})).rejects.toThrow('CHAT_SETTINGS_ACTION');expect(f.chat.voice.manage).not.toHaveBeenCalled()

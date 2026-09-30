@@ -2,7 +2,7 @@ import {expect,it,vi} from 'vitest'
 import {createElement} from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
 import {ChatQuickSwitch} from '../src/character-chat/CharacterChatApp'
-import {VoiceSettings} from '../src/character-chat/VoiceControls'
+import {VoiceSettings,MessageVoiceControls} from '../src/character-chat/VoiceControls'
 vi.mock('../src/i18n/useLanguage',()=>({useT:()=>Object.assign((s:string)=>s,{language:'ko'})}))
 const voice:any={epoch:1,status:'loading',enabled:true,autoRead:true,volume:.5,profiles:[{id:'belle',version:'1',name:'Belle'}],bindings:{belle:'belle@1'},runtimeConfigured:true,executionProfile:'gguf-metal-f16',availableProfiles:['gguf-metal-f16','gguf-metal-f16-complete'],baseInstall:{supported:true,installed:false,phase:'preparing',bytes:0,total:100,error:null}}
 it('bubble menu contains exactly character and current-character saved conversation selectors',()=>{
@@ -25,4 +25,24 @@ it.each([false,true])('unsupported voice settings explain the platform and prese
 it('supported idle voice settings keep activation available without an unsupported warning',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,status:'off',enabled:false},characterId:'belle',act:()=>{},playbackReady:false}))
  expect(html).toContain('<input type="checkbox"/>음성 사용');expect(html).not.toContain('voice-platform-support')
+})
+
+it('everyday voice controls precede collapsed WAV import and synthesis options',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,baseInstall:{...voice.baseInstall,installed:true,phase:'idle'}},characterId:'belle',act:()=>{},playbackReady:true}))
+ const index=(text:string)=>html.indexOf(text)
+ expect(index('aria-label="캐릭터 음성"')).toBeLessThan(index('WAV로 새 음성 추가'))
+ expect(index('aria-label="음량"')).toBeLessThan(index('WAV로 새 음성 추가'))
+ expect(index('>시험 재생</button>')).toBeLessThan(index('WAV로 새 음성 추가'))
+ expect(html).toContain('<details class="voice-reference-import"><summary>WAV로 새 음성 추가</summary>')
+ expect(index('WAV로 새 음성 추가')).toBeLessThan(index('새 음성의 시드'))
+})
+it('WAV import cancellation and errors remain visible outside collapsed import',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,referenceImport:{busy:true,error:'VOICE_REFERENCE_FORMAT'}},characterId:'belle',act:()=>{},playbackReady:true,busy:true}))
+ const before=html.slice(0,html.indexOf('<details class="voice-reference-import"'))
+ expect(before).toContain('<button>WAV 가져오기 중단</button>');expect(before).toContain('올바른 RIFF/WAVE')
+})
+
+it('a reply exposes one primary play button before its collapsed advanced voice controls',()=>{
+ const html=renderToStaticMarkup(createElement(MessageVoiceControls,{messageId:'synthetic'})),before=html.slice(0,html.indexOf('<details>'))
+ expect(before.match(/<button/g)).toHaveLength(1);expect(before).toContain('재생');expect(before).not.toContain('시드');expect(html).toContain('<details><summary>음성 옵션</summary>');expect(html).toContain('다른 시드로 다시 읽기')
 })

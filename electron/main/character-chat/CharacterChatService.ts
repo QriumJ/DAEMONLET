@@ -1,3 +1,4 @@
+import {ChatDraftStore,chatDraftKey} from './ChatDraftStore'
 import {ConversationStore, completeContext, CHAT_STORAGE_LIMITS, encodeStoredChats, type StoredChats} from './ConversationStore'
 import {validateChatDefinition, emptyChat, type CharacterChatDefinition} from '../../shared/character-chat-semantics'
 import {join} from 'node:path'
@@ -40,6 +41,13 @@ export class CharacterChatService {
   private pendingChanges = 0
   private modelChange: Promise<void> | null = null
   applyingCharacterId: string | null = null
+  private drafts=new ChatDraftStore()
+  private acceptedDraft:{key:string;revision:number;characterId:string;conversationId:string}|undefined
+  private lastConversation=new Map<string,string|undefined>()
+  private newDraftSequence=0
+  private newDraftKeys=new Map<string,number>()
+  private draftKey(){return this.data.current?chatDraftKey(this.data.characterId,this.data.current):JSON.stringify([this.data.characterId,null,this.newDraftKeys.get(this.data.characterId)??0])}
+  updateDraft(key:string,text:string,revision:number){this.requireLoaded();const accepted=this.acceptedDraft;if(key!==this.draftKey()&&!(accepted?.key===key&&accepted.characterId===this.data.characterId&&accepted.conversationId===this.data.current&&revision>accepted.revision))return;this.drafts.update(this.draftKey(),text,revision)}
   private store: ConversationStore
 
   constructor(readonly root: string, binary: string, private registry: CharacterRegistry,
@@ -53,7 +61,7 @@ export class CharacterChatService {
   private notifyVoiceStart(id:string){for(const fn of this.voiceStartListeners){try{fn(id)}catch{/* Voice cannot fail text admission. */}}}
   subscribeVoice(fn:(message:ChatMessage|null)=>void){this.voiceListeners.add(fn);return()=>this.voiceListeners.delete(fn)}
   private notifyVoice(message:ChatMessage|null){for(const fn of this.voiceListeners){try{fn(message?structuredClone(message):null)}catch{/* TTS must never fail text chat. */}}}
-  snapshot() {return structuredClone(this.state)}
+  snapshot() {const accepted=this.acceptedDraft;return structuredClone({...this.state,draft:this.drafts.get(this.draftKey()),acceptedDraft:accepted?.characterId===this.data.characterId&&accepted.conversationId===this.data.current?{key:accepted.key,revision:accepted.revision}:undefined})}
   private emit() {
     this.state.memories = this.data.memories[this.state.character?.id || ''] || []
     this.state.conversations = this.data.conversations.map(c => ({id:c.id,title:c.title,characterId:c.characterId}))
@@ -61,6 +69,8 @@ export class CharacterChatService {
     for (const fn of this.listeners) fn()
   }
   private commit(data: StoredChats, prepared = this.prepared) {
+    if(this.loaded)this.lastConversation.set(this.data.characterId,this.data.current)
+    this.lastConversation.set(data.characterId,data.current)
     this.data=data
     this.state.model=data.model
     this.state.conversation=data.conversations.find(c=>c.id===data.current) || null
@@ -239,26 +249,27 @@ export class CharacterChatService {
       const candidate=await this.prepareCharacter(await this.registry.ensureReady(entry))
       const previousCharacterId=data.characterId
       data.characterId=id
-      if ((data.current!==undefined||previousCharacterId!==id)&&!data.conversations.some(c=>c.id===data.current && c.characterId===id)) data.current=data.conversations.find(c=>c.characterId===id)?.id
+      if(previousCharacterId!==id&&this.lastConversation.has(id)){const remembered=this.lastConversation.get(id);data.current=remembered===undefined?undefined:data.conversations.find(c=>c.id===remembered&&c.characterId===id)?.id}
+      else if ((data.current!==undefined||previousCharacterId!==id)&&!data.conversations.some(c=>c.id===data.current && c.characterId===id)) data.current=data.conversations.find(c=>c.characterId===id)?.id
       return candidate
     })
   }
   attention(active: boolean) {if (this.lifecycle==='loaded' && !this.pendingChanges && ['idle','attentive'].includes(this.state.phase)) {this.state.phase=active?'attentive':'idle';this.emit()}}
   selectModel(id: LocalModelId) {return this.change(async data=>{data.model=id})}
-  newChat() {return this.change(async data=>{data.current=undefined})}
+  newChat() {return this.change(async data=>{data.current=undefined}).then(()=>{const old=this.draftKey();this.newDraftKeys.set(this.data.characterId,++this.newDraftSequence);this.drafts.delete(old);this.emit()})}
   selectConversation(id: string) {return this.change(async data=>{
     const c=data.conversations.find(c=>c.id===id)
     if (!c || c.characterId!==data.characterId) throw Error('대화가 현재 캐릭터와 다릅니다.')
     data.current=c.id
   })}
-  deleteConversation(id: string) {return this.change(async data=>{
+  deleteConversation(id: string) {const characterId=this.data.characterId;return this.change(async data=>{
     const c=data.conversations.find(c=>c.id===id)
     if (!c || c.characterId!==data.characterId) throw Error('대화가 현재 캐릭터와 다릅니다.')
     data.conversations=data.conversations.filter(c=>c.id!==id)
     if (data.current===id) {
       data.current=data.conversations.find(c=>c.characterId===data.characterId)?.id
     }
-  })}
+  }).then(()=>{this.drafts.delete(chatDraftKey(characterId,id))})}
   saveMemory(text: string, id?: string) {const characterId=this.data.characterId;return this.change(async data=>{
     if(data.characterId!==characterId)throw Error('CHAT_SETTINGS_CONTEXT_CHANGED')
     if (typeof text!=='string' || !text.trim() || text.length>500) throw Error('기억은 1~500자로 입력해 주세요.')
@@ -280,9 +291,9 @@ export class CharacterChatService {
     if (!current || current.status==='disabled' || current.revision!==entry.revision) throw Error('캐릭터팩이 변경되었습니다. 캐릭터를 다시 선택해 주세요.')
   }
   retry() {return this.submit(undefined)}
-  send(text: string) {return this.submit(text)}
-  private submit(text: string | undefined): Promise<void> {
-    try {this.requireRequest()} catch(e) {return Promise.reject(e)}
+  send(text: string,draftKey?:string,draftRevision?:number) {return this.submit(text,draftKey,draftRevision)}
+  private submit(text: string | undefined,draftKey?:string,draftRevision?:number): Promise<void> {
+    try {this.requireRequest();if(draftKey!==undefined&&(draftKey!==this.draftKey()||!Number.isSafeInteger(draftRevision)||(draftRevision??0)<1))throw Error('대화가 변경되었습니다. 현재 대화에서 다시 보내 주세요.')} catch(e) {return Promise.reject(e)}
     this.notifyVoice(null)
     const voiceRequestId=randomUUID()
     this.notifyVoiceStart(voiceRequestId)
@@ -315,7 +326,9 @@ export class CharacterChatService {
       // Reserve space for the bounded reply/summary before starting a model job.
       if (Buffer.byteLength(encodeStoredChats(draft))+65536>CHAT_STORAGE_LIMITS.bytes) throw Error('대화 저장 용량 한도에 도달했습니다. 이전 대화를 정리해 주세요.')
       await this.save(draft)
+      const previousKey=this.draftKey()
       this.commit(draft);this.dirty=false
+      if(text!==undefined&&draftKey!==undefined){this.drafts.accepted(previousKey,draftRevision,this.draftKey());this.acceptedDraft={key:previousKey,revision:draftRevision!,characterId:character.id,conversationId:c.id}}
       if (this.lifecycle!=='loaded' || acceptedVersion!==this.requestVersion || epoch!==this.state.epoch) {assistant.status='stopped';this.dirty=true;return}
       this.state.error=null;this.state.meaning=null;this.state.semanticWarning=prepared.warning;this.state.phase='loading';this.emit()
       const abort=this.requestAbort=new AbortController()
@@ -395,7 +408,7 @@ export class CharacterChatService {
         await this.serial.catch(()=>{})
         await cancelled
         await this.persistLive()
-      } finally {await this.models.cancel();await this.modelChange?.catch(()=>{});this.lifecycle='closed'}
+      } finally {await this.models.cancel();await this.modelChange?.catch(()=>{});this.lifecycle='closed';this.drafts.clear()}
     })()
     return this.closing
   }

@@ -7,6 +7,6 @@ export type ChatManagementAction=Extract<LocalChatAction,{type:typeof CHAT_MANAG
 export type VoiceManagementAction=VoiceAction & {type:typeof VOICE_MANAGEMENT_ACTIONS[number]}
 export type SettingsContext={characterId:string|null;revision:string|null;conversationId:string|null}
 export function settingsContext(chat:LocalChatSnapshot):SettingsContext{return {characterId:chat.character?.id??null,revision:chat.character?.revision??null,conversationId:chat.conversation?.id??null}}
-export type ChatSettingsSnapshot={revision:number;context:SettingsContext;chat:Omit<LocalChatSnapshot,'conversation'|'meaning'> & {conversation:{id:string;title:string;messageCount:number}|null};voice:VoiceSnapshot;playbackReady:boolean}
+export type ChatSettingsSnapshot={revision:number;context:SettingsContext;chat:Omit<LocalChatSnapshot,'conversation'|'meaning'|'draft'|'acceptedDraft'> & {conversation:{id:string;title:string;messageCount:number}|null};voice:VoiceSnapshot;playbackReady:boolean}
 export type ChatSettingsAction={type:'snapshot'|'open-chat'}|{type:'chat';action:ChatManagementAction;context:SettingsContext}|{type:'voice';action:VoiceManagementAction;context:SettingsContext}
 export interface ChatSettingsApi{onOpen(listener:()=>void):()=>void;action(value:ChatSettingsAction):Promise<ChatSettingsSnapshot>;subscribe(listener:(value:ChatSettingsSnapshot)=>void):()=>void}

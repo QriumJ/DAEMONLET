@@ -199,3 +199,25 @@ it.each([true,false])('settings receives playback readiness without a synthesis 
   win.webContents.emit('render-process-gone');expect(latest()?.playbackReady).toBe(false)
  }finally{management.dispose();await window.dispose()}
 })
+
+it('the narrow draft IPC preserves a draft across window close/reopen without copying history',async()=>{
+ const {LOCAL_CHAT_IPC}=await import('../electron/shared/character-chat-contract')
+ const {window}=await savedFixture();mockWindows();await window.open()
+ const handler=vi.mocked(ipcMain.handle).mock.calls.filter(([channel])=>channel===LOCAL_CHAT_IPC.draft).at(-1)![1]
+ const draft=window.service.snapshot().draft!,snapshot=vi.spyOn(window.service,'snapshot')
+ expect(await handler({} as any,{key:draft.key,text:'미전송 초안',revision:1})).toBeUndefined()
+ expect(snapshot).not.toHaveBeenCalled()
+ ;(window.window as any).close();await window.open()
+ expect(window.service.snapshot().draft!.text).toBe('미전송 초안')
+ await window.dispose();expect(ipcMain.removeHandler).toHaveBeenCalledWith(LOCAL_CHAT_IPC.draft)
+})
+it('draft IPC rejects untrusted senders and malformed drafts',async()=>{
+ const {LOCAL_CHAT_IPC}=await import('../electron/shared/character-chat-contract'),policy=await import('../electron/main/SecurityPolicy')
+ const {window}=await savedFixture();mockWindows();await window.open()
+ const handler=vi.mocked(ipcMain.handle).mock.calls.filter(([channel])=>channel===LOCAL_CHAT_IPC.draft).at(-1)![1]
+ const draft=window.service.snapshot().draft!
+ await expect(handler({} as any,{key:draft.key,text:'x'.repeat(6001),revision:1})).rejects.toThrow()
+ const trust=vi.spyOn(policy,'isTrustedSender').mockReturnValue(false)
+ await expect(handler({} as any,{key:draft.key,text:'blocked',revision:1})).rejects.toThrow('UNTRUSTED_SENDER');trust.mockRestore()
+ expect(window.service.snapshot().draft!.text).toBe('');await window.dispose()
+})

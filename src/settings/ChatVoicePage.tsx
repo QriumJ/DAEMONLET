@@ -16,7 +16,7 @@ export function ChatVoicePage({manageCharacters}:{manageCharacters:()=>void}){
  if(!state)return <div className="empty-state" role="status">{t(error||'설정 불러오는 중…')}</div>
  const c=state.chat,installed=c.installed.includes(c.model),generating=['loading','generating','replying'].includes(c.phase)
  return <div className="chat-settings-page">
-  <header className="page-header"><div><h1>{t('대화·음성')}</h1><p>{t('로컬 모델과 캐릭터의 목소리를 한곳에서 관리하세요.')}</p></div><button className="button secondary" onClick={()=>void run(()=>api.action({type:'open-chat'}))}>{t('캐릭터챗 열기')}</button></header>
+  <header className="page-header"><div><h1>{t('대화·음성')}</h1><p>{t('로컬 모델과 캐릭터의 목소리를 한곳에서 관리하세요.')}</p></div><button className="button secondary" onClick={()=>void run(()=>api.action({type:'open-chat'}))}>{t('로컬 캐릭터 대화 열기')}</button></header>
   <div className="chat-settings-context"><span className="status-dot positive"/><strong>{c.displayName||c.character?.name||t('캐릭터 선택 필요')}</strong><span>{t('선택된 캐릭터')}</span><button className="text-button" onClick={manageCharacters}>{t('캐릭터팩 관리')}</button></div>
   {error&&<div className="notice error" role="alert">{t(error)}</div>}
   <section className="section-card"><div className="section-heading"><div><h2>{t('캐릭터 음성')}</h2><p>{t('짧은 표현은 자연스럽게 이어 읽고, 말의 전환점에서는 나누어 읽어요.')}</p></div></div><fieldset className="chat-settings-fields" aria-busy={busy}><VoiceSettings state={state.voice} characterId={c.character?.id} act={voice} playbackReady={state.playbackReady} busy={busy}/></fieldset></section>

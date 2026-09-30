@@ -32,28 +32,30 @@ export function VoiceSettings({state,characterId,act,playbackReady,busy=false}:{
  return <section className="voice-settings" aria-label={t('캐릭터 음성')}>
   <div role="status">{t(statuses[state.status])}{state.enabled&&<button onClick={()=>void act({type:'stop'})}>{t('음성만 중단')}</button>}</div>
   {state.error&&<p className="notice error" role="alert">{t(errors[state.error]||'음성을 사용할 수 없습니다. 패키지·런타임·모델 위치를 확인해 다시 연결해 주세요.')}</p>}
-  <div className="voice-reference-import">
+  <label><input disabled={busy||unsupported&&!state.enabled} aria-describedby={unsupported?'voice-platform-support':undefined} type="checkbox" checked={state.enabled} onChange={e=>void act({type:'enabled',value:e.target.checked})}/>{t('음성 사용')}</label>
+  {unsupported&&<p id="voice-platform-support" className="notice">{t(errors.UNSUPPORTED_DEVICE)}</p>}
+  <label>{t('캐릭터 음성')}<select disabled={busy||!characterId} aria-label={t('캐릭터 음성')} value={selected} onChange={e=>void act({type:'bind',profile:e.target.value||null})}>{selected&&!profile&&<option value={selected}>{t('선택한 WAV 음성을 찾을 수 없습니다')}</option>}{!state.defaultProfile&&<option value="">{t('없음')}</option>}{state.profiles.map(p=><option value={p.id+'@'+p.version} key={p.id+'@'+p.version}>{p.id+'@'+p.version===state.defaultProfile?t('기본 음성 · VoxCPM2'):p.name}{p.id+'@'+p.version===state.defaultProfile?'':isReferenceProfile(p)?' · WAV':' · '+p.version}</option>)}</select></label>
+  <label><input disabled={busy} type="checkbox" checked={state.autoRead} onChange={e=>void act({type:'auto',value:e.target.checked})}/>{t('새 답변 자동 읽기')}</label>
+  <label>{t('음량')}<input disabled={busy} aria-label={t('음량')} type="range" min="0" max="1" step="0.05" value={state.volume} onChange={e=>void act({type:'volume',value:Number(e.target.value)})}/></label>
+  <button disabled={busy||!playbackReady||!state.enabled||!selected||!state.runtimeConfigured} onClick={()=>void act({type:'test'})}>{t('시험 재생')}</button>
+  {!playbackReady&&<small>{t('시험 재생은 로컬 캐릭터 대화를 연 뒤 사용할 수 있어요.')}</small>}
+  {state.referenceImport?.busy&&<div role="status">{t('WAV 가져오는 중')} <button onClick={()=>void act({type:'cancelReferenceImport'})}>{t('WAV 가져오기 중단')}</button></div>}
+  {state.referenceImport?.error&&<p role="alert">{t(errors[state.referenceImport.error]||'WAV를 가져오지 못했습니다. 파일을 확인하고 다시 시도해 주세요.')}</p>}
+  <details className="voice-reference-import"><summary>{t('WAV로 새 음성 추가')}</summary>
    <strong>{t('WAV 기준 클로닝 · 학습 없음')}</strong><p>{t('사용 권한이 있는 한 명의 또렷한 발화를 선택하세요. 결과는 AI 합성 음성입니다.')}</p>
    <small>{t('2~20초 · 최대 20MiB · PCM 16/24비트 또는 float32 · 모노/스테레오')}</small>
    <label>{t('새 음성 이름')}<input aria-label={t('새 음성 이름')} value={name} maxLength={80} disabled={busy} onChange={e=>setName(e.target.value)}/></label>
    <label><input type="checkbox" checked={acknowledged} disabled={busy} onChange={e=>setAcknowledged(e.target.checked)}/>{t('이 음성을 사용할 권한이 있습니다.')}</label>
    <button disabled={busy||state.referenceImport?.busy||!name.trim()||!acknowledged} onClick={()=>void act({type:'importReference',name,acknowledged})}>{t(state.referenceImport?.busy?'WAV 가져오는 중':'WAV로 음성 추가')}</button>
-   {state.referenceImport?.busy&&<button onClick={()=>void act({type:'cancelReferenceImport'})}>{t('WAV 가져오기 중단')}</button>}
-   {state.referenceImport?.error&&<p role="alert">{t(errors[state.referenceImport.error]||'WAV를 가져오지 못했습니다. 파일을 확인하고 다시 시도해 주세요.')}</p>}
    <small>{t('저장 후 캐릭터 음성 목록에서 직접 선택하면 적용됩니다. 가져오기만으로 현재 음성을 바꾸거나 모델을 다운로드하지 않습니다.')}</small>
-  </div>
-  <label><input disabled={busy||unsupported&&!state.enabled} aria-describedby={unsupported?'voice-platform-support':undefined} type="checkbox" checked={state.enabled} onChange={e=>void act({type:'enabled',value:e.target.checked})}/>{t('음성 사용')}</label>
-  {unsupported&&<p id="voice-platform-support" className="notice">{t(errors.UNSUPPORTED_DEVICE)}</p>}
-  <label>{t('캐릭터 음성')}<select disabled={busy||!characterId} aria-label={t('캐릭터 음성')} value={selected} onChange={e=>void act({type:'bind',profile:e.target.value||null})}>{selected&&!profile&&<option value={selected}>{t('선택한 WAV 음성을 찾을 수 없습니다')}</option>}{!state.defaultProfile&&<option value="">{t('없음')}</option>}{state.profiles.map(p=><option value={p.id+'@'+p.version} key={p.id+'@'+p.version}>{p.id+'@'+p.version===state.defaultProfile?t('기본 음성 · VoxCPM2'):p.name}{p.id+'@'+p.version===state.defaultProfile?'':isReferenceProfile(p)?' · WAV':' · '+p.version}</option>)}</select></label>
+  </details>
+  <details className="voice-advanced" open={managed&&!install?.installed||install?.phase!==undefined&&install.phase!=='idle'}><summary>{t('음성 설치·고급 설정')}</summary>
   {reference&&<div className="voice-reference-info"><strong>{t('WAV 기준 클로닝 · 학습 없음')}</strong>{!reference.error&&<small>{t('기준 음성')}: {(reference.reference.durationMs/1000).toFixed(1)}s · {reference.reference.sampleRate}Hz · {t('모노')}</small>}<label>{t('음성 이름')}<input aria-label={t('음성 이름')} value={rename} maxLength={80} disabled={busy} onChange={e=>setRename(e.target.value)}/></label><button disabled={busy||!rename.trim()||rename.trim()===reference.name} onClick={()=>void act({type:'renameReference',profile:selected,name:rename})}>{t('이름 변경')}</button></div>}
+
   <SeedSettings state={state} act={act} busy={busy}/>
   <label>{t('재생 방식')}<select disabled={busy} aria-label={t('음성 실행 모드')} value={state.executionProfile||'baseline'} onChange={e=>void act({type:'executionProfile',value:e.target.value as ExecutionProfile})}>{(state.availableProfiles||[]).map(profile=><option key={profile} value={profile}>{{baseline:t('Windows 기준 · 완성 후 재생'),cached:t('Windows 캐시 · 청크 재생'),compiled:t('CUDA · 청크 재생'),'mps-fp32-baseline':t('이전 모드'),'mps-fp32':t('이전 모드'),'gguf-metal-f16':t('Metal · 청크 재생'),'gguf-metal-f16-complete':t('Metal · 완성 후 재생'),'cuda-compiled':t('CUDA · 청크 재생'),'cuda-compiled-complete':t('CUDA · 완성 후 재생')}[profile]}</option>)}</select></label>
   <small>{state.executionProfile?.endsWith('-complete')||state.executionProfile==='baseline'?t('각 발화 구간의 합성을 끝낸 뒤 재생합니다. 구간 사이에 대기 시간이 있을 수 있어요.'):t('음성이 만들어지는 동안 순서대로 재생합니다.')}</small>
-  <label><input disabled={busy} type="checkbox" checked={state.autoRead} onChange={e=>void act({type:'auto',value:e.target.checked})}/>{t('새 답변 자동 읽기')}</label>
-  <label>{t('음량')}<input disabled={busy} aria-label={t('음량')} type="range" min="0" max="1" step="0.05" value={state.volume} onChange={e=>void act({type:'volume',value:Number(e.target.value)})}/></label>
-  <button disabled={busy||!playbackReady||!state.enabled||!selected||!state.runtimeConfigured} onClick={()=>void act({type:'test'})}>{t('시험 재생')}</button>
-  {!playbackReady&&<small>{t('시험 재생은 캐릭터챗을 연 뒤 사용할 수 있어요.')}</small>}
-  <details className="voice-advanced" open={managed&&!install?.installed||install?.phase!==undefined&&install.phase!=='idle'}><summary>{t('음성 설치·고급 설정')}</summary>
+
    {install?.supported&&<div className="voice-install"><strong>{t('기본 음성 · VoxCPM2')}</strong><small>{t('학습 패키지 없이 사용할 수 있습니다.')} {t('여성 음색을 기본으로 사용하며, 문장에 따라 조금 달라질 수 있어요.')}</small><small>{t('다운로드 약')} {(install.total/1e9).toFixed(1)} GB · Apache-2.0</small>{state.availableProfiles?.includes('cuda-compiled')&&<small>{t('Python·PyTorch 실행 환경과 기본 모델을 함께 설치합니다. 여유 공간 30GB와 BF16 지원 NVIDIA GPU가 필요합니다.')}</small>}
     {install.phase!=='idle'?<><progress aria-label={t('기본 음성 설치 진행률')} value={install.bytes} max={install.total}/><span role="status">{t(install.phase==='preparing'?'설치 준비 중':install.phase==='verifying'?'파일 검증 중':install.phase==='installing'?'실행 환경 설치 중':'다운로드 중')} {install.total>0?Math.floor(install.bytes/install.total*100):0}%</span><button onClick={()=>void act({type:'cancelInstallBase'})}>{t('설치 중단')}</button></>:<button disabled={busy||install.installed} onClick={()=>void act({type:'installBase'})}>{t(install.installed?'기본 음성 설치됨':'기본 음성 설치')}</button>}
     {install.error&&<p role="alert">{t(errors[install.error]||'설치를 완료하지 못했습니다. 다시 시도해 주세요.')}</p>}
@@ -76,7 +78,7 @@ function SeedSettings({state,act,busy}:{state:VoiceSnapshot;act:(value:VoiceActi
 export function MessageVoiceControls({messageId}:{messageId:string}){
  const t=useT(),[state,setState]=useState<VoiceSnapshot|null>(null)
  useEffect(()=>{const api=window.characterVoice;if(!api)return;let live=true;const off=api.subscribe(s=>{if(live)setState(s)});void api.action({type:'snapshot'}).then(s=>{if(live)setState(s)}).catch(()=>{});return()=>{live=false;off()}},[])
- const result=state?.results?.[messageId],action=result?.cached?'replay':result?'reproduce':'read',label=result?.cached?'다시 듣기':result?'같은 조건으로 다시 합성':'읽기'
+ const result=state?.results?.[messageId],action=result?.cached?'replay':result?'reproduce':'read',label=result?'다시 듣기':'재생'
  const run=(type:'read'|'replay'|'reroll'|'reproduce')=>void window.characterVoice.action({type,messageId}).catch(()=>{})
- return <div className="message-voice-actions"><button disabled={!state?.enabled} aria-label={t(label)} onClick={()=>run(action)}>{t(label)}</button><button disabled={!state?.enabled} onClick={()=>run('reroll')}>{t('다른 시드로 다시 읽기')}</button><details><summary>{t('음성 생성 옵션')}</summary><button disabled={!state?.enabled} onClick={()=>run('read')}>{t('현재 설정으로 다시 합성')}</button>{result&&<small>{t('사용한 시드')}: {result.effectiveSeed} · {t(result.latestUnstored?'최신 결과 미보관':result.cached?'세션에 음성 보관 중':'음성 캐시 없음')}</small>}<small>{t('다시 합성해도 대화 내용은 바뀌지 않습니다. 음성 보관은 이 세션에서만 유지됩니다.')}</small></details></div>
+ return <div className="message-voice-actions"><button disabled={!state?.enabled} aria-label={t(label)} onClick={()=>run(action)}>{t(label)}</button><details><summary>{t('음성 옵션')}</summary><button disabled={!state?.enabled} onClick={()=>run('reroll')}>{t('다른 시드로 다시 읽기')}</button>{result&&<button disabled={!state?.enabled} onClick={()=>run('reproduce')}>{t('같은 조건으로 다시 합성')}</button>}<button disabled={!state?.enabled} onClick={()=>run('read')}>{t('현재 설정으로 다시 합성')}</button>{result&&<small>{t('사용한 시드')}: {result.effectiveSeed} · {t(result.latestUnstored?'최신 결과 미보관':result.cached?'세션에 음성 보관 중':'음성 캐시 없음')}</small>}<small>{t('다시 합성해도 대화 내용은 바뀌지 않습니다. 음성 보관은 이 세션에서만 유지됩니다.')}</small></details></div>
 }
