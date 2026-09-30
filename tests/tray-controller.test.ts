@@ -107,3 +107,17 @@ describe("tray language choice", () => {
     expect(menu.find(item => item.label === "Character")!.submenu[0].label).toBe("작업 중")
   })
 })
+
+describe("dot controls at the display edge", () => {
+  it.each(["ko", "en"] as const)("keeps session controls on the root menu in %s", async language => {
+    const { buildTrayMenu } = await import("../electron/main/TrayController")
+    const dotQuiet = vi.fn(), dotMuted = vi.fn(), dotCancel = vi.fn()
+    const menu = buildTrayMenu({ ...defaultDesktopSettings(), language }, { state: "READY", message: null, restartCount: 0 }, { dot: () => ({ quiet: false, muted: true }), dotQuiet, dotMuted, dotCancel } as never)
+    const pause = menu.find(i => i.label === (language === "ko" ? "표현 일시 중지" : "Pause presentation"))!
+    const mute = menu.find(i => i.label === (language === "ko" ? "음소거" : "Mute"))!
+    const stop = menu.find(i => i.label === (language === "ko" ? "현재 표현 중단" : "Stop current presentation"))!
+    expect(pause.submenu).toBeUndefined(); expect(mute.checked).toBe(true)
+    pause.click?.({} as never, {} as never, {} as never); mute.click?.({} as never, {} as never, {} as never); stop.click?.({} as never, {} as never, {} as never)
+    expect(dotQuiet).toHaveBeenCalledWith(true); expect(dotMuted).toHaveBeenCalledWith(false); expect(dotCancel).toHaveBeenCalledOnce()
+  })
+})

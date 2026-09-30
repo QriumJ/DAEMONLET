@@ -1,3 +1,8 @@
+import {BelleConnectionManager} from './dot/BelleConnectionManager'
+import {BelleConnectionMetadata} from './dot/BelleConnectionMetadata'
+import {BelleCredentialStore} from './dot/BelleCredentialStore'
+import {BelleTunnelRuntime} from './dot/BelleTunnelRuntime'
+import {BelleConnectionIpcController} from './dot/BelleConnectionIpcController'
 import {ChatSettingsIpcController} from './character-chat/ChatSettingsIpcController'
 import { CodexUsageService } from "./codex-usage/CodexUsageService"
 import { createCodexUsageReader } from "./codex-usage/CodexUsageReader"
@@ -9,7 +14,7 @@ import { CharacterTransitionTrace } from "./CharacterTransitionTrace"
 import { CharacterTransitions } from "./CharacterTransitions"
 import { CHARACTER_LOAD_REQUEST, parseCharacterLoadTicket, type CharacterLoadTicket } from "../shared/character-load"
 import { CHARACTER_LOAD_DIAGNOSTIC, parseCharacterLoadDiagnostic, type CharacterLoadDiagnostic } from "../shared/character-load-diagnostics"
-import { randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { PACK_UPDATE_IPC } from "../shared/pack-update-contract"
 declare const __APP_QA__: boolean
 import { RELEASE_ROOT } from "./updates/ReleasePolicy"
@@ -63,6 +68,9 @@ import { createActivityClient } from "./activity/createActivityClient"
 import { CodexAppLauncher } from "./activity/CodexAppLauncher"
 import { ActivityWindowController } from "./ActivityWindowController"
 import { ActivityBubbleWindowController } from "./ActivityBubbleWindowController"
+import {DotPresentationService} from './dot/DotPresentationService'
+import {DotBridgeServer,dotBridgeConfig} from './dot/DotBridgeServer'
+import {DOT_IPC} from '../shared/dot-presentation'
 import { BubblePresentationIpcController } from "./BubblePresentationIpcController"
 import { TaskControlIpcController } from "./TaskControlIpcController"
 import { CodexThreadLauncher } from "./control/CodexThreadLauncher"
@@ -108,6 +116,13 @@ export class AppController {
   private readonly activityBubble: ActivityBubbleWindowController
   private readonly activityIpc: ActivityIpcController
   private readonly bubbleIpc: BubblePresentationIpcController
+  private dot:DotPresentationService|null=null
+  private dotServer:DotBridgeServer|null=null
+  private readonly belleConnection:BelleConnectionManager
+  private readonly belleConnectionIpc:BelleConnectionIpcController
+  private dotSubscriptions:Array<()=>void>=[]
+  private dotReady=false
+  private dotIpcRegistered=false
   private readonly taskControl = new TaskControlService()
   private readonly dictation: DictationService
   private readonly taskControlIpc: TaskControlIpcController
@@ -159,7 +174,7 @@ export class AppController {
   private readonly smokeReadyCharacters = new Set<string>()
 
   constructor(private readonly dirname: string, private readonly characters: CharacterRegistry, private readonly setupSmoke?: SetupSmokeContext, private readonly startup?: StartupWindow, updateSmoke?: Partial<ConstructorParameters<typeof UpdateService>[0]>) {
-    this.characterChat = new CharacterChatWindow(dirname, characters, this.devServerUrl, {pet:()=>this.pet.window,reveal:()=>this.showPet(),active:value=>{this.activityBubble.setLocalChatVisible(value);if(value){this.chatEntry.cancel();this.sideChat.setMode("hidden")}},select:entry=>this.selectCharacter(entry),selected:()=>this.settings.characterId,openSettings:()=>{const win=this.settingsWindow.open();const show=()=>{if(!win.isDestroyed())win.webContents.send('chat-settings.open')};if(win.webContents.isLoading())win.webContents.once('did-finish-load',show);else show()}})
+    this.characterChat = new CharacterChatWindow(dirname, characters, this.devServerUrl, {pet:()=>this.pet.window,reveal:()=>this.showPet(),active:value=>{if(value)void this.dot?.cancel();this.activityBubble.setLocalChatVisible(value);if(value){this.chatEntry.cancel();this.sideChat.setMode("hidden")}},select:entry=>this.selectCharacter(entry),selected:()=>this.settings.characterId,openSettings:()=>{const win=this.settingsWindow.open();const show=()=>{if(!win.isDestroyed())win.webContents.send('chat-settings.open')};if(win.webContents.isLoading())win.webContents.once('did-finish-load',show);else show()}})
     this.adapterConfig = createDesktopAdapterRuntimeConfig()
     this.protocol = new ProtocolBridge(this.adapterConfig.protocolEndpoint)
     const preload = (name: string) => join(dirname, `${name}-preload.cjs`)
@@ -185,7 +200,7 @@ export class AppController {
       devServerUrl: this.devServerUrl,
       onBoundsChanged: (bounds) => this.captureBounds(bounds),
       onWarning: (message) => this.warn(message),
-      onRendererReset: () => { this.personaGeneration++; this.transitions.retire() },
+      onRendererReset: () => { this.dotReady=false;void this.dot?.cancel();this.personaGeneration++; this.transitions.retire() },
       onCloseRequested: () => { if (!this.quitting) this.updateSettings({ visible: false }) },
       onContextMenu: (window) => { this.tray.popup(window) },
     })
@@ -244,6 +259,21 @@ export class AppController {
       ...(__APP_QA__ ? updateSmoke : {}),
     })
     this.updateIpc = new UpdateIpcController(this.updates, this.settingsWindow, this.devServerUrl)
+    this.belleConnection=new BelleConnectionManager({
+      store:new BelleCredentialStore(join(app.isPackaged?process.resourcesPath:dirname,'native/DaemonletBelleCredential')),
+      metadata:new BelleConnectionMetadata(app.getPath('userData')),
+      runtime:new BelleTunnelRuntime(join(app.isPackaged?process.resourcesPath:dirname,'dot/dot-presentation-mcp.mjs')),
+      external:process.env.DAEMONLET_DOT_BRIDGE==='1',
+      bridge:{start:async signal=>{
+        if(this.quitting||this.updatePreparing)throw Error('SHUTTING_DOWN')
+        const token=randomBytes(32).toString('hex'),port=await this.startDotBridge({token,port:0})
+        if(!port)throw Error('LOCAL_NOT_READY')
+        for(let i=0;i<90&&!this.dotReady&&!signal.aborted;i++)await new Promise(r=>setTimeout(r,500))
+        if(signal.aborted||!this.dotReady)throw Error('LOCAL_NOT_READY')
+        return {port,token}
+      },stop:async()=>this.stopDotBridge()},
+    })
+    this.belleConnectionIpc=new BelleConnectionIpcController(this.belleConnection,this.settingsWindow,this.devServerUrl)
     this.settingsIpc = new SettingsIpcController({
       window: this.settingsWindow, integration: this.integration, devServerUrl: this.devServerUrl,
       getSettings: () => this.settings, updateSettings: (patch) => this.updateSettings(patch),
@@ -295,6 +325,7 @@ export class AppController {
     denyAllPermissions(session.defaultSession)
     this.registerIpc()
     this.settingsIpc.register()
+    this.belleConnectionIpc.register()
     this.updateIpc.register()
     const updateRecovery = await this.updates.start()
     await this.packUpdates.start()
@@ -372,6 +403,8 @@ export class AppController {
     powerMonitor.on("shutdown", this.onSystemShutdown)
     app.once("will-quit", this.onFinalQuit)
     this.pet.window?.on("query-session-end", this.onSystemShutdown)
+    await this.startDotBridge()
+    await this.belleConnection.initialize()
     if (await this.integration.start() && !process.argv.includes("--character-chat")) this.settingsWindow.open()
     // start() loads the saved provider without emitting a settings event.
     this.configureCodexUsage()
@@ -450,7 +483,7 @@ export class AppController {
       buttons: [appText("취소"), appText(running ? "자식 중단 및 재시작" : "업데이트 및 재시작")], defaultId: 0, cancelId: 0 })
     if (answer.response !== 1) return false
     if (this.osEnding || this.quitting || (!this.characters.readyForUpdate() || !this.packUpdates.readyForUpdate() || this.transitions.busy || this.selectionIntent !== null)) throw Error(this.osEnding ? "OS_SHUTDOWN" : "PACK_BUSY")
-    this.updatePreparing = true; setApplicationInputLocked(true); this.rebuildTray()
+    await this.dot?.cancel();this.updatePreparing = true; setApplicationInputLocked(true); this.rebuildTray()
     return true
   }
 
@@ -506,6 +539,8 @@ export class AppController {
     this.residentDock?.dispose(); this.residentDock = null
     if (this.settingsPoll) clearInterval(this.settingsPoll)
     this.settingsPoll = null
+    await this.belleConnection.close();this.belleConnectionIpc.dispose()
+    await this.stopDotBridge()
     this.chatSettingsIpc.dispose()
     await this.characterChat.dispose()
     await usageStopped
@@ -527,6 +562,7 @@ export class AppController {
     await Promise.allSettled([this.store.save(this.savedSettings()), this.adapter.stop(true), this.characters.dispose()])
     this.protocol.dispose()
     this.pet.destroy()
+    if(this.dotIpcRegistered){ipcMain.removeHandler(DOT_IPC.get);ipcMain.removeHandler(DOT_IPC.ready);this.dotIpcRegistered=false}
     this.lab.destroy()
     this.tray.destroy()
     await this.characterTrace.flush()
@@ -539,6 +575,9 @@ export class AppController {
   }
 
   private registerIpc(): void {
+    ipcMain.handle(DOT_IPC.get,event=>{if(!isTrustedSender(event,this.pet.window,'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.dot?.snapshot()??null})
+    ipcMain.handle(DOT_IPC.ready,(event,value:unknown)=>{if(this.quitting)return;if(!isTrustedSender(event,this.pet.window,'pet',this.devServerUrl)||typeof value!=='boolean')throw Error('UNTRUSTED_SENDER');this.dotReady=value;if(this.dot)this.characterChat.voice.presentationReady(value);if(!value)void this.dot?.cancel()})
+    this.dotIpcRegistered=true
     const trustedPet = (event: IpcMainInvokeEvent | IpcMainEvent) => isTrustedSender(event, this.pet.window, "pet", this.devServerUrl)
     const trustedProtocol = (event: IpcMainInvokeEvent | IpcMainEvent) => isTrustedProtocolSender(event, this.pet.window, this.lab.window, this.devServerUrl)
     const requirePet = (event: IpcMainInvokeEvent | IpcMainEvent) => { if (!trustedPet(event)) throw new Error("untrusted IPC sender") }
@@ -609,12 +648,14 @@ export class AppController {
   }
 
   private setLayoutMode(enabled: boolean): void {
+    if(enabled)void this.dot?.cancel()
     this.petDrag.cancel()
     this.activityBubble.setLayoutMode(enabled)
     this.pet.setLayoutMode(enabled)
   }
 
   private updateSettings(patch: DesktopSettingsPatch, recovery?: CharacterLoadTicket): DesktopSettingsV1 {
+    if(patch.characterId||patch.visible===false||patch.speechBubblesEnabled===false)void this.dot?.cancel()
     if (patch.characterId && this.packApplyTarget && patch.characterId !== this.packApplyTarget && !(recovery && this.transitions.matches(recovery) && this.transitions.current?.phase === "failed")) throw Error("PACK_BUSY")
     if (!applicationInputAllowed()) return structuredClone(this.settings)
     if (patch.visible === false || patch.characterId !== undefined) { this.placementOpening?.abort(); this.activityBubble.cancelPlacement() }
@@ -808,8 +849,42 @@ export class AppController {
     this.rebuildTray()
   }
 
+  private async startDotBridge(requested?:{token:string;port:number}){
+    if(this.dotServer)throw Error("EXTERNAL_SESSION")
+    let config:ReturnType<typeof dotBridgeConfig>
+    try{config=requested??dotBridgeConfig(process.env)}catch{this.warn('dot 브리지 설정을 확인해 주세요.');return}
+    if(!config)return
+    try{await this.characterChat.initializeSettings()}catch{this.warn('dot 브리지 설정을 확인해 주세요.');return}
+    const pet=this.pet.window;if(!pet)return
+    this.characterChat.voice.attachPresentationWindow(pet)
+    this.dot=new DotPresentationService(()=>{
+      const selected=this.characters.get(this.settings.characterId),chat=this.characterChat.service.snapshot()
+      if(this.quitting||this.updatePreparing||!this.dotReady||!selected||selected.status!=='ready'||!this.settings.visible||!this.settings.speechBubblesEnabled||this.characterChat.window||this.sideChat.snapshot().mode!=="hidden"||this.lab.window||this.pet.getMousePolicy().layoutMode||this.transitions.busy||!pet.isVisible()||chat.character?.id!==selected.id||chat.character.revision!==selected.revision)return null
+      return {characterId:selected.id,revision:selected.revision,definition:this.characterChat.service.definition}
+    },frame=>this.pet.send(DOT_IPC.changed,frame),(text,signal)=>this.characterChat.voice.speakPresentation(text,signal),()=>this.characterChat.voice.stopPresentation(),()=>this.rebuildTray(),()=>this.characterChat.voice.presentationVoiceIssue())
+    const cancel=()=>{void this.dot?.cancel()};pet.on('hide',cancel)
+    this.dotSubscriptions.push(()=>pet.removeListener('hide',cancel),this.sideChat.subscribe(()=>{if(this.sideChat.snapshot().mode!=="hidden")cancel()}),this.characters.subscribe(cancel),this.characterChat.service.subscribe(()=>{const frame=this.dot?.snapshot(),s=this.characterChat.service.snapshot();if(frame&&(frame.characterId!==s.character?.id||frame.revision!==s.character?.revision))cancel()}))
+    this.dotServer=new DotBridgeServer(this.dot)
+    let port:number
+    try{port=await this.dotServer.start(config)}catch{await this.dot.close();this.dot=null;this.dotServer=null;this.warn('dot 브리지 포트를 열지 못했습니다. 설정과 포트 사용을 확인해 주세요.');for(const off of this.dotSubscriptions.splice(0))off();return}
+    this.rebuildTray()
+    // Renderer may have reported before IPC registration; request a fresh readiness handshake.
+    this.pet.send(DOT_IPC.changed,null)
+    return port
+  }
+
+  private async stopDotBridge(){
+    // A settings manager must never tear down the independently launched legacy helper.
+    if(process.env.DAEMONLET_DOT_BRIDGE==='1'&&!this.quitting)return
+    for(const off of this.dotSubscriptions.splice(0))off()
+    await this.dotServer?.close();this.dotServer=null
+    await this.dot?.close();this.dot=null
+    this.rebuildTray()
+  }
+
   private trayActions(): TrayActions {
     return {
+      ...(this.dot?{dot:()=>({quiet:this.dot!.quiet,muted:this.dot!.muted}),dotQuiet:(value:boolean)=>{void this.dot!.setQuiet(value)},dotMuted:(value:boolean)=>{void this.dot!.setMuted(value)},dotCancel:()=>{void this.dot!.cancel()}}:{}),
       inputLocked: () => this.updatePreparing || this.quitting || this.packUpdates.applying(),
       checkUpdates: () => { this.updateIpc.open(); void this.updates.act({ action: "check" }) },
       activity: () => this.activity.snapshot(),
@@ -953,6 +1028,15 @@ export class AppController {
     const { runActivitySmoke, runActivityRestoreSmoke } = await import("./ActivitySmoke")
     const { runRestartDetectionSmoke } = await import("./RestartDetectionSmoke")
     const { runResultOpenSmoke } = await import("./ResultOpenSmoke")
+    if(process.env.ELECTRON_SMOKE_DOT==='1'){
+      if(this.smokeFinishing)return;this.smokeFinishing=true
+      try{for(let i=0;i<100&&!this.dotReady;i++)await new Promise(r=>setTimeout(r,50))
+        const {runDotBridgeUiSmoke}=await import('./dot/DotBridgeUiSmoke')
+        const result=await runDotBridgeUiSmoke(this.pet.window!,this.activityBubble,()=>this.dot!,enabled=>this.setLayoutMode(enabled),this.activityWindow,this.taskControl)
+        await writeFile(resolve(process.env.ELECTRON_SMOKE_RESULT!),JSON.stringify(result)+'\n')
+      }catch(e){await writeFile(resolve(process.env.ELECTRON_SMOKE_RESULT!),JSON.stringify({passed:false,error:e instanceof Error?e.message:'DOT_SMOKE'})+'\n')}
+      await this.quit();return
+    }
     if (this.smokeFinishing) return
     this.smokeFinishing = true
     for (let attempt = 0; attempt < 150; attempt++) {

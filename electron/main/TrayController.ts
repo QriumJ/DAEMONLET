@@ -32,6 +32,10 @@ export function intersectsDisplay(bounds: Rectangle, displays: Rectangle[]): boo
 }
 
 export type TrayActions = {
+  dot?():{quiet:boolean;muted:boolean}
+  dotQuiet?(value:boolean):void
+  dotMuted?(value:boolean):void
+  dotCancel?():void
   activity?(): ActivitySnapshot
   openActivity?(): void
   openTaskControl?(): void
@@ -65,6 +69,11 @@ export function buildTrayMenu(settings: DesktopSettingsV1, adapter: AdapterStatu
     ] : []),
     ...(actions.openCharacterChat ? [{ label: t("캐릭터챗 · 로컬"), click: actions.openCharacterChat }] : []),
     ...(actions.openSideChat ? [{ label: t("캐릭터와 대화"), click: actions.openSideChat }] : []),
+    ...(actions.dot?.() ? [{type:'separator' as const},{label:t('dot 표현 · 현재 세션'),enabled:false},
+      {label:t('표현 일시 중지'),type:'checkbox' as const,checked:actions.dot!().quiet,click:()=>actions.dotQuiet?.(!actions.dot!().quiet)},
+      {label:t('음소거'),type:'checkbox' as const,checked:actions.dot!().muted,click:()=>actions.dotMuted?.(!actions.dot!().muted)},
+      {label:t('현재 표현 중단'),click:actions.dotCancel},
+    {type:'separator' as const}] : []),
     { type: "separator" },
     { label: t("캐릭터 이동·크기 조절"), click: () => actions.setLayout(true) },
     { label: t("위치 초기화"), click: actions.resetPosition },

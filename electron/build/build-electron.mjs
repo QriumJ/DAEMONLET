@@ -78,6 +78,9 @@ await writeFile(resolve(outdir, "build-mode.json"), `${JSON.stringify({ schemaVe
 await writeFile(resolve(outdir, "app-update.yml"), JSON.stringify({ provider: "github", owner: "ddol2ya", repo: "DAEMONLET", private: false, updaterCacheDirName: "daemonlet-for-codex-updater" }) + "\n")
 
 await import("./build-dictation.mjs")
+await import("./build-belle-credential.mjs")
+await mkdir(resolve(outdir,"dot"),{recursive:true})
+for(const file of ["dot-presentation-mcp.mjs","belle-tunnel-supervisor.mjs"])await copyFile(resolve(root,"scripts",file),resolve(outdir,"dot",file))
 await import("./build-hook-host.mjs")
 await import("../../scripts/release/stage-notices.mjs")
 

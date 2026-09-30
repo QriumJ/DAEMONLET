@@ -1,3 +1,4 @@
+import {DOT_IPC} from '../../shared/dot-presentation'
 import {appText,appLanguage} from '../AppLanguage'
 import {settingsContext,VOICE_MANAGEMENT_ACTIONS,type VoiceManagementAction} from '../../shared/chat-settings-contract'
 import {join,dirname} from 'node:path'
@@ -12,6 +13,33 @@ import {CharacterVoiceService} from './CharacterVoiceService'
 export class VoiceIpcController {
  readonly service:CharacterVoiceService
  private initialized:Promise<void>|null=null
+ private petOutput:BrowserWindow|null=null
+ private petReady=false
+ private presentationOutput=false
+ private presentationGeneration=0
+ attachPresentationWindow(win:BrowserWindow){
+  this.petOutput=win
+  const reset=()=>{this.petReady=false;if(this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
+  win.on('hide',reset);win.on('closed',reset);win.webContents.on('did-start-loading',reset);win.webContents.on('render-process-gone',reset)
+  ipcMain.handle(DOT_IPC.volume,event=>{if(!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.service.snapshot().volume})
+  ipcMain.handle(DOT_IPC.voiceAction,async(event,v:VoiceAction)=>{
+   if(!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||!v||!['played','scheduled','outputStopped'].includes(v.type)||!this.presentationOutput)throw Error('UNTRUSTED_SENDER')
+   await this.action(v);return {epoch:this.service.snapshot().epoch} // no history/settings projection
+  })
+  ipcMain.handle(DOT_IPC.audio,(event,id:unknown,epoch:unknown)=>{
+   if(!this.presentationOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||typeof id!=='string'||id.length!==36||!Number.isSafeInteger(epoch))throw Error('UNTRUSTED_AUDIO')
+   return this.service.audio(id,epoch as number)
+  })
+ }
+ presentationReady(value:boolean){this.petReady=value;if(!value&&this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
+ presentationVoiceIssue(){const s=this.service.snapshot();return !this.petReady||!s.enabled||!s.runtimeConfigured||s.seedError||!s.availableProfiles?.length||!!s.error}
+ async speakPresentation(text:string,signal:AbortSignal){
+  if(this.playbackReady||!this.petOutput||this.petOutput.isDestroyed()||!this.petOutput.isVisible()||this.presentationVoiceIssue())throw Error('VOICE_PRESENTATION_UNAVAILABLE')
+  const generation=++this.presentationGeneration;this.presentationOutput=true;this.service.setOutputReady(true)
+  try{await this.service.speakPresentation(text,signal)}finally{if(generation===this.presentationGeneration)await this.stopPresentation()}
+ }
+ async stopPresentation(){const generation=++this.presentationGeneration;if(this.presentationOutput){try{await this.service.stop(true,false)}finally{if(generation===this.presentationGeneration){this.presentationOutput=false;this.service.setOutputReady(false);this.updateOutput()}}}}
+
  private managementListeners=new Set<()=>void>()
  subscribeManagement(listener:()=>void){this.managementListeners.add(listener);return()=>{this.managementListeners.delete(listener)}}
  get playbackReady(){const win=this.window();return !this.closing&&!!win&&win===this.attached&&!win.isDestroyed()&&!win.webContents.isDestroyed()&&win.isVisible()&&this.rendererReady}
@@ -47,9 +75,9 @@ export class VoiceIpcController {
  private publishManagement(){for(const listener of this.managementListeners){try{listener()}catch{}}}
  private send(channel:string,value:unknown){
   if(channel===VOICE_IPC.changed)this.publishManagement()
-  const win=this.window()
+  const win=this.presentationOutput?this.petOutput:this.window()
   if(win&&!win.isDestroyed()&&!win.webContents.isDestroyed()){
-   try{win.webContents.send(channel,value)}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}
+   try{win.webContents.send(this.presentationOutput?(channel===VOICE_IPC.event?DOT_IPC.voiceEvent:DOT_IPC.volumeChanged):channel,this.presentationOutput&&channel===VOICE_IPC.changed?(value as any).volume:value)}catch{console.warn('[voice] VOICE_NOTIFICATION_FAILED')}
   }
  }
  attachWindow(win:BrowserWindow){
@@ -141,7 +169,7 @@ export class VoiceIpcController {
   this.rendererReady=false
   if(this.referencePicker)this.referencePicker.cancelled=true
   this.managementListeners.clear()
-  const work=[()=>ipcMain.removeHandler(VOICE_IPC.action),()=>ipcMain.removeHandler(VOICE_IPC.audio),...this.detach,()=>this.service.close()]
+  const work=[()=>ipcMain.removeHandler(DOT_IPC.volume),()=>ipcMain.removeHandler(DOT_IPC.voiceAction),()=>ipcMain.removeHandler(DOT_IPC.audio),()=>ipcMain.removeHandler(VOICE_IPC.action),()=>ipcMain.removeHandler(VOICE_IPC.audio),...this.detach,()=>this.service.close()]
   this.detach=[]
   this.closing=Promise.allSettled(work.map(fn=>Promise.resolve().then(fn))).then(results=>{
    if(results.some(r=>r.status==='rejected'))throw Error('VOICE_CLOSE_FAILED')

@@ -71,6 +71,7 @@ export const SETUP_IPC = {
 export type SetupResponse<T> = { ok: true; value: T } | { ok: false; code: string }
 
 export interface SettingsDesktopApi {
+  belleConnection?: import("./belle-connection").BelleConnectionApi
   setBubblePlacement(action: "adjust" | "auto" | "reset"): Promise<void>
   packUpdates: import("./pack-update-contract").PackUpdateApi
   characters: CharacterManageApi

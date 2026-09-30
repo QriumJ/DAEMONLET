@@ -1,3 +1,4 @@
+import {BelleConnectionPage} from './BelleConnectionPage'
 import {ChatVoicePage} from './ChatVoicePage'
 import { UpdatesPage } from "./UpdatesPage"
 import { useT } from "../i18n/useLanguage"
@@ -10,7 +11,7 @@ import { DiagnosticsPage } from "./DiagnosticsPage"
 import { reasonText } from "./labels"
 
 export type SettingsPageProps = { api: SettingsDesktopApi; status: PublicSetupStatus; run: <T>(label: string, task: () => Promise<T>) => Promise<T | undefined>; busy: string | null }
-const tabs = [{ id: "connection", label: "Codex 연결", glyph: "◎" }, { id: "appearance", label: "캐릭터·표시", glyph: "◇" }, { id: "chat", label: "대화·음성", glyph: "♫" }, { id: "updates", label: "업데이트", glyph: "↓" }, { id: "diagnostics", label: "진단", glyph: "≡" }] as const
+const tabs = [{ id: "connection", label: "Codex 연결", glyph: "◎" }, { id: "belle", label: "벨 연결", glyph: "✦" }, { id: "appearance", label: "캐릭터·표시", glyph: "◇" }, { id: "chat", label: "대화·음성", glyph: "♫" }, { id: "updates", label: "업데이트", glyph: "↓" }, { id: "diagnostics", label: "진단", glyph: "≡" }] as const
 
 export function SettingsApp() {
   const t = useT()
@@ -69,6 +70,7 @@ export function SettingsApp() {
       {!api ? <div className="empty-state"><h1>{t("Daemonlet 앱에서 열어 주세요")}</h1><p>{t("설정은 앱의 메뉴 막대 → 설정에서 사용할 수 있습니다.")}</p></div>
         : !status || !settings ? <div className="empty-state" role="status">{t("설정 불러오는 중…")}</div>
         : tab === "connection" ? <ConnectionPage api={api} status={status} run={run} busy={busy} />
+        : tab === "belle" ? <BelleConnectionPage api={api.belleConnection} />
         : tab === "appearance" ? <AppearancePage api={api} status={status} run={run} busy={busy} settings={settings} />
         : tab === "chat" ? <ChatVoicePage manageCharacters={()=>setTab("appearance")} />
         : tab === "updates" ? <UpdatesPage api={api} status={status} run={run} busy={busy} settings={settings} />

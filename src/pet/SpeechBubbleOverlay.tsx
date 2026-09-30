@@ -11,9 +11,10 @@ import { SpeechOutlineSampler } from "./SpeechOutlineSampler"
 import type { SpeechOutline } from "../../electron/shared/speech-outline"
 import { fitSpeechBubbleSize } from "./SpeechBubbleSize"
 
-type Layout = BubblePosition & { fontSize: number; outline?: SpeechOutline; measuredText?: string | null }
+type Layout = BubblePosition & { fontSize: number; outline?: SpeechOutline; measuredText?: string | null; dotSequence?: number }
 
-export function SpeechBubbleOverlay({ snapshot, runtime, canvasRef, available = true, characterEpoch = 0, controller }: {
+export function SpeechBubbleOverlay({ snapshot, runtime, canvasRef, available = true, characterEpoch = 0, controller, dotSequence }: {
+  dotSequence?: number
   available?: boolean
   characterEpoch?: number
   controller?: CharacterDialogueController
@@ -57,8 +58,8 @@ export function SpeechBubbleOverlay({ snapshot, runtime, canvasRef, available = 
         if (!outline) { bubble.style.maxWidth = previousMaxWidth; return }
         // This element only measures authored text. The desktop companion owns
         // its display area, so neither wrapping nor font size follows Pet scale.
-        nativeSize ??= fitSpeechBubbleSize(bubble, naturalWidth)
-        const next: Layout = { x: 0, y: 0, ...nativeSize, side: "right", tailX: 14, tailY: 14, fontSize, outline, measuredText: snapshot.text }
+        nativeSize ??= dotSequence ? { width: 240, height: 140 } : fitSpeechBubbleSize(bubble, naturalWidth)
+        const next: Layout = { x: 0, y: 0, ...nativeSize, side: "right", tailX: 14, tailY: 14, fontSize, outline, measuredText: snapshot.text, ...(dotSequence ? { dotSequence } : {}) }
         bubble.style.maxWidth = previousMaxWidth
         setLayout(old => old && Object.keys(next).every(key => old[key as keyof Layout] === next[key as keyof Layout]) ? old : next)
         return
@@ -89,7 +90,7 @@ export function SpeechBubbleOverlay({ snapshot, runtime, canvasRef, available = 
     const unsubscribe = runtime.subscribe(scheduleMeasure)
     const timer = window.setInterval(scheduleMeasure, 150)
     return () => { window.clearInterval(timer); observer.disconnect(); unsubscribe(); if (measurementFrame !== null) cancelAnimationFrame(measurementFrame) }
-  }, [canvasRef, runtime, snapshot.visible, snapshot.text, available, characterEpoch, native])
+  }, [canvasRef, runtime, snapshot.visible, snapshot.text, available, characterEpoch, native, dotSequence])
 
   if (!controller && (!snapshot.visible || !snapshot.text)) return null
   const style = {

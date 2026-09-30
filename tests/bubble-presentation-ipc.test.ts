@@ -10,14 +10,14 @@ afterEach(() => { mocks.handlers.clear(); mocks.listeners.clear() })
 function fixture() {
   const window = (role: string) => {
     const frame = { url: `pet://app/${role}.html`, processId: 1, routingId: 2 }
-    const webContents = { id: role === "pet" ? 1 : 2, mainFrame: frame }
+    const webContents = { id: role === "pet" ? 1 : role === "speech-bubble" ? 3 : 2, mainFrame: frame }
     return { win: { isDestroyed: () => false, webContents } as unknown as BrowserWindow, sender: { sender: webContents, senderFrame: frame }, frame }
   }
-  const pet = window("pet"), activity = window("activity-bubble")
-  const bubble = { petWindow: pet.win, window: activity.win, placementSnapshot: vi.fn(() => ({ editing: true, revision: 1 })), placementAction: vi.fn(() => ({ ok: true })), presentation: { begin: vi.fn(() => 1), report: vi.fn(() => Promise.resolve({ granted: true })), setInteractionLocked: vi.fn() }, setInteractionLocked: vi.fn(), setPointerInteractive: vi.fn(), setContentHeight: vi.fn() }
+  const pet = window("pet"), activity = window("activity-bubble"), speech = window("speech-bubble")
+  const bubble = { speech: { window: speech.win, setContentSize: vi.fn(), setPointerInteractive: vi.fn() }, petWindow: pet.win, window: activity.win, placementSnapshot: vi.fn(() => ({ editing: true, revision: 1 })), placementAction: vi.fn(() => ({ ok: true })), presentation: { begin: vi.fn(() => 1), report: vi.fn(() => Promise.resolve({ granted: true })), setInteractionLocked: vi.fn() }, setInteractionLocked: vi.fn(), setPointerInteractive: vi.fn(), setContentHeight: vi.fn() }
   let at = 0
   const ipc = new BubblePresentationIpcController(bubble as unknown as ActivityBubbleWindowController, undefined, () => at); ipc.register()
-  return { bubble, pet, activity, ipc, advance: () => { at += 1000 } }
+  return { bubble, pet, activity, speech, ipc, advance: () => { at += 1000 } }
 }
 const report = { epoch: 1, sequence: 1, available: true, phase: "preparing", anchor: { x0: .3, y0: .05, x1: .7, y1: .35 } }
 describe("narrow presentation IPC", () => {
@@ -57,4 +57,15 @@ describe("narrow presentation IPC", () => {
     lock(f.activity.sender, true, true); expect(f.bubble.setInteractionLocked).toHaveBeenCalledExactlyOnceWith(true, true)
     f.ipc.dispose(); expect(mocks.handlers.size + mocks.listeners.size).toBe(0)
   })
+})
+
+it("restricts dot sizing and hover to the exact speech frame without settings/task actions", () => {
+  const f = fixture(), size = mocks.listeners.get(BUBBLE_IPC.speechSize)!, pointer = mocks.listeners.get(BUBBLE_IPC.speechPointer)!
+  const value = { sequence: 7, width: 480, height: 400, expanded: true }
+  for (const sender of [f.pet.sender, f.activity.sender, { ...f.speech.sender, senderFrame: { ...f.speech.frame } }]) { size(sender, value); pointer(sender, 7, true) }
+  size(f.speech.sender, value, "extra"); pointer(f.speech.sender, 7, "true")
+  expect(f.bubble.speech.setContentSize).not.toHaveBeenCalled(); expect(f.bubble.speech.setPointerInteractive).not.toHaveBeenCalled()
+  size(f.speech.sender, value); pointer(f.speech.sender, 7, true)
+  expect(f.bubble.speech.setContentSize).toHaveBeenCalledExactlyOnceWith(value); expect(f.bubble.speech.setPointerInteractive).toHaveBeenCalledExactlyOnceWith(7, true)
+  f.ipc.dispose(); expect(mocks.listeners.size).toBe(0)
 })

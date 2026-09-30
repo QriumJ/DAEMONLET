@@ -17,7 +17,7 @@ export class AudioPlaybackController {
  private queued=0
  private streams=new Map<string,{index:number;offset:number;segment:number}>()
  private lastSegment=-1
- constructor(private api:VoiceApi,private createContext=()=>new AudioContext({sampleRate:48000})){}
+ constructor(private api:Pick<VoiceApi,'action'|'audio'>,private createContext=()=>new AudioContext({sampleRate:48000})){}
  setVisible(value:boolean){this.visible=value;if(!value)this.stop()}
  setVolume(value:number){this.volume=value;if(this.gain)this.gain.gain.value=value}
  stop(){++this.generation;for(const source of this.sources){source.onended=null;try{source.stop()}catch{}source.disconnect()}this.sources.clear();this.source=null;this.nextTime=0;this.streaming=false;this.queued=0;this.streams.clear();this.lastSegment=-1;this.decoding=Promise.resolve()}

@@ -26,13 +26,14 @@ function fixture() {
 }
 function exitFixture(c: any, disposePack: () => Promise<void> = async () => {}) {
   const disposedChat = vi.fn(async () => {}), disposedRegistry = vi.fn(async () => {})
-  for (const name of ["codexUsage", "codexUsageIpc", "chatSettingsIpc", "characterChat", "sideChatIpc", "activityIpc", "bubbleIpc", "taskControlIpc", "settingsIpc", "updateIpc", "packUpdateIpc", "characterIpc", "activityTitles", "protocol"]) c[name] = { dispose: vi.fn() }
+  for (const name of ["codexUsage", "codexUsageIpc", "belleConnectionIpc", "chatSettingsIpc", "characterChat", "sideChatIpc", "activityIpc", "bubbleIpc", "taskControlIpc", "settingsIpc", "updateIpc", "packUpdateIpc", "characterIpc", "activityTitles", "protocol"]) c[name] = { dispose: vi.fn() }
   for (const name of ["settingsWindow", "activityWindow", "pet", "lab", "tray"]) c[name] = { destroy: vi.fn() }
   Object.assign(c, { sideChat: { dispose: disposedChat }, petDrag: { cancel: vi.fn() }, chatEntry: { cancel: vi.fn() },
     activityBubble: { cancelPlacement: vi.fn(), destroy: vi.fn() }, updates: { dispose: vi.fn(), stopBackgroundChecks: vi.fn() }, subscriptions: [],
     activity: { dispose: vi.fn(async () => {}) }, integration: { dispose: vi.fn(async () => {}) },
     adapter: { stop: vi.fn(async () => {}) }, store: { save: vi.fn(async () => {}) }, characterTrace: { flush: vi.fn(async () => {}) },
     packUpdates: { dispose: vi.fn(disposePack) },
+    belleConnection: { close: vi.fn(async () => {}) }, dotSubscriptions: [], rebuildTray: vi.fn(),
   })
   c.characters.dispose = disposedRegistry
   return { disposedChat, disposedRegistry }
@@ -50,6 +51,21 @@ describe("Main character failure recovery", () => {
       expect(c.packUpdates.dispose).toHaveBeenCalledOnce()
       expect(nativeQuitFinished).toBe(false)
     } finally { finishPack(); await preparingUpdate; await nativeQuit }
+  })
+  it("waits for owned Belle connection shutdown before destroying settings and character windows", async () => {
+    const { controller: c } = fixture()
+    exitFixture(c)
+    let release!: () => void
+    c.belleConnection.close.mockImplementation(() => new Promise<void>(resolve => { release = resolve }))
+    const exiting = c.cleanupForExit()
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"))
+    expect(c.settingsWindow.destroy).not.toHaveBeenCalled()
+    expect(c.pet.destroy).not.toHaveBeenCalled()
+    release(); await exiting
+    expect(c.belleConnection.close).toHaveBeenCalledOnce()
+    expect(c.belleConnectionIpc.dispose).toHaveBeenCalledOnce()
+    expect(c.settingsWindow.destroy).toHaveBeenCalledOnce()
+    expect(c.pet.destroy).toHaveBeenCalledOnce()
   })
   it("retires readiness and waits for pack cleanup before destroying chat, windows or registry", async () => {
     const f = fixture(), c = f.controller

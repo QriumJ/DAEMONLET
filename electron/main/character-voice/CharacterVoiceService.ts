@@ -232,7 +232,18 @@ export class CharacterVoiceService {
  }
  readMessage(id:string,mode:'read'|'replay'|'reroll'|'reproduce'='read'){const m=this.chat().conversation?.messages.find(m=>m.id===id);if(!m)throw Error('VOICE_MESSAGE');void this.read(m,false,false,mode).catch(e=>this.error(e))}
  test(){const chat=this.chat(),character=chat.character;if(!character)throw Error('VOICE_CHARACTER');const id=randomUUID();void this.read({id,role:'assistant',status:'complete',text:'응, 듣고 있어. 지금은 어떤 이야기를 할까?',createdAt:new Date().toISOString(),binding:{characterId:character.id,revision:character.revision,conversationId:chat.conversation?.id||'',personaHash:'test',semanticHash:'test',modelId:chat.model,requestId:id,epoch:chat.epoch}},true).catch(e=>this.error(e))}
- private async read(message:ChatMessage,test=false,automatic=false,mode:'read'|'replay'|'reroll'|'reproduce'='read'){
+ async speakPresentation(text:string,signal:AbortSignal){
+  const s=this.snapshot(),chat=this.chat(),character=chat.character
+  if(signal.aborted)throw Error('VOICE_CANCELLED')
+  if(!this.outputReady)throw Error('VOICE_OUTPUT_NOT_READY')
+  if(!s.enabled||!s.runtimeConfigured||!character||s.seedError||!s.availableProfiles?.length)throw Error('VOICE_PRESENTATION_UNAVAILABLE')
+  if(typeof text!=='string'||!text.trim()||[...text].length>600)throw Error('VOICE_MESSAGE')
+  const id=randomUUID(),abort=()=>{void this.stop(true,false).catch(e=>this.error(e))}
+  signal.addEventListener('abort',abort,{once:true})
+  try{await this.read({id,role:'assistant',status:'complete',text,createdAt:new Date().toISOString(),binding:{characterId:character.id,revision:character.revision,conversationId:chat.conversation?.id||'',personaHash:'presentation',semanticHash:'presentation',modelId:chat.model,requestId:id,epoch:chat.epoch}},true,false,'read',()=>!signal.aborted);if(!signal.aborted&&this.state.status==='error')throw Error(this.state.error||'VOICE_ERROR')}
+  finally{signal.removeEventListener('abort',abort)}
+ }
+ private async read(message:ChatMessage,test=false,automatic=false,mode:'read'|'replay'|'reroll'|'reproduce'='read',permitted=()=>true){
   const requestedAt=Date.now()
   if(this.disposed||!this.outputReady||!this.state.enabled)return
   if(message.role!=='assistant'||message.status!=='complete'||!message.binding)throw Error('VOICE_MESSAGE')
@@ -243,7 +254,7 @@ export class CharacterVoiceService {
   if(!profile)throw Error(referenceKey(this.bindingKey(before.character?.id||''))?'VOICE_REFERENCE_UNAVAILABLE':'VOICE_NOT_INSTALLED');if(isReferenceProfile(profile)&&profile.error)throw Error(profile.error);if(mode!=='replay'&&!this.configured())throw Error(isManagedVoice(profile)?'VOICE_BASE_NOT_INSTALLED':'VOICE_RUNTIME_MISSING')
   const op=++this.operation;await this.stop(false);if(op!==this.operation||this.disposed)return
   const epoch=this.state.epoch,origin=before.character
-  const current=()=>{const s=this.chat();return !this.disposed&&this.outputReady&&this.state.enabled&&op===this.operation&&epoch===this.state.epoch&&s.character?.id===source.binding!.characterId&&s.character.revision===source.binding!.revision&&s.epoch===before.epoch&&s.model===before.model&&s.conversation?.id===before.conversation?.id&&this.bindingKey(s.character.id)===profileKey(profile)&&(test||!!s.conversation?.messages.some(m=>m.id===source.id&&m.status==='complete'&&m.text===source.text))}
+  const current=()=>{const s=this.chat();return permitted()&&!this.disposed&&this.outputReady&&this.state.enabled&&op===this.operation&&epoch===this.state.epoch&&s.character?.id===source.binding!.characterId&&s.character.revision===source.binding!.revision&&s.epoch===before.epoch&&s.model===before.model&&s.conversation?.id===before.conversation?.id&&this.bindingKey(s.character.id)===profileKey(profile)&&(test||!!s.conversation?.messages.some(m=>m.id===source.id&&m.status==='complete'&&m.text===source.text))}
   if(!origin||!current())return
   this.currentSpeech=current
   let candidate:ReplayCandidate|undefined
