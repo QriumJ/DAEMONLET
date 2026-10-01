@@ -41,6 +41,8 @@ if(process.argv.includes('--version')){console.log('0.0.14');process.exit(0)}
 if(process.argv.includes('--help')){console.log('--health.url-file --health.listen-addr --mcp.stdio-send-initialized-notification');process.exit(0)}
 if(${options.exit!==undefined})process.exit(${options.exit??0});
 const profilePath=process.argv[process.argv.indexOf('--profile-file')+1],profile=JSON.parse(fs.readFileSync(profilePath,'utf8'));
+// v0.0.14 runtime flavor rejects a non-default full-client log-buffer override before startup.
+if(profile.admin_ui?.log_buffer_events!==undefined&&profile.admin_ui.log_buffer_events!==2000)process.exit(42);
 // Same quoted argv form as v0.0.14 parseCommandArgv, no shell or backslash paths.
 const parts=[...profile.mcp.commands[0].command.matchAll(/"([^"]+)"|([^ ]+)/g)].map(v=>v[1]||v[2]);
 const adapter=spawn(parts[0],parts.slice(1),{stdio:['pipe','pipe','ignore']});
@@ -56,7 +58,7 @@ async function gone(info:any){await vi.waitFor(()=>{for(const pid of [info.pid,i
 run.each(['disconnect','abort'] as const)('Windows Job cleanup on %s, sanitized adapter, nonsecret profile and quoted paths',async mode=>{
  const f=await fixture(),ac=new AbortController(),r=await f.runtime.start({tunnelId:'tunnel_'+'a'.repeat(32),organizationId:'org-example123',autoConnect:false,consentVersion:1},key,{port:12345,token:'t'.repeat(64)},ac.signal,vi.fn());cleanup.push(()=>r.stop())
  expect(await r.ready()).toBe(true);await vi.waitFor(async()=>expect(JSON.parse((JSON.parse(await readFile(f.evidence,'utf8'))).adapterOutput)).toEqual({noApiKey:true}))
- const info=JSON.parse(await readFile(f.evidence,'utf8'));expect(info.keyInProfile).toBe(false);expect(info.keyInArgs).toBe(false);expect(info.profile.health.listen_addr).toBe('127.0.0.1:0')
+ const info=JSON.parse(await readFile(f.evidence,'utf8'));expect(info.keyInProfile).toBe(false);expect(info.keyInArgs).toBe(false);expect(info.profile.health.listen_addr).toBe('127.0.0.1:0');expect(info.profile.admin_ui).toEqual({open_browser:false})
  if(mode==='abort')ac.abort();await Promise.all([r.stop(),r.stop()]);expect(await r.ready()).toBe(false);await gone(info);expect(()=>process.kill(f.unrelated.pid!,0)).not.toThrow();await expect(access(info.profilePath)).rejects.toThrow()
 },15000)
 run.each(['eof','kill'] as const)('Windows native supervisor %s closes client and descendants without PID sweeping',async mode=>{
