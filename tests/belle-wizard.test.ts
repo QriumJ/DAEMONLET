@@ -1,0 +1,13 @@
+import {expect,it,vi} from 'vitest'
+import {createElement} from 'react'
+import {renderToStaticMarkup} from 'react-dom/server'
+import {BelleConnectionWizard} from '../src/settings/BelleConnectionWizard'
+import {restoredWizardStep,wizardNextAllowed,wizardRuntimeReady} from '../src/settings/belle-wizard-progress'
+import {BELLE_GUIDE_URLS,belleGuideUrl,type BelleConnectionSnapshot} from '../electron/shared/belle-connection'
+import {ENGLISH_MESSAGES} from '../electron/shared/translations'
+vi.mock('../src/i18n/useLanguage',()=>({useT:()=>Object.assign((s:string)=>s,{language:'ko'})}))
+const state:BelleConnectionSnapshot={state:'ready',config:{tunnelId:'tunnel_'+'a'.repeat(32),organizationId:'org-example123',autoConnect:false,consentVersion:1},credentialStored:true,secureStore:'windows-credential-manager',clientVersion:'0.0.14',nodeVersion:'v22.23.0',error:null,retry:0,muted:true}
+it('restores only step indices, never completed, consent or target data',()=>{for(let i=0;i<6;i++)expect(restoredWizardStep(String(i))).toBe(i);for(const v of [null,'-1','6','5.0','NaN','{"step":5,"completed":true}','sk-private'])expect(restoredWizardStep(v)).toBe(0)})
+it('advancing requires current key and runtime state, and installation is only acknowledged',()=>{expect(wizardNextAllowed(2,{...state,credentialStored:false},true)).toBe(false);expect(wizardNextAllowed(3,{...state,state:'connecting'},true)).toBe(false);expect(wizardNextAllowed(4,state,false)).toBe(false);expect(wizardNextAllowed(4,state,true)).toBe(true);for(const patch of [{error:'CLIENT_MISSING'},{secureStore:'unavailable'},{credentialStored:false},{config:null}])expect(wizardRuntimeReady({...state,...patch})).toBe(false)})
+it('all official destinations are exact HTTPS constants and no URL API exists',()=>{for(const [name,url] of Object.entries(BELLE_GUIDE_URLS)){expect(belleGuideUrl(name)).toBe(url);expect(url).toMatch(/^https:\/\/(platform.openai.com|developers.openai.com|chatgpt.com)\//);expect(url).not.toContain('?')}expect(belleGuideUrl('constructor')).toBeNull();expect(belleGuideUrl('https://chatgpt.com/plugins')).toBeNull()})
+it('wizard renders accessible steps and manual permission guidance with English messages',()=>{const html=renderToStaticMarkup(createElement(BelleConnectionWizard,{state,api:{} as any,busy:false,error:'',credentials:null,connection:null,onExit:()=>{},onRefresh:()=>{}}));expect(html).toContain('aria-current="step"');expect(html).toContain('설치는 사용자가 직접');expect(html).toContain('중단·기존 설정으로');for(const key of ['준비 확인','Platform 터널·workspace','전용 키 저장','터널 연결','ChatGPT 플러그인 연결','연결 진단','미확인 · 앱에 지원되는 실호출 증거 없음'])expect(ENGLISH_MESSAGES[key]).toBeTruthy()})

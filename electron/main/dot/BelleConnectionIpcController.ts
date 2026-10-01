@@ -1,13 +1,13 @@
-import {dialog,ipcMain,type IpcMainInvokeEvent} from 'electron'
+import {dialog,ipcMain,shell,type IpcMainInvokeEvent} from 'electron'
 import {appText} from '../AppLanguage'
 import {isTrustedSender} from '../SecurityPolicy'
 import type {SettingsWindowController} from '../SettingsWindowController'
-import {BELLE_CONNECTION_IPC,connectionIds,validRuntimeKey} from '../../shared/belle-connection'
+import {BELLE_CONNECTION_IPC,belleGuideUrl,connectionIds,validRuntimeKey} from '../../shared/belle-connection'
 import {connectionError,type BelleConnectionManager} from './BelleConnectionManager'
 /** Secret write only, no key read API. Every privileged action comes from the exact settings main frame. */
 export class BelleConnectionIpcController{
  private channels:string[]=[];private off:(()=>void)|null=null;private busy=false;private bucket={at:0,count:0}
- constructor(private manager:BelleConnectionManager,private settings:SettingsWindowController,private dev?:string,private confirmation?:(message:string,detail:string)=>Promise<boolean>){}
+ constructor(private manager:BelleConnectionManager,private settings:SettingsWindowController,private dev?:string,private confirmation?:(message:string,detail:string)=>Promise<boolean>,private openGuide:(url:string)=>Promise<void>=url=>shell.openExternal(url)){}
  private bind(channel:string,arity:number,action:(args:unknown[],owner:string)=>Promise<unknown>){
   this.channels.push(channel);ipcMain.handle(channel,async(event:IpcMainInvokeEvent,...args:unknown[])=>{
    if(!isTrustedSender(event,this.settings.window,'settings',this.dev)||!this.settings.currentOwner())return {ok:false,code:'UNTRUSTED_SENDER'}
@@ -24,6 +24,7 @@ export class BelleConnectionIpcController{
  }
  private detail(ids:{tunnelId:string;organizationId:string}){return `${appText('대상 터널')}: ${ids.tunnelId}\n${appText('Platform 조직')}: ${ids.organizationId}\n\n${appText('허용 기능은 문장·포즈·상태 표시와 취소입니다. 파일 읽기나 명령 실행은 제공하지 않습니다. Restricted Tunnels Read+Use 전용 키만 사용하세요. 키 권한은 앱에서 검증할 수 없습니다. 연결은 OpenAI로 나가는 HTTPS만 사용하며 앱 종료 시 끝납니다.')}`}
  register(){if(this.channels.length)return
+  this.bind(BELLE_CONNECTION_IPC.guide,1,async([guide])=>{const url=belleGuideUrl(guide);if(!url)throw Error('INVALID_CONFIG');await this.openGuide(url)})
   this.bind(BELLE_CONNECTION_IPC.snapshot,0,async()=>this.manager.snapshot())
   this.bind(BELLE_CONNECTION_IPC.refresh,0,async()=>this.manager.refresh())
   this.bind(BELLE_CONNECTION_IPC.configure,1,async([value],owner)=>{

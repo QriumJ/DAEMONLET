@@ -50,3 +50,5 @@ describe('config and secure prerequisites',()=>{
  it.each([['v22.13.0','v22.13.0'],['v22.12.9',null],['v24.18.1','v24.18.1'],['v21.1.0',null]])('Node version %s is checked',(v,result)=>expect(nodeVersion(v)).toBe(result))
  it('raw errors collapse to fixed public codes',()=>{expect(connectionError(Error(key))).toBe('CONNECTION_FAILED');expect(connectionError(Error('STORE_DENIED'))).toBe('STORE_DENIED')})
 })
+
+it('refresh rechecks owned runtime readiness without reading a key or starting a new connection',async()=>{const f=fixture(config);await f.m.initialize();await f.m.connect();f.store.get.mockClear();f.running.ready.mockResolvedValue(false);await f.m.refresh();expect(f.m.snapshot().state).toBe('reconnecting');f.running.ready.mockResolvedValue(true);await f.m.refresh();expect(f.m.snapshot().state).toBe('ready');expect(f.store.get).not.toHaveBeenCalled();expect(f.runtime.start).toHaveBeenCalledOnce()})

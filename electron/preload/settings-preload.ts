@@ -18,7 +18,7 @@ const subscription = <T>(channel: string, listener: (value: T) => void) => {
 import { PACK_UPDATE_IPC, type PackUpdateApi } from "../shared/pack-update-contract"
 import {BELLE_CONNECTION_IPC,type BelleConnectionApi} from "../shared/belle-connection"
 const api: SettingsDesktopApi = {
-  belleConnection:Object.freeze<BelleConnectionApi>({snapshot:()=>request(BELLE_CONNECTION_IPC.snapshot),refresh:()=>request(BELLE_CONNECTION_IPC.refresh),configure:value=>request(BELLE_CONNECTION_IPC.configure,value),connect:()=>request(BELLE_CONNECTION_IPC.connect),disconnect:()=>request(BELLE_CONNECTION_IPC.disconnect),setAutoConnect:value=>request(BELLE_CONNECTION_IPC.auto,value),forget:()=>request(BELLE_CONNECTION_IPC.forget),subscribe:listener=>subscription(BELLE_CONNECTION_IPC.changed,listener)}),
+  belleConnection:Object.freeze<BelleConnectionApi>({openGuide:guide=>request(BELLE_CONNECTION_IPC.guide,guide),snapshot:()=>request(BELLE_CONNECTION_IPC.snapshot),refresh:()=>request(BELLE_CONNECTION_IPC.refresh),configure:value=>request(BELLE_CONNECTION_IPC.configure,value),connect:()=>request(BELLE_CONNECTION_IPC.connect),disconnect:()=>request(BELLE_CONNECTION_IPC.disconnect),setAutoConnect:value=>request(BELLE_CONNECTION_IPC.auto,value),forget:()=>request(BELLE_CONNECTION_IPC.forget),subscribe:listener=>subscription(BELLE_CONNECTION_IPC.changed,listener)}),
   packUpdates: Object.freeze<PackUpdateApi>({ list: () => ipcRenderer.invoke(PACK_UPDATE_IPC.list), act: value => ipcRenderer.invoke(PACK_UPDATE_IPC.act, value), onChanged: listener => subscription(PACK_UPDATE_IPC.changed, listener) }),
   characters: characterManageApi(),
   getStatus: () => request(SETUP_IPC.status),

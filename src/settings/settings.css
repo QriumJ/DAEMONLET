@@ -250,3 +250,14 @@ select { padding: 8px 30px 8px 11px; border: 1px solid #dfe4d9; border-radius: 7
 .voice-qwen-settings label:has(textarea) { flex-direction:column; align-items:stretch; }
 .voice-qwen-settings textarea { width:100%; min-height:76px; resize:vertical; padding:8px 10px; border:1px solid #dce2d8; border-radius:8px; font:inherit; }
 .voice-qwen-settings textarea:focus-visible { outline:3px solid #82b9aa; outline-offset:3px; }
+
+.belle-wizard-launch { margin: 0 0 18px; }
+.belle-wizard-steps { display: flex; flex-wrap: wrap; gap: 8px 24px; padding-left: 20px; font-size: 12px; color: var(--muted); }
+.belle-wizard-steps [aria-current="step"] { color: var(--text); font-weight: 700; }
+.belle-wizard h2:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.belle-wizard li { margin-bottom: 8px; }
+.belle-wizard-target { overflow-wrap: anywhere; }
+.belle-wizard-diagnostics > div { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 12px 0; }
+.belle-wizard-diagnostics dt { font-weight: 600; min-width: 140px; }
+.belle-wizard-diagnostics dd { margin: 0; }
+.belle-wizard .toggle-row { margin-top: 18px; align-items: flex-start; }
