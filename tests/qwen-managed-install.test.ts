@@ -37,7 +37,7 @@ for(const windows of [false,true]){
  const platform=windows?'Windows':'Mac'
  it(`${platform}: complete staged install, offline helper, restart recognition and existing apply use no inference`,async()=>{
   const f=await fixture(windows);const a=f.installer.install(),b=f.installer.install();expect(a).toBe(b)
-  const connection=await a;expect(connection?.python).toContain(windows?'Scripts/python.exe':'bin/python');expect(await readFile(join(connection!.model,'model.safetensors'))).toEqual(f.model)
+  const connection=await a;expect(connection?.python).toContain(windows?join('Scripts','python.exe'):join('bin','python'));expect(await readFile(join(connection!.model,'model.safetensors'))).toEqual(f.model)
   expect(f.installer.snapshot()).toMatchObject({installed:true,phase:'idle',error:null});expect(f.calls.some(c=>c.args.includes('--verify'))).toBe(true)
   expect(f.calls.flatMap(c=>c.args)).not.toEqual(expect.arrayContaining(['prewarm','synthesis','generate','pip']))
   const count=f.fetcher.mock.calls.length;await f.installer.initialize();await f.installer.install();expect(f.fetcher).toHaveBeenCalledTimes(count)
