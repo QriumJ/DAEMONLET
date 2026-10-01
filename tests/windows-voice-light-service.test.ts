@@ -12,7 +12,7 @@ async function fixture(saved?:'installed'){
  if(saved)await writeFile(join(root,'settings.json'),JSON.stringify({version:1,engine:'voxcpm2',enabled:false,autoRead:false,volume:0,bindings:{},executionProfile:'compiled',modelVerification:saved}))
  let installed=true
  const base={recordModelCheck:vi.fn((valid:boolean)=>{installed=valid}),install:vi.fn(async()=>{installed=true}),native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/python',path:'/model',snapshot:()=>({supported:true,installed}),initialize:async()=>{},identity:async()=> 'stable',ready:vi.fn(async()=>'/model'),cancelVerification:async()=>{},cancel:async()=>{}}
- const runtime={config:{python:'/python',model:'/model',windowsBase:true},sessionId:'session',running:false,get ready(){return this.running},start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),retireSpeech:vi.fn()}
+ const runtime={config:{python:'/python',model:'/model',windowsBase:true,nativeBase:false},sessionId:'session',running:false,get ready(){return this.running},start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),retireSpeech:vi.fn()}
  const service=new CharacterVoiceService(root,'/worker.py',()=>({character:{id:'test'}}) as any,()=>{},()=>{},()=>runtime as any,()=>{},base as any);services.push(service);await service.initialize()
  return{root,service,runtime,base}
 }
