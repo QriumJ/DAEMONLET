@@ -23,24 +23,26 @@ export class VoiceIpcController {
  private presentationOutput=false
  private presentationGeneration=0
  private presentationPlayback:{generation:number;signal:AbortSignal;epoch:number|null;announced:Set<string>;claimed:Set<string>;started:boolean;scheduled:(delayMs:number)=>void}|null=null
- attachPresentationWindow(win:BrowserWindow){
+ private presentationDetach:Array<()=>void>=[]
+ private presentationAttachment:Promise<void>|null=null
+ attachPresentationWindow(win:BrowserWindow):Promise<void>{
+  if(this.closing)return Promise.reject(Error('VOICE_OUTPUT_EXPIRED'))
+  if(this.petOutput===win)return this.presentationAttachment??Promise.resolve()
+  const retired=this.detachPresentationWindow()
   this.petOutput=win
-  const reset=()=>{this.petReady=false;if(this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
-  win.on('hide',reset);win.on('closed',reset);win.webContents.on('did-start-loading',reset);win.webContents.on('render-process-gone',reset)
-  ipcMain.handle(DOT_IPC.volume,event=>{if(!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.service.snapshot().volume})
-  ipcMain.handle(DOT_IPC.voiceAction,async(event,v:VoiceAction)=>{
-   if(!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||!v||!['played','scheduled','outputStopped'].includes(v.type)||!this.presentationOutput)throw Error('UNTRUSTED_SENDER')
-   const accepted=await this.action(v),run=this.presentationPlayback
-   if(v.type==='scheduled'&&accepted===true&&run&&!run.started&&!run.signal.aborted&&run.generation===this.presentationGeneration&&run.epoch===v.epoch&&v.epoch===this.service.snapshot().epoch&&run.claimed.has(v.audioId)&&this.presentationOutput&&this.petReady&&!!this.petOutput?.isVisible()&&!this.petOutput.webContents.isDestroyed()&&!this.playbackReady){run.started=true;run.scheduled(v.delayMs)}
-   return {epoch:this.service.snapshot().epoch} // no history/settings projection
-  })
-  ipcMain.handle(DOT_IPC.audio,(event,id:unknown,epoch:unknown)=>{
-   if(!this.presentationOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||typeof id!=='string'||id.length!==36||!Number.isSafeInteger(epoch))throw Error('UNTRUSTED_AUDIO')
-   const bytes=this.service.audio(id,epoch as number),run=this.presentationPlayback
-   if(run&&run.generation===this.presentationGeneration&&!run.signal.aborted&&run.epoch===epoch&&run.announced.has(id))run.claimed.add(id)
-   return bytes
-  })
+  const reset=()=>{if(this.petOutput!==win)return;this.petReady=false;if(this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
+  const closed=()=>{if(this.petOutput===win)void this.detachPresentationWindow().catch(e=>this.service.error(e))}
+  win.on('hide',reset);win.on('closed',closed);win.webContents.on('did-start-loading',reset);win.webContents.on('render-process-gone',reset)
+  this.presentationDetach=[()=>win.removeListener('hide',reset),()=>win.removeListener('closed',closed),()=>win.webContents.removeListener('did-start-loading',reset),()=>win.webContents.removeListener('render-process-gone',reset)]
+  const task=retired.then(()=>{if(this.closing||this.petOutput!==win)throw Error('VOICE_OUTPUT_EXPIRED')}).finally(()=>{if(this.presentationAttachment===task)this.presentationAttachment=null})
+  this.presentationAttachment=task;return task
  }
+ async detachPresentationWindow(){
+  for(const off of this.presentationDetach.splice(0))off()
+  this.petOutput=null;this.petReady=false
+  await this.stopPresentation()
+ }
+
  presentationReady(value:boolean){this.petReady=value;if(!value&&this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
  presentationVoiceIssue(){const s=this.service.snapshot();return !this.petReady||!s.enabled||!s.runtimeConfigured||s.seedError||!s.availableProfiles?.length||!!s.error}
  async speakPresentation(text:string,signal:AbortSignal,scheduled:(delayMs:number)=>void=()=>{}){
@@ -86,6 +88,19 @@ export class VoiceIpcController {
   const metrics=process.platform==='win32'?preparationMetrics(root):undefined
   this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>{console.info('[voice]',JSON.stringify(value));metrics?.(value)},process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
   this.service.attachQwenInstaller(new QwenVoiceInstaller(join(root,'qwen-managed'),dirname(worker),()=>this.service.refreshBase()))
+  ipcMain.handle(DOT_IPC.volume,event=>{if(this.closing||!this.petOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.service.snapshot().volume})
+  ipcMain.handle(DOT_IPC.voiceAction,async(event,v:VoiceAction)=>{
+   if(this.closing||!this.petOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||!v||!['played','scheduled','outputStopped'].includes(v.type)||!this.presentationOutput)throw Error('UNTRUSTED_SENDER')
+   const accepted=await this.action(v),run=this.presentationPlayback
+   if(v.type==='scheduled'&&accepted===true&&run&&!run.started&&!run.signal.aborted&&run.generation===this.presentationGeneration&&run.epoch===v.epoch&&v.epoch===this.service.snapshot().epoch&&run.claimed.has(v.audioId)&&this.presentationOutput&&this.petReady&&!!this.petOutput?.isVisible()&&!this.petOutput.webContents.isDestroyed()&&!this.playbackReady){run.started=true;run.scheduled(v.delayMs)}
+   return {epoch:this.service.snapshot().epoch} // no history/settings projection
+  })
+  ipcMain.handle(DOT_IPC.audio,(event,id:unknown,epoch:unknown)=>{
+   if(this.closing||!this.presentationOutput||!this.petOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||typeof id!=='string'||id.length!==36||!Number.isSafeInteger(epoch))throw Error('UNTRUSTED_AUDIO')
+   const bytes=this.service.audio(id,epoch as number),run=this.presentationPlayback
+   if(run&&run.generation===this.presentationGeneration&&!run.signal.aborted&&run.epoch===epoch&&run.announced.has(id))run.claimed.add(id)
+   return bytes
+  })
   const mouth = (event:Electron.IpcMainEvent,value:unknown) => {
    if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl)||!validVoiceMouth(value))return
    const state=this.service.snapshot()
@@ -220,6 +235,8 @@ export class VoiceIpcController {
  close():Promise<void>{
   if(this.closing)return this.closing
   this.rendererReady=false
+  this.petReady=false;this.petOutput=null;this.presentationOutput=false;this.presentationPlayback=null;++this.presentationGeneration
+  for(const off of this.presentationDetach.splice(0))off()
   this.publishMouth(null)
   if(this.referencePicker)this.referencePicker.cancelled=true
   this.managementListeners.clear()

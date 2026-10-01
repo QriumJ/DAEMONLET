@@ -89,3 +89,9 @@ Windows modifier recovery, and actual packaged GUI/voice/lip-sync verification.
 References: [Windows Credential Manager](https://learn.microsoft.com/en-us/windows/win32/api/wincred/nf-wincred-credwritew),
 [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects),
 [official client v0.0.14 source](https://github.com/openai/tunnel-client/tree/v0.0.14).
+
+Dots voice IPC handlers belong to the app voice controller and register once.
+Disconnect, initial loopback-port failure and connection retry detach the
+presentation window's listeners and output lease; reattachment uses the same
+handlers. Window replacement revokes the old renderer's authority, and controller
+shutdown removes the handlers. Connection retries do not require app restart.

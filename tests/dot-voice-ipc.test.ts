@@ -1,8 +1,10 @@
 import {afterEach,expect,it,vi} from 'vitest'
+import {EventEmitter} from 'node:events'
 import {mkdtemp,rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-vi.mock('electron',()=>({dialog:{},ipcMain:{handle:vi.fn(),removeHandler:vi.fn(),on:vi.fn(),removeListener:vi.fn()}}))
+const registered=vi.hoisted(()=>new Map<string,Function>())
+vi.mock('electron',()=>({dialog:{},ipcMain:{handle:vi.fn((key,handler)=>{if(registered.has(key))throw Error('Attempted to register a second handler');registered.set(key,handler)}),removeHandler:vi.fn(key=>registered.delete(key)),on:vi.fn(),removeListener:vi.fn()}}))
 vi.mock('../electron/main/SecurityPolicy',()=>({isTrustedSender:vi.fn(()=>true)}))
 vi.mock('../electron/main/character-voice/VoiceBaseInstaller',()=>({VoiceBaseInstaller:class{},BASE_KEY:'voxcpm2_default@1'}))
 import {ipcMain} from 'electron'
@@ -12,7 +14,7 @@ import {DOT_IPC} from '../electron/shared/dot-presentation'
 import {VOICE_IPC} from '../electron/shared/character-voice-contract'
 const clean:Array<()=>Promise<void>>=[]
 afterEach(async()=>{for(const f of clean.splice(0))await f();vi.clearAllMocks();vi.mocked(isTrustedSender).mockReturnValue(true)})
-async function fixture(){const root=await mkdtemp(join(tmpdir(),'dot-voice-ipc-')),chat:any={snapshot:()=>({}),subscribeVoiceStart:()=>()=>{},subscribeVoice:()=>()=>{},subscribe:()=>()=>{}},send=vi.fn(),window:any={on:vi.fn(),isDestroyed:()=>false,isVisible:()=>true,webContents:{on:vi.fn(),isDestroyed:()=>false,send}};const controller=new VoiceIpcController(root,'/worker',()=>null,chat);(controller.service as any).base=undefined;controller.attachPresentationWindow(window);clean.push(async()=>{await controller.close();await rm(root,{recursive:true,force:true})});const handler=(key:string)=>vi.mocked(ipcMain.handle).mock.calls.filter(c=>c[0]===key).at(-1)![1];return{controller,window,send,handler}}
+async function fixture(){const root=await mkdtemp(join(tmpdir(),'dot-voice-ipc-')),chat:any={snapshot:()=>({}),subscribeVoiceStart:()=>()=>{},subscribeVoice:()=>()=>{},subscribe:()=>()=>{}},send=vi.fn(),window:any=Object.assign(new EventEmitter(),{isDestroyed:()=>false,isVisible:()=>true,webContents:Object.assign(new EventEmitter(),{isDestroyed:()=>false,send})});const controller=new VoiceIpcController(root,'/worker',()=>null,chat);(controller.service as any).base=undefined;await controller.attachPresentationWindow(window);clean.push(async()=>{await controller.close();await rm(root,{recursive:true,force:true})});const handler=(key:string)=>vi.mocked(ipcMain.handle).mock.calls.filter(c=>c[0]===key).at(-1)![1];return{controller,window,send,handler}}
 it('pet cannot enable or configure voice through presentation acknowledgements',async()=>{const f=await fixture();(f.controller as any).presentationOutput=true;for(const type of ['enabled','configure','read','snapshot','installBase'])await expect(f.handler(DOT_IPC.voiceAction)({} as any,{type,value:true})).rejects.toThrow('UNTRUSTED_SENDER')})
 it('rejects untrusted senders and unowned audio; volume projects no settings',async()=>{const f=await fixture();expect(()=>f.handler(DOT_IPC.audio)({} as any,'a'.repeat(36),1)).toThrow('UNTRUSTED_AUDIO');expect(await f.handler(DOT_IPC.volume)({} as any)).toBe(.8);vi.mocked(isTrustedSender).mockReturnValue(false);expect(()=>f.handler(DOT_IPC.volume)({} as any)).toThrow('UNTRUSTED_SENDER')})
 it('voice notifications to pet expose only volume and its own audio events',async()=>{const f=await fixture();(f.controller as any).presentationOutput=true;(f.controller as any).send(VOICE_IPC.changed,{volume:.35,bindings:{private:'secret'},results:{private:'history'}});expect(f.send).toHaveBeenLastCalledWith(DOT_IPC.volumeChanged,.35);(f.controller as any).send(VOICE_IPC.event,{type:'stop',epoch:2});expect(f.send).toHaveBeenLastCalledWith(DOT_IPC.voiceEvent,{type:'stop',epoch:2})})
@@ -79,4 +81,25 @@ it.each(['pet-hidden','local-chat-return'] as const)('%s revokes Dots ownership 
  else{c.window=()=>f.window;c.attached=f.window;c.rendererReady=true;c.updateOutput();await vi.waitFor(()=>expect(c.presentationOutput).toBe(false))}
  await expect(f.handler(DOT_IPC.voiceAction)({} as any,{type:'scheduled',audioId:id,epoch:12,delayMs:0,gapMs:0})).rejects.toThrow('UNTRUSTED_SENDER');expect(started).not.toHaveBeenCalled()
  c.window=()=>null;finish();await task
+})
+
+it('disconnect/reconnect and retry reattach without duplicate IPC registration; unattached pet has no authority',async()=>{
+ const f=await fixture()
+ for(let i=0;i<4;i++){await f.controller.detachPresentationWindow();expect(()=>f.handler(DOT_IPC.volume)({} as any)).toThrow('UNTRUSTED_SENDER');await f.controller.attachPresentationWindow(f.window)}
+ await f.controller.attachPresentationWindow(f.window)
+ for(const key of [DOT_IPC.volume,DOT_IPC.voiceAction,DOT_IPC.audio])expect(vi.mocked(ipcMain.handle).mock.calls.filter(c=>c[0]===key)).toHaveLength(1)
+ expect(f.window.listenerCount('hide')).toBe(1);expect(f.window.webContents.listenerCount('did-start-loading')).toBe(1)
+})
+it('replacement and controller shutdown remove window listeners; old window events cannot invalidate the new owner',async()=>{
+ const f=await fixture(),next:any=Object.assign(new EventEmitter(),{isDestroyed:()=>false,isVisible:()=>true,webContents:Object.assign(new EventEmitter(),{isDestroyed:()=>false,send:vi.fn()})})
+ await f.controller.attachPresentationWindow(next);f.controller.presentationReady(true);f.window.emit('hide');f.window.webContents.emit('render-process-gone')
+ expect((f.controller as any).petReady).toBe(true);expect(f.window.listenerCount('hide')).toBe(0);expect(f.window.webContents.listenerCount('did-start-loading')).toBe(0)
+ next.emit('closed');await vi.waitFor(()=>expect((f.controller as any).petOutput).toBeNull());expect(next.listenerCount('hide')).toBe(0)
+ await f.controller.close();for(const key of [DOT_IPC.volume,DOT_IPC.voiceAction,DOT_IPC.audio])expect(registered.has(key)).toBe(false)
+ await expect(f.controller.attachPresentationWindow(next)).rejects.toThrow('VOICE_OUTPUT_EXPIRED')
+})
+it('concurrent attachment replacement keeps only the latest listeners and rejects obsolete attachment',async()=>{
+ const f=await fixture(),next:any=Object.assign(new EventEmitter(),{isDestroyed:()=>false,isVisible:()=>true,webContents:Object.assign(new EventEmitter(),{isDestroyed:()=>false,send:vi.fn()})})
+ await f.controller.detachPresentationWindow();const old=f.controller.attachPresentationWindow(f.window),current=f.controller.attachPresentationWindow(next)
+ await expect(old).rejects.toThrow('VOICE_OUTPUT_EXPIRED');await current;expect(f.window.listenerCount('hide')).toBe(0);expect(next.listenerCount('hide')).toBe(1)
 })

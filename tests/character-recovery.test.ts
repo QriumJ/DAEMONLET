@@ -27,6 +27,7 @@ function fixture() {
 function exitFixture(c: any, disposePack: () => Promise<void> = async () => {}) {
   const disposedChat = vi.fn(async () => {}), disposedRegistry = vi.fn(async () => {})
   for (const name of ["codexUsage", "codexUsageIpc", "belleConnectionIpc", "chatSettingsIpc", "characterChat", "sideChatIpc", "activityIpc", "bubbleIpc", "taskControlIpc", "settingsIpc", "updateIpc", "packUpdateIpc", "characterIpc", "activityTitles", "protocol"]) c[name] = { dispose: vi.fn() }
+  c.characterChat.voice = { detachPresentationWindow: vi.fn(async () => {}) }
   for (const name of ["settingsWindow", "activityWindow", "pet", "lab", "tray"]) c[name] = { destroy: vi.fn() }
   Object.assign(c, { sideChat: { dispose: disposedChat }, petDrag: { cancel: vi.fn() }, chatEntry: { cancel: vi.fn() },
     activityBubble: { cancelPlacement: vi.fn(), destroy: vi.fn() }, updates: { dispose: vi.fn(), stopBackgroundChecks: vi.fn() }, subscriptions: [],
@@ -64,6 +65,7 @@ describe("Main character failure recovery", () => {
     release(); await exiting
     expect(c.belleConnection.close).toHaveBeenCalledOnce()
     expect(c.belleConnectionIpc.dispose).toHaveBeenCalledOnce()
+    expect(c.characterChat.voice.detachPresentationWindow).toHaveBeenCalledOnce()
     expect(c.settingsWindow.destroy).toHaveBeenCalledOnce()
     expect(c.pet.destroy).toHaveBeenCalledOnce()
   })

@@ -19,7 +19,12 @@ conditioning and first compilation still take time.
 
 **Model full check** stops the owned voice worker and runs a CPU-only pinned model
 check. It does not download, reinstall, synthesize, play audio or initialize CUDA.
-It supports cancellation and waits for the verifier process to close. Failure
+Cancellation and the ten-minute deadline terminate only the owned Windows
+verifier process tree, then wait for termination and inherited output pipes to
+drain before admitting another check or completing shutdown. A cancelled late
+PASS cannot validate the model. If OS termination fails while the checker still
+holds its pipes, the gate remains occupied until it exits; it does not report
+successful cleanup. Failure
 blocks that model in the current app session until a successful full check or
 verified managed reinstallation. Recovery never silently selects another model.
 

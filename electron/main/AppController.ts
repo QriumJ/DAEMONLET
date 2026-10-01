@@ -868,7 +868,7 @@ export class AppController {
     if(!config)return
     try{await this.characterChat.initializeSettings()}catch{this.warn('dot 브리지 설정을 확인해 주세요.');return}
     const pet=this.pet.window;if(!pet)return
-    this.characterChat.voice.attachPresentationWindow(pet)
+    await this.characterChat.voice.attachPresentationWindow(pet)
     this.dot=new DotPresentationService(()=>{
       const selected=this.characters.get(this.settings.characterId),chat=this.characterChat.service.snapshot()
       if(this.quitting||this.updatePreparing||!this.dotReady||!selected||selected.status!=='ready'||!this.settings.visible||!this.settings.speechBubblesEnabled||this.characterChat.window||this.sideChat.snapshot().mode!=="hidden"||this.lab.window||this.pet.getMousePolicy().layoutMode||this.transitions.busy||!pet.isVisible()||chat.character?.id!==selected.id||chat.character.revision!==selected.revision)return null
@@ -878,7 +878,7 @@ export class AppController {
     this.dotSubscriptions.push(()=>pet.removeListener('hide',cancel),this.sideChat.subscribe(()=>{if(this.sideChat.snapshot().mode!=="hidden")cancel()}),this.characters.subscribe(cancel),this.characterChat.service.subscribe(()=>{const frame=this.dot?.snapshot(),s=this.characterChat.service.snapshot();if(frame&&(frame.characterId!==s.character?.id||frame.revision!==s.character?.revision))cancel()}))
     this.dotServer=new DotBridgeServer(this.dot)
     let port:number
-    try{port=await this.dotServer.start(config)}catch{await this.dot.close();this.dot=null;this.dotServer=null;this.warn('dot 브리지 포트를 열지 못했습니다. 설정과 포트 사용을 확인해 주세요.');for(const off of this.dotSubscriptions.splice(0))off();return}
+    try{port=await this.dotServer.start(config)}catch{await this.dot.close();this.dot=null;this.dotServer=null;this.warn('dot 브리지 포트를 열지 못했습니다. 설정과 포트 사용을 확인해 주세요.');for(const off of this.dotSubscriptions.splice(0))off();await this.characterChat.voice.detachPresentationWindow();return}
     this.rebuildTray()
     // Renderer may have reported before IPC registration; request a fresh readiness handshake.
     this.pet.send(DOT_IPC.changed,null)
@@ -889,9 +889,13 @@ export class AppController {
     // A settings manager must never tear down the independently launched legacy helper.
     if(process.env.DAEMONLET_DOT_BRIDGE==='1'&&!this.quitting)return
     for(const off of this.dotSubscriptions.splice(0))off()
-    await this.dotServer?.close();this.dotServer=null
-    await this.dot?.close();this.dot=null
-    this.rebuildTray()
+    try{
+      await this.dotServer?.close();this.dotServer=null
+      await this.dot?.close();this.dot=null
+    }finally{
+      await this.characterChat.voice.detachPresentationWindow()
+      this.rebuildTray()
+    }
   }
 
   private trayActions(): TrayActions {

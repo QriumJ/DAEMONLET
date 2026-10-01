@@ -42,3 +42,18 @@ it('explicit repair install may clear a known failed model only after verified i
  expect(f.service.snapshot().baseInstall?.installed).toBe(false);expect(f.service.snapshot().modelCheck?.error).toBe('VOICE_MODEL_CHECK_FAILED');f.service.setOutputReady(true);await f.service.prepare();expect(f.runtime.start).not.toHaveBeenCalled()
  await f.service.installBase();expect(f.service.snapshot().baseInstall?.installed).toBe(true);expect(f.service.snapshot().modelCheck?.error).toBeNull();await f.service.prepare();expect(f.runtime.start).toHaveBeenCalledOnce()
 })
+
+it('cancelled late PASS and competing starts cannot release the model-check gate before child drain',async()=>{
+ const f=await fixture();let finish!:()=>void,aborted=false
+ vi.mocked(checkWindowsModel).mockImplementationOnce(async(_p,_m,_w,_e,signal)=>new Promise<void>(resolve=>{finish=resolve;signal.addEventListener('abort',()=>aborted=true)}))
+ const first=f.service.checkModel();expect(f.service.checkModel()).toBe(first);await vi.waitFor(()=>expect(finish).toBeTypeOf('function'))
+ let drained=false;const cancel=f.service.cancelModelCheck().then(()=>drained=true);await Promise.resolve();expect(aborted).toBe(true);expect(drained).toBe(false);expect(f.service.checkModel()).toBe(first)
+ finish();await cancel;await first;expect(f.base.recordModelCheck).not.toHaveBeenCalled();expect(f.service.snapshot().modelCheck?.completedAt).toBeUndefined()
+ await f.service.checkModel();expect(checkWindowsModel).toHaveBeenCalledTimes(2);expect(f.base.recordModelCheck).toHaveBeenCalledWith(true)
+})
+it('app close aborts and waits for the model checker before cleanup; a disposed service cannot spawn another check',async()=>{
+ const f=await fixture();let finish!:()=>void,aborted=false
+ vi.mocked(checkWindowsModel).mockImplementationOnce(async(_p,_m,_w,_e,signal)=>new Promise<void>(resolve=>{finish=resolve;signal.addEventListener('abort',()=>aborted=true)}))
+ const checking=f.service.checkModel();await vi.waitFor(()=>expect(finish).toBeTypeOf('function'));let closed=false;const closing=f.service.close().then(()=>closed=true)
+ await Promise.resolve();expect(aborted).toBe(true);expect(closed).toBe(false);finish();await closing;await checking;await f.service.checkModel();expect(checkWindowsModel).toHaveBeenCalledTimes(1)
+})
