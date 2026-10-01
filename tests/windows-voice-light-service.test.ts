@@ -39,6 +39,6 @@ it('explicit repair install may clear a known failed model only after verified i
  const f=await fixture();await f.service.enabled(true);vi.mocked(checkWindowsModel).mockRejectedValueOnce(Error('bad model'))
  await f.service.checkModel();expect(f.service.snapshot().baseInstall?.installed).toBe(false)
  f.base.install.mockRejectedValueOnce(Error('VOICE_INSTALL_CANCELLED'));await expect(f.service.installBase()).rejects.toThrow('VOICE_INSTALL_CANCELLED')
- expect(f.service.snapshot().baseInstall?.installed).toBe(false);f.service.setOutputReady(true);await f.service.prepare();expect(f.runtime.start).not.toHaveBeenCalled()
- await f.service.installBase();expect(f.service.snapshot().baseInstall?.installed).toBe(true);await f.service.prepare();expect(f.runtime.start).toHaveBeenCalledOnce()
+ expect(f.service.snapshot().baseInstall?.installed).toBe(false);expect(f.service.snapshot().modelCheck?.error).toBe('VOICE_MODEL_CHECK_FAILED');f.service.setOutputReady(true);await f.service.prepare();expect(f.runtime.start).not.toHaveBeenCalled()
+ await f.service.installBase();expect(f.service.snapshot().baseInstall?.installed).toBe(true);expect(f.service.snapshot().modelCheck?.error).toBeNull();await f.service.prepare();expect(f.runtime.start).toHaveBeenCalledOnce()
 })

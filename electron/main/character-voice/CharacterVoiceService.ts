@@ -80,7 +80,7 @@ export class CharacterVoiceService {
    if(this.disposed||epoch!==this.installEpoch)return
    await this.base!.install()
    if(this.disposed||epoch!==this.installEpoch||!this.base!.snapshot().installed)return
-   this.blockedModels.delete(this.base!.path.toLowerCase());this.state.error=null;this.emit();await this.prepare()
+   const repaired=this.blockedModels.delete(this.base!.path.toLowerCase());if(repaired&&this.state.engine!=='qwen3-tts-06b'&&isManagedVoice(this.selectedProfile()))this.state.modelCheck={busy:false,error:null};this.state.error=null;this.emit();await this.prepare()
   }).finally(()=>{if(this.installingBase===task)this.installingBase=null})
   this.installingBase=task;return task
  }
