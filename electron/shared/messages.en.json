@@ -1257,5 +1257,6 @@
   "저장한 키로 Dots에 연결할까요?": "Connect to Dots using the saved key?",
   "ChatGPT 새 대화에서 연결한 플러그인을 선택하고 현재 선택한 캐릭터에게 짧은 문장 표시를 요청하세요. 도구 호출 결과와 캐릭터 화면을 직접 확인하세요. 음성은 기본 음소거입니다.": "Select the connected plugin in a new ChatGPT conversation and ask the currently selected character to display a short sentence. Check the tool result and character window yourself. Voice is muted by default.",
   "Dots 연결 마법사 열기": "Open Dots connection wizard",
-  "Dots 연결 마법사": "Dots connection wizard"
+  "Dots 연결 마법사": "Dots connection wizard",
+  "저장 상태 재확인 필요": "Stored key status needs rechecking"
 }

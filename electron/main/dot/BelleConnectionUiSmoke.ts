@@ -17,12 +17,12 @@ let phase="initial"
 const checks:Record<string,boolean>={},confirmations:Array<{message:string;detail:string}>=[]
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms))
 const wait=async(test:()=>boolean|Promise<boolean>)=>{for(let i=0;i<150;i++){if(await test())return;await sleep(50)}throw Error('BELLE_UI_TIMEOUT')}
-let key='',config:any=null,allow=false,secure=true,missing=false,delayed=false,starts=0,stops=0,healthy=true,guideFails=false,denyStore=false,guides:string[]=[],manager:BelleConnectionManager,settings:SettingsWindowController,ipc:BelleConnectionIpcController
+let key='',config:any=null,allow=false,secure=true,missing=false,delayed=false,starts=0,stops=0,healthy=true,guideFails=false,denyStore=false,storeCheckError='',guides:string[]=[],manager:BelleConnectionManager,settings:SettingsWindowController,ipc:BelleConnectionIpcController
 app.whenReady().then(async()=>{
  installAppProtocol(join(root,'dist'))
  const setup={schemaVersion:1,app:{version:'QA',running:true,packaged:false,platform:'darwin'},storage:{userDataDisplayPath:'QA',receiptDirectoryDisplayPath:'QA'},onboarding:'skipped',discovery:null,configurationStatus:'not-installed',configurationWarnings:[],host:{available:false},hostSelfTest:{status:'not-tested'},adapter:{state:'STOPPED',ownership:'NONE',activeRunCount:0,activeTaskCount:0},hookReviewStatus:'unknown',reception:{status:'unavailable',lastReceivedAt:null,events:[]},live:{active:false,status:'not-tested'},hasRevert:false,checkedAt:Date.now(),issue:null}
  ipcMain.handle(SETUP_IPC.status,()=>({ok:true,value:setup}));ipcMain.handle(SETUP_IPC.settingsGet,()=>({ok:true,value:defaultDesktopSettings()}))
- manager=new BelleConnectionManager({store:{available:async()=>secure,has:async()=>Boolean(key),put:async value=>{if(denyStore)throw Error('STORE_DENIED');key=value},get:async()=>key,remove:async()=>{key=''}},metadata:{load:async()=>config,save:async value=>{config=value}},bridge:{start:async()=>({port:12345,token:'mock-session'}),stop:async()=>{}},runtime:{probe:async()=>{if(missing)throw Error('CLIENT_MISSING');return {clientVersion:'0.0.14',nodeVersion:'v22.23.0'}},start:async(_config,_key,_bridge,signal)=>{starts++;if(delayed)await new Promise<void>((_r,reject)=>{signal.addEventListener('abort',()=>reject(Error('CONNECTION_FAILED')),{once:true});if(signal.aborted)reject(Error('CONNECTION_FAILED'))});let stopped=false;return {ready:async()=>!stopped&&healthy,stop:async()=>{if(!stopped){stopped=true;stops++}}}}}})
+ manager=new BelleConnectionManager({store:{available:async()=>secure,has:async()=>{if(storeCheckError)throw Error(storeCheckError);return Boolean(key)},put:async value=>{if(denyStore)throw Error('STORE_DENIED');key=value},get:async()=>key,remove:async()=>{key=''}},metadata:{load:async()=>config,save:async value=>{config=value}},bridge:{start:async()=>({port:12345,token:'mock-session'}),stop:async()=>{}},runtime:{probe:async()=>{if(missing)throw Error('CLIENT_MISSING');return {clientVersion:'0.0.14',nodeVersion:'v22.23.0'}},start:async(_config,_key,_bridge,signal)=>{starts++;if(delayed)await new Promise<void>((_r,reject)=>{signal.addEventListener('abort',()=>reject(Error('CONNECTION_FAILED')),{once:true});if(signal.aborted)reject(Error('CONNECTION_FAILED'))});let stopped=false;return {ready:async()=>!stopped&&healthy,stop:async()=>{if(!stopped){stopped=true;stops++}}}}}})
  await manager.initialize()
  settings=new SettingsWindowController({preloadPath:join(root,'dist-electron/settings-preload.cjs'),onOpened:()=>{},onClosed:()=>{}})
  ipc=new BelleConnectionIpcController(manager,settings,undefined,async(message,detail)=>{confirmations.push({message,detail});return allow},async url=>{if(guideFails)throw Error('CONNECTION_FAILED');guides.push(url)});ipc.register()
@@ -87,6 +87,21 @@ app.whenReady().then(async()=>{
  checks.toolCallNotClaimed=(await text()).includes('미확인 · 앱에 지원되는 실호출 증거 없음')
  win.setSize(800,650);await js('document.querySelector(".belle-wizard").scrollIntoView()');await shot('wizard-diagnostics-small')
  setAppLanguage('en');await wait(()=>text().then(t=>t.includes('Acknowledged by you')));checks.englishWizard=(await text()).includes('Unverified · the app has no supported evidence of an actual call');checks.englishDotsNaming=(await text()).includes('Dots connection wizard')&&(await text()).includes('Dots connection');await shot('wizard-diagnostics-en');setAppLanguage('ko');await wait(()=>text().then(t=>t.includes('사용자가 확인함')))
+ for(const code of ['STORE_LOCKED','STORE_DENIED']){
+  // Reproduce a previously acknowledged ready target, then make only the store check fail.
+  await press('뒤로');await wait(()=>text().then(t=>t.includes('ChatGPT Plugins의 +')))
+  await js('(()=>{const c=document.querySelector(".belle-wizard input[type=checkbox]");if(!c.checked)c.click()})()');await press('다음')
+  await wait(()=>text().then(t=>t.includes('사용자가 확인함')))
+  storeCheckError=code;const callsBefore=starts,configBefore=JSON.stringify(config)
+  await press('진단 다시 확인');await wait(()=>manager.snapshot().error===code)
+  checks['refresh-'+code+'-invalidatesDiagnosis']=(await text()).includes('사용자 재확인 필요')&&(await text()).includes('준비 상태 확인 필요')&&(await text()).includes('저장 상태 재확인 필요')&&manager.snapshot().credentialStored===false
+  checks['refresh-'+code+'-keepsTarget']=starts===callsBefore&&JSON.stringify(config)===configBefore&&key===fake
+  if(code==='STORE_LOCKED'){await js('document.querySelector(".belle-wizard").scrollIntoView()');await shot('wizard-store-locked')}
+  await press('뒤로');await wait(()=>text().then(t=>t.includes('ChatGPT Plugins의 +')))
+  checks['refresh-'+code+'-blocksPluginNext']=await js('(()=>{const c=document.querySelector(".belle-wizard input[type=checkbox]"),b=Array.from(document.querySelectorAll(".belle-wizard button")).find(b=>b.textContent==="다음");return !c.checked&&c.disabled&&b.disabled})()')
+  storeCheckError='';await press('건너뛰고 진단 보기');await press('진단 다시 확인');await wait(()=>manager.snapshot().error===null)
+  checks['refresh-'+code+'-requiresNewAcknowledgement']=(await text()).includes('사용자 재확인 필요')
+ }
  const savedBefore=JSON.stringify(config),startBefore=starts,stopBefore=stops
  await press('안내 처음부터');await wait(()=>text().then(t=>t.includes('준비 확인')))
  checks.restartPreservesConnection=JSON.stringify(config)===savedBefore&&starts===startBefore&&stops===stopBefore
@@ -117,6 +132,6 @@ app.whenReady().then(async()=>{
  secure=false;await press('상태 다시 확인');await wait(()=>manager.snapshot().secureStore==='unavailable');checks.failClosed=await js('document.querySelector("input[type=password]").disabled&&document.querySelector(".belle-connection-page input[type=checkbox]").disabled')
  checks.dialogsNoKey=confirmations.every(v=>!JSON.stringify(v).includes(fake));checks.narrowBridgeTools=!(await text()).includes('키 표시')
  await manager.close();ipc.dispose();settings.destroy()
- await writeFile(join(dir,'result.json'),JSON.stringify({passed:Object.values(checks).every(Boolean),checks,confirmations:confirmations.map(v=>v.message),starts,stops,secretStore:'in-memory mock only; real Keychain untouched',connection:'mock runtime; no real Platform or helper connection',screenshots:['settings-empty.png','settings-saved.png','settings-ready.png','wizard-prerequisites.png','wizard-platform-small.png','wizard-diagnostics-small.png','wizard-plugin.png','wizard-diagnostics-en.png']}))
+ await writeFile(join(dir,'result.json'),JSON.stringify({passed:Object.values(checks).every(Boolean),checks,confirmations:confirmations.map(v=>v.message),starts,stops,secretStore:'in-memory mock only; real Keychain untouched',connection:'mock runtime; no real Platform or helper connection',screenshots:['settings-empty.png','settings-saved.png','settings-ready.png','wizard-prerequisites.png','wizard-platform-small.png','wizard-diagnostics-small.png','wizard-plugin.png','wizard-diagnostics-en.png','wizard-store-locked.png']}))
  app.exit(Object.values(checks).every(Boolean)?0:1)
 }).catch(async()=>{await manager?.close();ipc?.dispose();settings?.destroy();await writeFile(join(dir,'result.json'),JSON.stringify({passed:false,error:'BELLE_UI_SMOKE_FAILED',phase,checks}));app.exit(1)})

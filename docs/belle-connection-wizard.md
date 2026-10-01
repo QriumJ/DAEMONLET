@@ -11,6 +11,7 @@ Settings → Dots connection → Open Dots connection wizard adds a guided path 
 
 ## State boundaries
 
+- Store-check errors such as `STORE_LOCKED` and `STORE_DENIED` publish a sanitized snapshot with credentials unverified and secure storage unavailable. The wizard clears its acknowledgement and blocks advancing until a fresh check succeeds and the user acknowledges again. Stored credentials, target settings and the running transport are preserved; Disconnect remains available.
 - Runtime readiness comes from the manager and its owned runtime health check. Refresh also rechecks readiness without retrieving a key or launching another runtime.
 - Plugin installation acknowledgement belongs only to the current wizard visit and target. It resets after target changes, readiness loss, credential/store errors, disconnect, restart, or re-entry.
 - Actual tool calls remain **unverified**. This version has no supported invocation evidence; neither readiness nor a checkbox proves an actual ChatGPT tool call.

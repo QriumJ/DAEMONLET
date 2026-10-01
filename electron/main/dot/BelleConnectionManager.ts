@@ -26,7 +26,10 @@ export class BelleConnectionManager{
   if(this.config?.autoConnect&&!this.options.external&&this.value.secureStore!=='unavailable'&&this.value.credentialStored&&!this.value.error)void this.connect().catch(()=>{})
   return this.snapshot()
  }
- refresh(){return this.serial(async()=>{this.ensureOpen();if(this.options.external)return this.snapshot();const available=await this.options.store.available();const stored=available&&await this.options.store.has();this.emit({secureStore:available?(this.options.store.kind??'macos-keychain'):'unavailable',credentialStored:stored,error:available?null:'STORE_UNAVAILABLE'});if(available){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}
+ refresh(){return this.serial(async()=>{this.ensureOpen();if(this.options.external)return this.snapshot();let available:boolean,stored:boolean
+   try{available=await this.options.store.available();stored=available&&await this.options.store.has()}
+   catch(e){this.emit({secureStore:'unavailable',credentialStored:false,error:connectionError(e)});return this.snapshot()}
+   this.emit({secureStore:available?(this.options.store.kind??'macos-keychain'):'unavailable',credentialStored:stored,error:available?null:'STORE_UNAVAILABLE'});if(available){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}
    const current=this.running,generation=this.generation
    if(current){const ready=await current.ready().catch(()=>false);if(current===this.running&&generation===this.generation)this.emit({state:ready?'ready':'reconnecting'})}
    return this.snapshot()
