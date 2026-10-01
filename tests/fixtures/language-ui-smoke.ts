@@ -102,6 +102,20 @@ try {
  // Check loaded settings pages, import progress in English, and narrow-window overflow.
  await evaluate(settingsWindow, `document.querySelector('#tab-appearance').click()`)
  await wait(settingsWindow, `!!document.querySelector('.pack-card') && !document.querySelector('#app-language').disabled`)
+ // Real React numeric controls + preload + persisted, validated fixture IPC.
+ const enterPercent = async (id: string, value: string) => {
+   await evaluate(settingsWindow, `(()=>{const input=document.getElementById('${id}');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+   await pause(); await evaluate(settingsWindow, `document.getElementById('${id}').form.requestSubmit()`)
+ }
+ await enterPercent('character-scale','173'); await wait(settingsWindow, `document.getElementById('character-scale').value==='173' && !document.getElementById('character-scale').disabled`)
+ assert.equal(settings.scale,1.73); assert.equal((await store.load()).value.scale,1.73)
+ await enterPercent('character-scale','401');assert.equal(settings.scale,1.73)
+ await enterPercent('character-scale','20');await wait(settingsWindow, `!document.getElementById('character-scale').disabled`);assert.equal(settings.scale,.2)
+ await enterPercent('character-opacity','0');await wait(settingsWindow, `!document.getElementById('character-opacity').disabled`);assert.equal(settings.opacity,0);assert.equal(settings.visible,true)
+ assert.equal((await store.load()).value.opacity,0)
+ await evaluate(settingsWindow, `[...document.querySelectorAll('button')].find(b=>b.textContent==='Restore 100% opacity').click()`)
+ await wait(settingsWindow, `document.getElementById('character-opacity').value==='100' && !document.getElementById('character-opacity').disabled`);assert.equal(settings.opacity,1)
+ await enterPercent('character-scale','400');await wait(settingsWindow, `!document.getElementById('character-scale').disabled`);assert.equal(settings.scale,4)
  await capture(settingsWindow, 'appearance-en')
  await evaluate(settingsWindow, `document.querySelector('.pack-choice input').checked=false;document.querySelector('.pack-choice input').click()`)
  await wait(settingsWindow, `!!document.querySelector('.loading-dialog[open]')`)
@@ -116,7 +130,7 @@ try {
  await wait(settingsWindow, `document.querySelector('#app-language')?.value==='en'`)
  assert.equal(await evaluate(settingsWindow, `document.documentElement.lang`),'en')
  assert.deepEqual(errors,[])
- await writeFile(join(output,'result.json'),JSON.stringify({ passed: true, platform: process.platform, languages:['ko','en'], savedAndReloaded:true, draftPreserved:true, recordingContinuedDuringSwitch:true, noHorizontalOverflow:true, englishCharacterProgress:true, realMicrophoneTest:false, errors },null,2))
+ await writeFile(join(output,'result.json'),JSON.stringify({ passed: true, platform: process.platform, languages:['ko','en'], savedAndReloaded:true, draftPreserved:true, recordingContinuedDuringSwitch:true, noHorizontalOverflow:true, englishCharacterProgress:true, realMicrophoneTest:false, customSizeAndOpacity:true, opacityZeroPersistsWithoutHiding:true, traySettingsRecovery:true, errors },null,2))
  console.log('Language UI smoke passed')
 } catch(error) { console.error(error);process.exitCode=1 }
 finally { for (const win of windows) if(!win.isDestroyed())win.destroy(); await rm(temporary,{recursive:true,force:true});app.exit(typeof process.exitCode === 'number' ? process.exitCode : 0) }

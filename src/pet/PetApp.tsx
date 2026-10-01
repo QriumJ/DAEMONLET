@@ -15,6 +15,7 @@ import type { AdapterStatus } from "../../electron/shared/ipc-contract"
 import { CharacterEventProtocolClient } from "../protocol/CharacterEventProtocolClient"
 import { ProtocolTaskEventSource } from "../protocol/ProtocolTaskEventSource"
 import { CharacterSession } from "../runtime/CharacterSession"
+import { OpacityWheelController } from "./OpacityWheelController"
 import { ModifierDragController } from "./ModifierDragController"
 import { AlphaHitTestController } from "./AlphaHitTestController"
 import { ElectronIpcProtocolTransport } from "./ElectronIpcProtocolTransport"
@@ -126,6 +127,11 @@ export default function PetApp() {
       hit: (x, y) => session.runtime.sampleRenderedAlpha(x, y, { radius: 3, threshold: 0.1 }).alpha >= 0.1,
       request: value => desktop.dragWindow(value),
       lock: (active, point) => { if (disposed) return; dragging = active; canvas.style.cursor = active ? "grabbing" : ""; session.setInteractionEnabled(!active && !inLayout && !loadingCharacter && !loadFailed); alpha.setExternalDrag(active, point); updateAvailability() },
+    })
+    const wheel = new OpacityWheelController(canvas, {
+      platform: desktop.platform, allowed: () => !disposed && visible && !dragging && !inLayout && !loadingCharacter && !loadFailed && Boolean(successfulKey),
+      hit: (x, y) => session.runtime.sampleRenderedAlpha(x, y, { radius: 3, threshold: 0.1 }).alpha >= 0.1,
+      opacity: () => currentSettings?.opacity ?? 1, update: opacity => desktop.updateSettings({ opacity }),
     })
     const unsubscribeDrag = desktop.onDragCancelled(drag.cancel)
     const load = async (next: DesktopSettingsV1) => {
@@ -242,6 +248,7 @@ export default function PetApp() {
       canvas.removeEventListener("webglcontextlost", contextLost)
       activeDiagnostic = null
       unsubscribeDrag()
+      wheel.dispose()
       drag.dispose()
       alpha.dispose()
       source.dispose()

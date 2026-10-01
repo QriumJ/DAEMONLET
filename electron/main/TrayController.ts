@@ -77,6 +77,7 @@ export function buildTrayMenu(settings: DesktopSettingsV1, adapter: AdapterStatu
     { type: "separator" },
     { label: t("캐릭터 이동·크기 조절"), click: () => actions.setLayout(true) },
     { label: t("위치 초기화"), click: actions.resetPosition },
+    { label: t("불투명도 100% 복원"), click: () => actions.updateSettings({ opacity: 1, visible: true }) },
     ...(actions.bubblePlacement ? [{ label: t("말풍선 위치"), submenu: [
       { label: t("자동"), type: "radio" as const, checked: settings.bubblePlacement.mode === "auto", click: () => actions.bubblePlacement!("auto") },
       { label: t("위치 조절"), type: "radio" as const, checked: settings.bubblePlacement.mode === "relative", click: () => actions.bubblePlacement!("adjust") },
@@ -97,6 +98,10 @@ export function buildTrayMenu(settings: DesktopSettingsV1, adapter: AdapterStatu
         click: () => actions.updateSettings({ scale }),
       })),
     },
+    { label: t("캐릭터 불투명도"), submenu: [100, 75, 50, 25, 0].map(percent => ({
+      label: `${percent}%`, type: "radio" as const, checked: Math.round(settings.opacity * 100) === percent,
+      click: () => actions.updateSettings({ opacity: percent / 100 }),
+    })) },
     { type: "separator" },
     ...(actions.openTaskControl ? [{ label: t("Codex 작업 제어 · 음성 입력"), click: actions.openTaskControl }] : []),
     { label: t("항상 위에 표시"), type: "checkbox", checked: settings.alwaysOnTop, click: () => actions.updateSettings({ alwaysOnTop: !settings.alwaysOnTop }) },

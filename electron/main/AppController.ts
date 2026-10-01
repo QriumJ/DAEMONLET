@@ -49,7 +49,7 @@ import { createDesktopAdapterRuntimeConfig, type DesktopAdapterRuntimeConfig } f
 import { TrayController, type TrayActions } from "./TrayController"
 import { WindowBoundsStore } from "./WindowBoundsStore"
 import { denyAllPermissions, isTrustedProtocolSender, isTrustedSender } from "./SecurityPolicy"
-import { recoverWindowBounds, validateDesktopSettingsPatch, windowSizeForScale, type DesktopSettingsPatch, type DesktopSettingsV1, type DisplayLike } from "../shared/desktop-settings"
+import { DEFAULT_WINDOW_SIZE, recoverWindowBounds, validateDesktopSettingsPatch, windowSizeForScale, type DesktopSettingsPatch, type DesktopSettingsV1, type DisplayLike } from "../shared/desktop-settings"
 import { IPC, type AdapterStatus, type ProtocolConnectResult, type SanitizedAdapterDiagnostics } from "../shared/ipc-contract"
 import { validatePetReadyInfo, validateShortMessage } from "../shared/runtime-validation"
 import { CodexIntegrationController } from "./CodexIntegrationController"
@@ -197,6 +197,7 @@ export class AppController {
     }, (key, activityId) => this.openSideChat(key, activityId))
     this.pet = new PetWindowController({
       preloadPath: preload("pet"),
+      modifierHelperPath: join(app.isPackaged ? process.resourcesPath : dirname, "native/DaemonletModifierState"),
       devServerUrl: this.devServerUrl,
       onBoundsChanged: (bounds) => this.captureBounds(bounds),
       onWarning: (message) => this.warn(message),
@@ -682,6 +683,7 @@ export class AppController {
       const centerY = current.y + current.height / 2
       const next = this.recover({ ...current, x: Math.round(centerX - size / 2), y: Math.round(centerY - size / 2), width: size, height: size, displayId: this.settings.bounds.displayId })
       this.settings.bounds = next
+      this.settings.scale = next.width / DEFAULT_WINDOW_SIZE
       this.pet.setBounds(next)
     }
     this.pet.applySettings(this.settings)
@@ -708,6 +710,7 @@ export class AppController {
   private resetPosition(): void {
     this.petDrag.cancel()
     this.settings.bounds = this.recover({ ...this.settings.bounds, x: Number.MAX_SAFE_INTEGER, y: Number.MAX_SAFE_INTEGER, displayId: null })
+    this.settings.scale = this.settings.bounds.width / DEFAULT_WINDOW_SIZE
     this.pet.setBounds(this.settings.bounds)
     this.updateSettings({ visible: true })
   }
@@ -716,14 +719,17 @@ export class AppController {
     this.petDrag.cancel()
     const recovered = this.recover(this.pet.window?.getBounds() ? { ...this.pet.window.getBounds(), displayId: this.settings.bounds.displayId } : this.settings.bounds)
     this.settings.bounds = recovered
+    this.settings.scale = recovered.width / DEFAULT_WINDOW_SIZE
     this.pet.setBounds(recovered)
+    this.settingsIpc.broadcastSettings(this.settings)
     this.activityBubble.sync()
     this.persistSoon()
   }
 
   private configureCodexUsage() { this.codexUsage.configure(this.settings.codexUsageEnabled && this.settings.taskBubblesEnabled, this.integration.sideChatSelection()) }
-  private readonly onSuspend = () => this.codexUsage.setSuspended(true)
+  private readonly onSuspend = () => { this.pet.setSuspended(true); this.codexUsage.setSuspended(true) }
   private readonly onResume = () => {
+    this.pet.setSuspended(false)
     this.codexUsage.setSuspended(false)
     this.onDisplaysChanged()
     this.protocol.reconnectAll()

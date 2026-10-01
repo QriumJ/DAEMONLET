@@ -128,3 +128,10 @@ it('labels explicitly distinguish local character chat from Codex task chat and 
  const menu=buildTrayMenu(defaultDesktopSettings(),{state:'READY',message:null,restartCount:0},{openCharacterChat,openSideChat,openTaskControl} as never)
  for(const [label,fn] of [['로컬 캐릭터 대화',openCharacterChat],['Codex 작업 대화',openSideChat],['Codex 작업 제어 · 음성 입력',openTaskControl]] as const){const item=menu.find(item=>item.label===label)!;expect(item).toBeDefined();item.click?.({} as never,{} as never,{} as never);expect(fn).toHaveBeenCalledOnce()}
 })
+
+it("keeps an explicit opaque/visible recovery action even at zero opacity", async () => {
+ const {buildTrayMenu}=await import("../electron/main/TrayController"),updateSettings=vi.fn()
+ const menu=buildTrayMenu({...defaultDesktopSettings(),opacity:0,visible:false},{state:"READY",message:null,restartCount:0},{updateSettings} as never)
+ const restore=menu.find(item=>item.label==="불투명도 100% 복원")!
+ ;(restore.click as Function)();expect(updateSettings).toHaveBeenCalledWith({opacity:1,visible:true})
+})

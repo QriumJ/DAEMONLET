@@ -18,8 +18,10 @@ class FakeBrowserWindow extends EventEmitter {
   readonly setAlwaysOnTop = vi.fn()
   readonly setVisibleOnAllWorkspaces = vi.fn()
   readonly setIgnoreMouseEvents = vi.fn()
+  readonly setOpacity = vi.fn()
   readonly setFocusable = vi.fn()
-  readonly setBounds = vi.fn()
+  bounds = { x: 0, y: 0, width: 460, height: 460 }
+  readonly setBounds = vi.fn((bounds) => { this.bounds = bounds })
   readonly destroy = vi.fn()
   visible = false
   minimized = false
@@ -27,7 +29,7 @@ class FakeBrowserWindow extends EventEmitter {
   readonly restore = vi.fn(() => { this.minimized = false })
   isDestroyed() { return false }
   isVisible() { return this.visible }
-  getBounds() { return { x: 0, y: 0, width: 460, height: 460 } }
+  getBounds() { return { ...this.bounds } }
   async loadURL(url: string) { this.webContents.url = url }
 }
 
@@ -138,5 +140,54 @@ describe("PetWindowController visibility", () => {
     window.webContents.emit("context-menu")
     expect(onContextMenu).toHaveBeenCalledWith(window)
     controller.destroy()
+  })
+})
+
+describe("opacity and modifier recovery", () => {
+  async function fixture(opacity = .5) {
+    const {PetWindowController} = await import("../electron/main/PetWindowController")
+    let sample!: (pressed: boolean) => void
+    const monitor = {start:vi.fn(),stop:vi.fn(() => sample(false))}
+    const settings = {...defaultDesktopSettings(),opacity}
+    const controller = new PetWindowController({preloadPath:"/preload.cjs",onBoundsChanged:vi.fn(),onWarning:vi.fn(),onCloseRequested:vi.fn(),modifierMonitor: cb=>{sample=cb;return monitor}})
+    const win = controller.create(settings) as unknown as FakeBrowserWindow
+    Object.assign(cursor,{x:200,y:200}); controller.reportReady()
+    return {controller,win,monitor,settings,sample:(v:boolean)=>sample(v)}
+  }
+  it.each([0,.25,.5])("passes clicks at %s, recovers without DOM focus, and restores on Option up", async opacity => {
+    const f=await fixture(opacity)
+    try {
+      expect(f.controller.getMousePolicy().effective).toBe(true); expect(f.win.setOpacity).toHaveBeenLastCalledWith(opacity)
+      f.sample(true);expect(f.controller.getMousePolicy().effective).toBe(false);expect(f.win.setOpacity).toHaveBeenLastCalledWith(1)
+      f.sample(false);expect(f.controller.getMousePolicy().effective).toBe(true);expect(f.win.setOpacity).toHaveBeenLastCalledWith(opacity)
+      f.controller.setMousePassthrough(true);f.sample(true);expect(f.controller.getMousePolicy().effective).toBe(true)
+      f.controller.setMousePassthrough(false);expect(f.controller.getMousePolicy().effective).toBe(false)
+      expect(f.settings.opacity).toBe(opacity); expect(f.win.isVisible()).toBe(true)
+    } finally {f.controller.destroy()}
+  })
+  it("limits modifier recovery to the pet rectangle and handles blur, sleep, reload, hide and cleanup", async () => {
+    const f=await fixture(0)
+    try {
+      Object.assign(cursor,{x:-1});f.sample(true);expect(f.controller.getMousePolicy().effective).toBe(true)
+      Object.assign(cursor,{x:200});f.sample(true);f.win.emit("blur");expect(f.controller.getMousePolicy().effective).toBe(true)
+      f.sample(true);f.controller.setSuspended(true);expect(f.controller.getMousePolicy().effective).toBe(true);expect(f.monitor.stop).toHaveBeenCalled()
+      f.controller.setSuspended(false);f.sample(true);expect(f.controller.getMousePolicy().effective).toBe(false)
+      f.win.webContents.emit("did-start-loading");expect(f.win.setOpacity).toHaveBeenLastCalledWith(1)
+      f.controller.reportReady();f.controller.applySettings({...f.settings,visible:false});f.sample(true);expect(f.win.isVisible()).toBe(false)
+      f.controller.applySettings({...f.settings,opacity:1});expect(f.win.setOpacity).toHaveBeenLastCalledWith(1);expect(f.controller.getMousePolicy().effective).toBe(false)
+    } finally {f.controller.destroy()}
+    expect(f.monitor.stop).toHaveBeenCalled()
+  })
+  it("does not alter normal hit testing above 50% and temporarily keeps layout editing usable at 20% size/0% opacity", async () => {
+    const f=await fixture(.51)
+    try {
+      expect(f.controller.getMousePolicy().effective).toBe(false)
+      f.controller.setMousePassthrough(true);expect(f.controller.getMousePolicy().effective).toBe(true)
+      f.controller.applySettings({...f.settings,opacity:0});f.controller.setBounds({x:100,y:100,width:92,height:92})
+      f.controller.setLayoutMode(true);expect(f.win.getBounds()).toEqual({x:6,y:6,width:280,height:280});expect(f.win.setOpacity).toHaveBeenLastCalledWith(1)
+      expect(f.controller.getMousePolicy().effective).toBe(false)
+      f.controller.setLayoutMode(false);expect(f.win.getBounds()).toEqual({x:100,y:100,width:92,height:92});expect(f.win.setOpacity).toHaveBeenLastCalledWith(0)
+      expect(f.controller.getMousePolicy().effective).toBe(true)
+    } finally {f.controller.destroy()}
   })
 })

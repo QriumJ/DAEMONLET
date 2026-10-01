@@ -242,3 +242,6 @@ select { padding: 8px 30px 8px 11px; border: 1px solid #dfe4d9; border-radius: 7
 .voice-reference-import button:focus-visible, .voice-reference-info button:focus-visible, .voice-reference-import input:focus-visible, .voice-reference-info input:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 
 .voice-seed-settings { padding: 16px 0; border-top: 1px solid var(--border, #ddd); }
+
+.percent-setting { display:flex; align-items:center; gap:8px; }
+.percent-setting input { width:80px; }
