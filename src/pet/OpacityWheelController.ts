@@ -46,6 +46,12 @@ export class OpacityWheelController {
   }
   private async flush() {
     if (this.disposed || this.sending || this.queued === null) return
+    // Settings may change after the final wheel event, while this target waits.
+    const observed = this.options.opacity()
+    if (observed !== this.lastObserved && observed !== this.lastSent) {
+      this.queued = null; this.desired = observed; this.lastObserved = observed; this.lastSent = null
+      return
+    }
     const opacity = Math.round(this.queued * 100) / 100; this.queued = null; this.sending = true; this.inFlight = opacity; this.lastSent = opacity
     try { await this.options.update(opacity) } catch { this.desired = null; this.lastSent = null; this.queued = null; this.options.failed?.() }
     finally { this.sending = false; this.inFlight = null; if (!this.disposed && this.queued !== null) void this.flush() }

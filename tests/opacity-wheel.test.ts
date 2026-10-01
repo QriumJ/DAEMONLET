@@ -50,3 +50,8 @@ it('drops an unsent wheel target when Settings changes opacity before the flush'
  f.wheel({deltaY:100});await vi.advanceTimersByTimeAsync(80)
  expect(f.update).toHaveBeenCalledOnce();expect(f.opacity()).toBe(.4);f.controller.dispose()
 })
+
+it('drops a queued wheel target when Settings changes before flush without another wheel event',async()=>{
+ const f=fixture();try{f.wheel({deltaY:100});f.setOpacity(.5);await vi.advanceTimersByTimeAsync(80)
+ expect(f.update).not.toHaveBeenCalled();expect(f.opacity()).toBe(.5)}finally{f.controller.dispose()}
+})
