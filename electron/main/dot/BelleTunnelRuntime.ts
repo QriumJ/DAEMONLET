@@ -5,6 +5,7 @@ import {homedir,tmpdir} from 'node:os'
 import {dirname,join} from 'node:path'
 import type {BelleConnectionConfig} from '../../shared/belle-connection'
 import type {TunnelRuntime,RunningTunnel} from './BelleConnectionManager'
+import {OwnedTunnelCleanupError} from './OwnedTunnelCleanupError'
 const exec=promisify(execFile)
 /** Never inherits API keys, proxy/CA overrides, raw logging flags or the user's helper state. */
 export function tunnelBaseEnv(source:NodeJS.ProcessEnv=process.env){const env:NodeJS.ProcessEnv={};for(const key of ['HOME','USER','LOGNAME','LANG','LC_ALL','TMPDIR','SystemRoot','WINDIR','TEMP','TMP','USERPROFILE','LOCALAPPDATA','APPDATA'])if(source[key])env[key]=source[key];return env}
@@ -86,6 +87,6 @@ export class BelleTunnelRuntime implements TunnelRuntime{
    }
    for(let i=0;i<90;i++){if(signal.aborted||failed)throw abort();if(await ready()){settled=true;return {stop,ready}}await new Promise(r=>setTimeout(r,500))}
    throw abort()
-  }catch{key='';await stop();throw abort()}
+  }catch{key='';try{await stop()}catch{throw new OwnedTunnelCleanupError({stop,ready:async()=>false})}throw abort()}
  }
 }
