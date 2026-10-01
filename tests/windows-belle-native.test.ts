@@ -4,6 +4,7 @@ import {join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {spawn} from 'node:child_process'
 import {BelleCredentialStore} from '../electron/main/dot/BelleCredentialStore'
+import {nativeDiagnosticReader,type TunnelDiagnostic} from '../electron/main/dot/BelleTunnelDiagnostics'
 import {BelleTunnelRuntime} from '../electron/main/dot/BelleTunnelRuntime'
 const native=resolve('dist-electron/native'),key='sk-'+'syntheticQA'.repeat(3)
 const run=it.skipIf(process.platform!=='win32'||process.env.DAEMONLET_WINDOWS_NATIVE_TESTS!=='1')
@@ -28,7 +29,7 @@ locked('SSH network-logon store is unavailable and rejects synthetic key operati
  await expect(store.put(key)).rejects.toThrow('STORE_LOCKED')
  await expect(store.get()).rejects.toThrow('STORE_LOCKED')
 })
-async function fixture(){
+async function fixture(options:{diagnostic?:(e:TunnelDiagnostic)=>void;exit?:number;status?:number}={}){
  const unrelated=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore',windowsHide:true});cleanup.push(async()=>{if(unrelated.exitCode===null&&unrelated.signalCode===null)unrelated.kill()})
  const dir=await mkdtemp(join(tmpdir(),'belle Windows QA space '));cleanup.push(()=>rm(dir,{recursive:true,force:true}))
  const client=join(dir,'client.exe'),adapter=join(dir,'adapter.mjs'),evidence=join(dir,'evidence.json')
@@ -38,6 +39,7 @@ async function fixture(){
 const fs=require('node:fs'),http=require('node:http'),{spawn}=require('node:child_process'),path=require('node:path');
 if(process.argv.includes('--version')){console.log('0.0.14');process.exit(0)}
 if(process.argv.includes('--help')){console.log('--health.url-file --health.listen-addr --mcp.stdio-send-initialized-notification');process.exit(0)}
+if(${options.exit!==undefined})process.exit(${options.exit??0});
 const profilePath=process.argv[process.argv.indexOf('--profile-file')+1],profile=JSON.parse(fs.readFileSync(profilePath,'utf8'));
 // Same quoted argv form as v0.0.14 parseCommandArgv, no shell or backslash paths.
 const parts=[...profile.mcp.commands[0].command.matchAll(/"([^"]+)"|([^ ]+)/g)].map(v=>v[1]||v[2]);
@@ -45,9 +47,9 @@ const adapter=spawn(parts[0],parts.slice(1),{stdio:['pipe','pipe','ignore']});
 const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
 let adapterOutput='';adapter.stdout.on('data',b=>{adapterOutput+=b;save()});
 function save(){fs.writeFileSync(${JSON.stringify(evidence)},JSON.stringify({pid:process.pid,child:child.pid,adapter:adapter.pid,profilePath,profile,adapterOutput,keyInProfile:JSON.stringify(profile).includes(process.env.CONTROL_PLANE_API_KEY),keyInArgs:process.argv.some(v=>v.includes(process.env.CONTROL_PLANE_API_KEY))}))}
-save();const server=http.createServer((req,res)=>{res.writeHead(req.url==='/readyz'?204:404);res.end()});server.listen(0,'127.0.0.1',()=>fs.writeFileSync(profile.health.url_file,'http://127.0.0.1:'+server.address().port));
+save();const server=http.createServer((req,res)=>{res.writeHead(req.url==='/readyz'?${options.status??204}:404);res.end()});server.listen(0,'127.0.0.1',()=>fs.writeFileSync(profile.health.url_file,'http://127.0.0.1:'+server.address().port));
 `)
- const runtime=new BelleTunnelRuntime(adapter,'win32',{}, {client,node:process.execPath,host:join(native,'DaemonletBelleTunnelHost.exe')});await runtime.probe()
+ const runtime=new BelleTunnelRuntime(adapter,'win32',{}, {client,node:process.execPath,host:join(native,'DaemonletBelleTunnelHost.exe')},options.diagnostic);await runtime.probe()
  return {dir,client,adapter,evidence,runtime,unrelated}
 }
 async function gone(info:any){await vi.waitFor(()=>{for(const pid of [info.pid,info.child,info.adapter])expect(()=>process.kill(pid,0)).toThrow()},{timeout:6000})}
@@ -63,4 +65,23 @@ run.each(['eof','kill'] as const)('Windows native supervisor %s closes client an
  cleanup.push(async()=>{if(child.exitCode===null&&child.signalCode===null)child.kill()})
  await vi.waitFor(async()=>{await access(f.evidence)},{timeout:5000});const info=JSON.parse(await readFile(f.evidence,'utf8'))
  if(mode==='eof')child.stdin.end();else child.kill();await gone(info);expect(()=>process.kill(f.unrelated.pid!,0)).not.toThrow()
+},15000)
+
+run('numeric diagnostics distinguish a native launch failure without any raw client output',async()=>{
+ const f=await fixture(),events:TunnelDiagnostic[]=[],child=spawn(join(native,'DaemonletBelleTunnelHost.exe'),[join(f.dir,'missing.exe'),join(f.dir,'unused.json'),'org-example123','--numeric-diagnostics'],{stdio:['pipe','pipe','ignore'],env:{SystemRoot:'C:\\Windows'},windowsHide:true})
+ child.stdout.on('data',nativeDiagnosticReader(e=>events.push(e)))
+ await new Promise<void>(resolve=>child.once('close',()=>resolve()))
+ expect(events).toEqual(expect.arrayContaining([expect.objectContaining({source:3,phase:5,win32:2})]));expect(child.exitCode).toBe(1)
+})
+run('numeric diagnostics preserve early child exit code and remove its private profile',async()=>{
+ const events:TunnelDiagnostic[]=[],f=await fixture({exit:23,diagnostic:e=>events.push(e)})
+ await expect(f.runtime.start({tunnelId:'tunnel_'+'a'.repeat(32),organizationId:'org-example123',autoConnect:false,consentVersion:1},key,{port:12345,token:'t'.repeat(64)},new AbortController().signal,vi.fn())).rejects.toThrow('CONNECTION_FAILED')
+ expect(events).toEqual(expect.arrayContaining([expect.objectContaining({source:3,phase:9,exit:23})]));expect(events.some(e=>e.source===2&&e.phase===4)).toBe(true);expect(JSON.stringify(events)).not.toContain(key)
+ expect(()=>process.kill(f.unrelated.pid!,0)).not.toThrow()
+},15000)
+run('numeric diagnostics capture local HTTP 401, cancel safely and leave the unrelated process alive',async()=>{
+ const events:TunnelDiagnostic[]=[],f=await fixture({status:401,diagnostic:e=>events.push(e)}),ac=new AbortController()
+ const start=f.runtime.start({tunnelId:'tunnel_'+'a'.repeat(32),organizationId:'org-example123',autoConnect:false,consentVersion:1},key,{port:12345,token:'t'.repeat(64)},ac.signal,vi.fn());const rejected=expect(start).rejects.toThrow('CONNECTION_FAILED')
+ await vi.waitFor(()=>expect(events.some(e=>e.http===401)).toBe(true),{timeout:5000});ac.abort();await rejected
+ const info=JSON.parse(await readFile(f.evidence,'utf8'));await gone(info);await expect(access(info.profilePath)).rejects.toThrow();expect(()=>process.kill(f.unrelated.pid!,0)).not.toThrow();expect(JSON.stringify(events)).not.toContain(key)
 },15000)

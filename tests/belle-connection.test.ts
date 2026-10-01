@@ -11,14 +11,14 @@ import {connectionIds,restoredConnectionConfig,validRuntimeKey,type BelleConnect
 const ids={tunnelId:'tunnel_'+'a'.repeat(32),organizationId:'org-example123'},key='sk-'+Array.from({length:24},()=> 'z').join(''),config:BelleConnectionConfig={...ids,consentVersion:1,autoConnect:false}
 const managers:BelleConnectionManager[]=[],dirs:string[]=[]
 afterEach(async()=>{for(const m of managers.splice(0))await m.close();for(const d of dirs.splice(0))await rm(d,{recursive:true,force:true});vi.useRealTimers()})
-function fixture(saved:BelleConnectionConfig|null=null,external=false){
+function fixture(saved:BelleConnectionConfig|null=null,external=false,options:Partial<ConstructorParameters<typeof BelleConnectionManager>[0]>={}){
  const store={available:vi.fn(async()=>true),has:vi.fn(async()=>Boolean(saved)),put:vi.fn(async(_key:string)=>{}),get:vi.fn(async()=>key),remove:vi.fn(async()=>{})} satisfies RuntimeCredentialStore
  const metadata={load:vi.fn(async()=>saved),save:vi.fn(async(_value:BelleConnectionConfig|null)=>{})}
  const running={stop:vi.fn(async()=>{}),ready:vi.fn(async()=>true)}
  let exit:()=>void=()=>{}
  const runtime={probe:vi.fn(async()=>({clientVersion:'0.0.14',nodeVersion:'v22.23.0'})),start:vi.fn(async(_c,_k,_b,_s,onExit)=>{exit=onExit;return running})} satisfies TunnelRuntime
  const bridge={start:vi.fn(async(_s:AbortSignal)=>({port:12345,token:'local-session-token'})),stop:vi.fn(async()=>{})}
- const m=new BelleConnectionManager({store,metadata,runtime,bridge,external,retryDelay:()=>10});managers.push(m)
+ const m=new BelleConnectionManager({store,metadata,runtime,bridge,external,retryDelay:()=>10,...options});managers.push(m)
  return {m,store,metadata,runtime,running,bridge,exit:()=>exit()}
 }
 describe('connection authority and storage',()=>{
@@ -54,3 +54,13 @@ describe('config and secure prerequisites',()=>{
 it('refresh rechecks owned runtime readiness without reading a key or starting a new connection',async()=>{const f=fixture(config);await f.m.initialize();await f.m.connect();f.store.get.mockClear();f.running.ready.mockResolvedValue(false);await f.m.refresh();expect(f.m.snapshot().state).toBe('reconnecting');f.running.ready.mockResolvedValue(true);await f.m.refresh();expect(f.m.snapshot().state).toBe('ready');expect(f.store.get).not.toHaveBeenCalled();expect(f.runtime.start).toHaveBeenCalledOnce()})
 
 it.each(['STORE_LOCKED','STORE_DENIED'])('refresh publishes %s and invalidates cached credentials without reading or changing them',async code=>{const f=fixture(config);await f.m.initialize();await f.m.connect();f.store.get.mockClear();const seen:unknown[]=[];f.m.subscribe(value=>seen.push(value));f.store.has.mockRejectedValueOnce(Error(code));const failed=await f.m.refresh();expect(failed).toMatchObject({credentialStored:false,secureStore:'unavailable',error:code,config});expect(seen.at(-1)).toEqual(failed);expect(f.store.get).not.toHaveBeenCalled();expect(f.store.put).not.toHaveBeenCalled();expect(f.store.remove).not.toHaveBeenCalled();expect(f.metadata.save).not.toHaveBeenCalled();expect(f.running.stop).not.toHaveBeenCalled();expect(f.runtime.start).toHaveBeenCalledOnce();const checked=await f.m.refresh();expect(checked).toMatchObject({state:'ready',credentialStored:true,secureStore:'macos-keychain',error:null});expect(f.store.get).not.toHaveBeenCalled()})
+
+it('diagnostic run preserves saved auto preference but waits for one explicit connect and never retries',async()=>{
+ vi.useFakeTimers();const events:unknown[]=[];const f=fixture({...config,autoConnect:true},false,{manualConnectOnly:true,diagnostic:e=>events.push(e)})
+ await f.m.initialize();expect(f.store.get).not.toHaveBeenCalled();expect(f.runtime.start).not.toHaveBeenCalled();expect(f.metadata.save).not.toHaveBeenCalled()
+ f.runtime.start.mockRejectedValue(Error('PRIVATE_CANARY '+key));await f.m.connect();await vi.advanceTimersByTimeAsync(30000)
+ expect(f.runtime.start).toHaveBeenCalledOnce();expect(f.m.snapshot()).toMatchObject({state:'error',retry:0,config:{autoConnect:true}})
+ expect(events).toEqual(expect.arrayContaining([expect.objectContaining({source:1,phase:5,code:12})]));expect(JSON.stringify(events)).not.toContain(key)
+ await f.m.close();expect(f.metadata.save).not.toHaveBeenCalled()
+})
+it('diagnostic callback failure never changes a successful connection',async()=>{const f=fixture(config,false,{diagnostic:()=>{throw Error('PRIVATE')}});await f.m.initialize();await f.m.connect();expect(f.m.snapshot().state).toBe('ready')})

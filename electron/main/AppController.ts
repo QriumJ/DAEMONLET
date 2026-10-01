@@ -1,3 +1,4 @@
+import {privateTunnelDiagnostics} from './dot/BelleTunnelDiagnostics'
 import {BelleConnectionManager} from './dot/BelleConnectionManager'
 import {BelleConnectionMetadata} from './dot/BelleConnectionMetadata'
 import {BelleCredentialStore} from './dot/BelleCredentialStore'
@@ -260,10 +261,13 @@ export class AppController {
       ...(__APP_QA__ ? updateSmoke : {}),
     })
     this.updateIpc = new UpdateIpcController(this.updates, this.settingsWindow, this.devServerUrl)
+    const dotsDiagnosticMode=process.argv.includes('--dots-connection-diagnostics')
+    const dotsDiagnostic=dotsDiagnosticMode?privateTunnelDiagnostics(join(app.getPath('userData'),'dots-connection-diagnostics.jsonl')):undefined
     this.belleConnection=new BelleConnectionManager({
+      diagnostic:dotsDiagnostic,manualConnectOnly:dotsDiagnosticMode,
       store:new BelleCredentialStore(join(app.isPackaged?process.resourcesPath:dirname,process.platform==='win32'?'native/DaemonletBelleCredential.exe':'native/DaemonletBelleCredential')),
       metadata:new BelleConnectionMetadata(app.getPath('userData')),
-      runtime:new BelleTunnelRuntime(join(app.isPackaged?process.resourcesPath:dirname,'dot/dot-presentation-mcp.mjs')),
+      runtime:new BelleTunnelRuntime(join(app.isPackaged?process.resourcesPath:dirname,'dot/dot-presentation-mcp.mjs'),process.platform,undefined,undefined,dotsDiagnostic),
       external:process.env.DAEMONLET_DOT_BRIDGE==='1',
       bridge:{start:async signal=>{
         if(this.quitting||this.updatePreparing)throw Error('SHUTTING_DOWN')

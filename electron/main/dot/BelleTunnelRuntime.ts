@@ -1,3 +1,4 @@
+import {nativeDiagnosticReader,type TunnelDiagnosticSink} from './BelleTunnelDiagnostics'
 import {spawn,execFile,type ChildProcess} from 'node:child_process'
 import {promisify} from 'node:util'
 import {access,readFile,writeFile,mkdtemp,rm,stat} from 'node:fs/promises'
@@ -42,7 +43,7 @@ export async function stopOwnedTunnel(child:ChildProcess,platform=process.platfo
 /** Native OS secure store and app-owned process lifetime; unsupported platforms fail closed. */
 export class BelleTunnelRuntime implements TunnelRuntime{
  private client='';private node=''
- constructor(private adapter:string,private platform=process.platform,private base=tunnelBaseEnv(),private paths?:{client:string;node:string;supervisor?:string;host?:string}){}
+ constructor(private adapter:string,private platform=process.platform,private base=tunnelBaseEnv(),private paths?:{client:string;node:string;supervisor?:string;host?:string},private diagnostic?:TunnelDiagnosticSink){}
  private async executable(candidates:string[],missing:string){for(const path of candidates){try{const s=await stat(path);if(s.isFile()){await access(path,this.platform==='win32'?0:1);return path}}catch{}}throw Error(missing)}
  private windowsHost(){return this.paths?.host??join(dirname(this.adapter),'../native/DaemonletBelleTunnelHost.exe')}
  private windowsCandidates(name:string){const local=process.env.LOCALAPPDATA??'',program=process.env.ProgramFiles??'C:\\Program Files';return [join(homedir(),'.local/bin',name),join(local,'Programs/tunnel-client',name),join(program,name==='node.exe'?'nodejs':'tunnel-client',name),...windowsPathEntries(process.env.PATH??'').map(p=>join(p,name))]}
@@ -63,7 +64,10 @@ export class BelleTunnelRuntime implements TunnelRuntime{
  async start(config:BelleConnectionConfig,key:string,bridge:{port:number;token:string},signal:AbortSignal,onExit:()=>void):Promise<RunningTunnel>{
   if((this.platform!=='darwin'&&this.platform!=='win32')||!this.client||!this.node)throw Error('CLIENT_MISSING')
   if(signal.aborted)throw abort()
-  const work=await mkdtemp(join(tmpdir(),'daemonlet-belle-connection-')),profile=join(work,'client.yaml'),health=join(work,'health.url')
+  const began=Date.now();let phase=1;const record=(fields:Partial<{http:number;exit:number;code:number}>={})=>{try{this.diagnostic?.({source:2,phase,elapsedMs:Math.min(3600000,Date.now()-began),...fields})}catch{}}
+  record();let work:string
+  try{work=await mkdtemp(join(tmpdir(),'daemonlet-belle-connection-'))}catch{record({code:1});key='';throw abort()}
+  const profile=join(work,'client.yaml'),health=join(work,'health.url')
   let child:ChildProcess|null=null,stopped=false,settled=false,healthUrl='',stopPromise:Promise<void>|null=null
   const stop=()=>stopPromise??=(async()=>{stopped=true;signal.removeEventListener('abort',onAbort);if(child)await stopOwnedTunnel(child,this.platform);await rm(work,{recursive:true,force:true})})().catch(e=>{stopPromise=null;throw e})
   const onAbort=()=>{void stop().catch(()=>{})}
@@ -72,21 +76,22 @@ export class BelleTunnelRuntime implements TunnelRuntime{
   const windowsQuote=(v:string)=>{if(/[\0\r\n"%!&|<>^]/.test(v))throw abort();return '"'+v.replaceAll('\\','/')+'"'}
   const command=()=>this.platform==='win32'?windowsQuote(this.windowsHost())+' --adapter '+windowsQuote(this.node)+' '+windowsQuote(this.adapter):'/usr/bin/env -u CONTROL_PLANE_API_KEY -u OPENAI_API_KEY '+quote(this.node)+' '+quote(this.adapter)
   try{
-   await writeFile(profile,JSON.stringify({config_version:1,control_plane:{base_url:'https://api.openai.com',tunnel_id:config.tunnelId,api_key:'env:CONTROL_PLANE_API_KEY',organization_id:config.organizationId},health:{listen_addr:'127.0.0.1:0',url_file:health},admin_ui:{open_browser:false,log_buffer_events:1},log:{level:'error',format:'json'},mcp:{commands:[{channel:'main',command:command()}]}}),{mode:0o600,flag:'wx'})
+   phase=2;record();await writeFile(profile,JSON.stringify({config_version:1,control_plane:{base_url:'https://api.openai.com',tunnel_id:config.tunnelId,api_key:'env:CONTROL_PLANE_API_KEY',organization_id:config.organizationId},health:{listen_addr:'127.0.0.1:0',url_file:health},admin_ui:{open_browser:false,log_buffer_events:1},log:{level:'error',format:'json'},mcp:{commands:[{channel:'main',command:command()}]}}),{mode:0o600,flag:'wx'})
    if(signal.aborted)throw abort()
-   child=this.platform==='win32'?spawn(this.windowsHost(),[this.client,profile,config.organizationId],{env:{...this.base,CONTROL_PLANE_API_KEY:key,DAEMONLET_DOT_PORT:String(bridge.port),DAEMONLET_DOT_TOKEN:bridge.token},stdio:['pipe','ignore','ignore'],windowsHide:true}):spawn(this.node,[this.supervisor(),this.client,profile,config.organizationId],{env:{...this.base,CONTROL_PLANE_API_KEY:key,DAEMONLET_DOT_PORT:String(bridge.port),DAEMONLET_DOT_TOKEN:bridge.token},stdio:['pipe','ignore','ignore'],detached:true,windowsHide:true})
-   key='';let failed=false
-   child.stdin?.on('error',()=>{failed=true})
-   child.on('error',()=>{failed=true;if(settled&&!stopped)onExit()})
-   child.on('exit',()=>{failed=true;if(settled&&!stopped)onExit()})
+   phase=3;record();child=this.platform==='win32'?spawn(this.windowsHost(),[this.client,profile,config.organizationId,...(this.diagnostic?['--numeric-diagnostics']:[])],{env:{...this.base,CONTROL_PLANE_API_KEY:key,DAEMONLET_DOT_PORT:String(bridge.port),DAEMONLET_DOT_TOKEN:bridge.token},stdio:['pipe',this.diagnostic?'pipe':'ignore','ignore'],windowsHide:true}):spawn(this.node,[this.supervisor(),this.client,profile,config.organizationId],{env:{...this.base,CONTROL_PLANE_API_KEY:key,DAEMONLET_DOT_PORT:String(bridge.port),DAEMONLET_DOT_TOKEN:bridge.token},stdio:['pipe','ignore','ignore'],detached:true,windowsHide:true})
+   key='';if(this.diagnostic&&child.stdout)child.stdout.on('data',nativeDiagnosticReader(this.diagnostic));let failed=false
+   child.stdin?.on('error',()=>{record({code:2});failed=true})
+   child.on('error',()=>{record({code:3});failed=true;if(settled&&!stopped)onExit()})
+   child.on('exit',code=>{record({...(code!==null&&code>=0?{exit:code>>>0}:{}),code:4});failed=true;if(settled&&!stopped)onExit()})
    signal.addEventListener('abort',onAbort,{once:true});if(signal.aborted)throw abort()
+   phase=4;record();let lastHttp=0
    const ready=async()=>{
     if(stopped||failed||signal.aborted)return false
-    if(!healthUrl){try{const b=await readFile(health);if(b.length>256)return false;const value=b.toString('utf8').trim();if(!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/?$/.test(value)||+new URL(value).port>65535)return false;healthUrl=value.replace(/\/$/,'')}catch{return false}}
-    try{const response=await fetch(healthUrl+'/readyz',{redirect:'error',signal:AbortSignal.timeout(2000)});await response.body?.cancel();return response.status===200||response.status===204}catch{return false}
+    if(!healthUrl){try{const b=await readFile(health);if(b.length>256)return false;const value=b.toString('utf8').trim();if(!/^http:\/\/127\.0\.0\.1:[1-9]\d{0,4}\/?$/.test(value)||+new URL(value).port>65535)return false;healthUrl=value.replace(/\/$/,'');phase=5;record()}catch{return false}}
+    try{const response=await fetch(healthUrl+'/readyz',{redirect:'error',signal:AbortSignal.timeout(2000)});await response.body?.cancel();if(response.status!==lastHttp){lastHttp=response.status;record({http:response.status})}return response.status===200||response.status===204}catch{return false}
    }
-   for(let i=0;i<90;i++){if(signal.aborted||failed)throw abort();if(await ready()){settled=true;return {stop,ready}}await new Promise(r=>setTimeout(r,500))}
+   for(let i=0;i<90;i++){if(signal.aborted||failed)throw abort();if(await ready()){phase=6;record();settled=true;return {stop,ready}}await new Promise(r=>setTimeout(r,500))}
    throw abort()
-  }catch{key='';try{await stop()}catch{throw new OwnedTunnelCleanupError({stop,ready:async()=>false})}throw abort()}
+  }catch{record({code:5});key='';try{await stop()}catch{throw new OwnedTunnelCleanupError({stop,ready:async()=>false})}throw abort()}
  }
 }

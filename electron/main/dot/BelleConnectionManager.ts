@@ -1,3 +1,4 @@
+import type {TunnelDiagnosticSink} from './BelleTunnelDiagnostics'
 import {OwnedTunnelCleanupError} from './OwnedTunnelCleanupError'
 import {connectionIds,restoredConnectionConfig,validRuntimeKey,type BelleConnectionConfig,type BelleConnectionSnapshot} from '../../shared/belle-connection'
 export interface RuntimeCredentialStore{readonly kind?:'macos-keychain'|'windows-credential-manager';available():Promise<boolean>;has():Promise<boolean>;put(key:string):Promise<void>;get(signal?:AbortSignal):Promise<string>;remove():Promise<void>}
@@ -13,7 +14,7 @@ export class BelleConnectionManager{
  private listeners=new Set<(v:BelleConnectionSnapshot)=>void>();private queue:Promise<unknown>=Promise.resolve()
  private attempt:AbortController|null=null;private running:RunningTunnel|null=null;private timer:ReturnType<typeof setTimeout>|null=null;private monitor:ReturnType<typeof setInterval>|null=null
  private closed=false;private desired=false;private generation=0;private healthBusy=false
- constructor(private options:{store:RuntimeCredentialStore;metadata:ConnectionMetadata;runtime:TunnelRuntime;bridge:{start(signal:AbortSignal):Promise<{port:number;token:string}>;stop():Promise<void>};external?:boolean;retryDelay?:(attempt:number)=>number}){}
+ constructor(private options:{store:RuntimeCredentialStore;metadata:ConnectionMetadata;runtime:TunnelRuntime;bridge:{start(signal:AbortSignal):Promise<{port:number;token:string}>;stop():Promise<void>};external?:boolean;manualConnectOnly?:boolean;diagnostic?:TunnelDiagnosticSink;retryDelay?:(attempt:number)=>number}){}
  snapshot(){return structuredClone(this.value)}
  subscribe(listener:(v:BelleConnectionSnapshot)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
  private emit(patch:Partial<BelleConnectionSnapshot>){this.value={...this.value,...patch,config:this.config?{...this.config}:null};for(const l of this.listeners)l(this.snapshot())}
@@ -23,7 +24,7 @@ export class BelleConnectionManager{
   try{this.config=restoredConnectionConfig(await this.options.metadata.load());const available=await this.options.store.available();const stored=available&&await this.options.store.has();this.emit({secureStore:available?(this.options.store.kind??'macos-keychain'):'unavailable',credentialStored:stored,state:this.options.external?'external':this.config?'disconnected':'unconfigured',error:null})}
   catch(e){this.emit({state:'error',error:connectionError(e)})}
   if(!this.options.external&&this.value.secureStore!=='unavailable'){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}
-  if(this.config?.autoConnect&&!this.options.external&&this.value.secureStore!=='unavailable'&&this.value.credentialStored&&!this.value.error)void this.connect().catch(()=>{})
+  if(this.config?.autoConnect&&!this.options.manualConnectOnly&&!this.options.external&&this.value.secureStore!=='unavailable'&&this.value.credentialStored&&!this.value.error)void this.connect().catch(()=>{})
   return this.snapshot()
  }
  refresh(){return this.serial(async()=>{this.ensureOpen();if(this.options.external)return this.snapshot();let available:boolean,stored:boolean
@@ -53,23 +54,26 @@ export class BelleConnectionManager{
  private async launch(){
   if(!this.desired||this.closed)return
   const generation=++this.generation,controller=this.attempt=new AbortController();this.emit({state:this.value.retry?'reconnecting':'checking',error:null,muted:true})
+  const began=Date.now();let phase=1;const record=(code?:number)=>{try{this.options.diagnostic?.({source:1,phase,elapsedMs:Math.min(3600000,Date.now()-began),...(code===undefined?{}:{code})})}catch{}}
+  record()
   try{
    if(!await this.options.store.available())throw Error('STORE_UNAVAILABLE')
-   const versions=await this.options.runtime.probe();if(controller.signal.aborted)return;this.emit({...versions,state:'connecting'})
-   let key=await this.options.store.get(controller.signal);if(!validRuntimeKey(key))throw Error('KEY_MISSING')
+   phase=2;record();const versions=await this.options.runtime.probe();if(controller.signal.aborted)return;this.emit({...versions,state:'connecting'})
+   phase=3;record();let key=await this.options.store.get(controller.signal);if(!validRuntimeKey(key))throw Error('KEY_MISSING')
    try{
-    const bridge=await this.options.bridge.start(controller.signal)
-    const running=await this.options.runtime.start(this.config!,key,bridge,controller.signal,()=>{if(generation===this.generation&&this.desired&&!this.closed){this.abort();void this.serial(()=>this.lost()).catch(()=>{})}})
+    phase=4;record();const bridge=await this.options.bridge.start(controller.signal)
+    phase=5;record();const running=await this.options.runtime.start(this.config!,key,bridge,controller.signal,()=>{if(generation===this.generation&&this.desired&&!this.closed){this.abort();void this.serial(()=>this.lost()).catch(()=>{})}})
     this.running=running
     if(controller.signal.aborted||generation!==this.generation){await this.cleanup();return}
    }finally{key=''}
-   this.emit({state:'ready',credentialStored:true,error:null})
+   phase=6;record();this.emit({state:'ready',credentialStored:true,error:null})
    this.monitor=setInterval(()=>{if(this.healthBusy||!this.running)return;this.healthBusy=true;const current=this.running;void current.ready().then(ready=>{if(current===this.running&&generation===this.generation)this.emit({state:ready?'ready':'reconnecting'})}).catch(()=>{if(current===this.running)this.emit({state:'reconnecting'})}).finally(()=>{this.healthBusy=false})},5000)
    this.monitor.unref?.()
-  }catch(e){if(e instanceof OwnedTunnelCleanupError){this.running=e.running;this.desired=false;this.abort();this.emit({state:'error',error:'CONNECTION_FAILED',muted:true});await this.options.bridge.stop();return}if(!controller.signal.aborted&&generation===this.generation){await this.cleanup();this.emit({state:'error',error:connectionError(e)});this.scheduleRetry()}else await this.cleanup()}
+  }catch(e){record([...publicCodes].indexOf(connectionError(e))+1);if(e instanceof OwnedTunnelCleanupError){this.running=e.running;this.desired=false;this.abort();this.emit({state:'error',error:'CONNECTION_FAILED',muted:true});await this.options.bridge.stop();return}if(!controller.signal.aborted&&generation===this.generation){await this.cleanup();this.emit({state:'error',error:connectionError(e)});this.scheduleRetry()}else await this.cleanup()}
  }
  private scheduleRetry(){
   if(!this.desired||this.closed)return
+  if(this.options.manualConnectOnly){this.desired=false;return}
   // Locked/denied storage, invalid dependencies and auth readiness failures need user action.
   if(this.value.error!=='CONNECTION_FAILED'||this.value.retry>=3){this.desired=false;return}
   this.emit({state:'reconnecting',retry:this.value.retry+1});const generation=this.generation
