@@ -8,7 +8,8 @@ import {ReferenceProfileStore} from '../electron/main/character-voice/ReferenceP
 import {canonicalReferenceWav} from '../electron/main/character-voice/ReferenceWav'
 import {referenceWav} from './helpers/reference-wav'
 const cleanup:Array<()=>Promise<unknown>>=[]
-afterEach(async()=>{for(const fn of cleanup.splice(0))await fn();vi.restoreAllMocks()})
+const hostPlatform=Object.getOwnPropertyDescriptor(process,'platform')!
+afterEach(async()=>{try{for(const fn of cleanup.splice(0))await fn()}finally{Object.defineProperty(process,'platform',hostPlatform);vi.restoreAllMocks()}})
 async function fixture(native=true,setupRuntime:(runtime:any)=>void=()=>{}){
  const root=await realpath(await mkdtemp(join(tmpdir(),'reference-service-'))),source=join(root,'input.wav');await writeFile(source,referenceWav())
  const store=new ReferenceProfileStore(join(root,'reference-profiles'),async(path,stage,signal)=>{if(signal.aborted)throw Error('VOICE_REFERENCE_CANCELLED');const bytes=await readFile(path),{wav,audio}=canonicalReferenceWav(bytes);await writeFile(join(stage,'reference.wav'),wav);return{sourceSha256:createHash('sha256').update(bytes).digest('hex'),referenceSha256:createHash('sha256').update(wav).digest('hex'),audio}})
@@ -105,6 +106,8 @@ it('Mac Qwen streams with its separate MLX worker, switches complete mode, and r
  }finally{Object.defineProperty(process,'platform',platform);Object.defineProperty(process,'arch',arch)}
 })
 async function pendingQwenWarm(){
+ // This fixture exercises the supported Windows Qwen path, including on Linux CI.
+ Object.defineProperty(process,'platform',{...hostPlatform,value:'win32'})
  let warming=false,rejectWarm!:(e:Error)=>void,resolveWarm!:()=>void
  const f=await fixture(true,r=>{
   r.prewarm.mockImplementationOnce(()=>new Promise<void>((resolve,reject)=>{warming=true;rejectWarm=reject;resolveWarm=()=>{warming=false;resolve()}}))
