@@ -1,6 +1,6 @@
 {
   "name": "daemonlet-for-codex",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "private": true,
   "type": "module",
   "main": "dist-electron/main.cjs",
@@ -27,6 +27,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "qa:regression": "node --test scripts/qa/tests/credential-check.test.mjs scripts/qa/tests/rig-worker-bundle.test.mjs",
     "protocol:mock": "node scripts/protocol-mock-server.mjs",
     "codex:adapter": "node --no-warnings --experimental-strip-types scripts/codex-adapter.ts",
     "codex:adapter:doctor": "node --no-warnings --experimental-strip-types scripts/codex-adapter-doctor.ts",
@@ -49,7 +50,9 @@
     "side-chat:probe:startup": "node scripts/side-chat.mjs startup",
     "side-chat:ui-smoke": "node scripts/side-chat-ui-smoke.mjs",
     "side-chat:prepare-official": "node scripts/side-chat.mjs prepare",
-    "release:update-metadata": "node scripts/release/update-metadata.mjs"
+    "release:update-metadata": "node scripts/release/update-metadata.mjs",
+    "dot:mcp": "node scripts/dot-presentation-mcp.mjs",
+    "dot:smoke": "node scripts/dot-presentation-smoke.mjs"
   },
   "dependencies": {
     "ag-psd": "29.0.0",

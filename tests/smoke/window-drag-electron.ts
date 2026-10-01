@@ -14,13 +14,16 @@ app.setPath("userData", join(stage, "profile")); registerAppScheme()
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 async function main() {
   await app.whenReady(); installAppProtocol(join(stage, "renderer"))
-  const pet = new PetWindowController({ preloadPath: join(stage, "preload.cjs"), onBoundsChanged: () => {}, onWarning: console.error, onCloseRequested: () => {} })
-  const settings = defaultDesktopSettings(); settings.bounds = { x: 100, y: 100, width: 300, height: 300, displayId: null }
+  let modifierSample!: (pressed:boolean)=>void
+  const pet = new PetWindowController({ modifierMonitor: sample=>{modifierSample=sample;return {start(){},stop(){sample(false)}}}, preloadPath: join(stage, "preload.cjs"), onBoundsChanged: () => {}, onWarning: console.error, onCloseRequested: () => {} })
+  let settings = defaultDesktopSettings(); settings.bounds = { x: 100, y: 100, width: 300, height: 300, displayId: null }
   const win = pet.create(settings), cursor = { x: 150, y: 150 }, finishes: boolean[] = [], native: MouseInputEvent[] = []
   // sendInputEvent does not move the OS cursor. Only this sample is supplied by QA.
   const drag = new WindowDragController({ window: () => win, startCursor: () => pet.takeDragStart(), cursor: () => cursor,
     workArea: () => ({ x: 0, y: 0, width: 2000, height: 1500 }), allowed: () => true,
     lock: active => pet.setDragging(active), finish: (_bounds, committed) => { finishes.push(committed) } })
+  ipcMain.handle(IPC.layoutSet, (_event,enabled)=>pet.setLayoutMode(enabled))
+  ipcMain.handle(IPC.settingsPatch,(event,patch)=>{assert(isTrustedSender(event,win,"pet"));settings={...settings,...patch};pet.applySettings(settings);return settings})
   ipcMain.handle(IPC.windowDrag, (event, value, ...extra) => {
     assert(isTrustedSender(event, win, "pet") && !extra.length && validWindowDragRequest(value))
     return drag.request(value)
@@ -57,10 +60,27 @@ async function main() {
     await until(() => !drag.active && js("!dragSmoke.locked")); mouse("mouseUp")
     assert.deepEqual(win.getBounds(), saved, "Escape restores saved bounds")
     assert.deepEqual(finishes, [true, false])
+    const wheel = (modifiers: Electron.MouseWheelInputEvent["modifiers"] = ["alt"], x=50, y=50, deltaY=-100) => win.webContents.sendInputEvent({type:"mouseWheel",x,y,deltaY,deltaX:0,modifiers,hasPreciseScrollingDeltas:true})
+    wheel([]); wheel(["alt"],200,200);await wait(150);assert.equal(await js("dragSmoke.wheelUpdates"),0)
+    wheel(); await until(()=>settings.opacity===.9);assert.equal(settings.opacity,.9)
+    assert(Math.abs(win.getOpacity()-.9)<.01,"native opacity applied")
+    for(let n=0;n<20;n++){wheel(["alt"],50,50,-1);await wait(100)}
+    assert.equal(settings.opacity,.88,JSON.stringify(await js("({samples:dragSmoke.wheelSamples,desired:opacityControl.desired,queued:opacityControl.queued,updates:dragSmoke.wheelUpdates,lastObserved:opacityControl.lastObserved,lastSent:opacityControl.lastSent})")))
+    settings={...settings,opacity:0};pet.applySettings(settings)
+    assert(win.isVisible() && win.getOpacity()===0);assert.equal(pet.getMousePolicy().effective,true)
+    // Deterministic native-state adapter: physical Option querying is tested separately.
+    const actualCursor=(await import("electron")).screen.getCursorScreenPoint(), b=win.getBounds()
+    pet.setBounds({...b,x:actualCursor.x-50,y:actualCursor.y-50})
+    modifierSample(true);assert.equal(win.getOpacity(),1);assert.equal(pet.getMousePolicy().effective,false)
+    modifierSample(false);assert.equal(win.getOpacity(),0);assert.equal(pet.getMousePolicy().effective,true)
+    settings={...settings,scale:.2};pet.applySettings(settings);pet.setBounds({x:100,y:100,width:92,height:92});pet.setLayoutMode(true);await until(()=>js("Boolean(document.getElementById(\"layout-scale\"))"));assert.equal(await js("(()=>{const r=document.querySelector(\".percent-setting\").getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()"),true);await writeFile(join(output,"layout-minimum.png"),(await win.webContents.capturePage()).toPNG());assert.equal(win.getBounds().width,280);assert.equal(pet.getLogicalBounds()?.width,92);pet.setBounds(pet.getLogicalBounds()!);assert.equal(pet.getLogicalBounds()?.width,92);assert.equal(win.getOpacity(),1)
+    pet.setLayoutMode(false);assert.equal(win.getBounds().width,92);assert.equal(win.getOpacity(),0)
+    settings={...settings,opacity:1};pet.applySettings(settings);assert.equal(win.getOpacity(),1)
+    await writeFile(join(output, "opacity.png"),(await win.webContents.capturePage()).toPNG())
     await writeFile(join(output, "result.json"), JSON.stringify({ status: "PASS", platform: process.platform,
       electron: process.versions.electron, input: "Electron sendInputEvent; deterministic cursor and painted rectangle",
       nativeMouseDown: native, rendererModifiers: await js("dragSmoke.pointerModifiers"),
-      checks: ["native origin required", "ordinary/control/meta/transparent rejected", "Option begins through real preload/IPC", "modifier release keeps drag", "move/release commits", "Escape rolls back"],
+      checks: ["native origin required", "ordinary/control/meta/transparent rejected", "Option begins through real preload/IPC", "modifier release keeps drag", "move/release commits", "Escape rolls back", "modifier wheel only on painted canvas", "native opacity reflects persisted value", "zero stays visible and passes clicks", "modifier adapter recovers unfocused zero", "minimum layout edit area restores size", "opaque settings restore", "1px precise trackpad motion accumulates", "logical 92 DIP survives minimum editor recovery"],
       physicalDrag: "NOT_RUN", modelCalls: 0 }, null, 2))
   } finally { drag.cancel(); pet.destroy() }
 }

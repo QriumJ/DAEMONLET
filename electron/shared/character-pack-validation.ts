@@ -33,7 +33,7 @@ const anchors = shape({
   face: shape({ ...boundsFields, cx: number, cy: number }, [...Object.keys(boundsFields), "cx", "cy"]),
   eyeL: shape({ ...boundsFields, icx: number, icy: number, closeY: number, blink }, [...Object.keys(boundsFields), "icx", "icy", "closeY"]),
   eyeR: shape({ ...boundsFields, icx: number, icy: number, closeY: number, blink }, [...Object.keys(boundsFields), "icx", "icy", "closeY"]),
-  mouth: shape({ ...boundsFields, cx: number, cy: number, morph }, [...Object.keys(boundsFields), "cx", "cy"]),
+  mouth: shape({ ...boundsFields, cx: number, cy: number, morph, speechMorph: morph }, [...Object.keys(boundsFields), "cx", "cy"]),
   neckPivot: point, bodyPivot: point, neckTop: number, neckBottom: number, hairRootY: number, faceScale: positive,
 })
 export function validateRigOverrides(v: unknown): RigOverrides {

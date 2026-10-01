@@ -17,9 +17,9 @@ function fixture(){
  return {state,chat,settings,controller,call:(v:any)=>handle({} as any,v),context:()=>settingsContext(state),expire:()=>{owner='settings-2'},emit:()=>{chatListener();voiceListener()},stop}
 }
 it('settings snapshot carries management state without conversation text or audio',async()=>{
- const f=fixture(),s=await f.call({type:'snapshot'});expect(s.chat.conversation).toEqual({id:'c1',title:'synthetic',messageCount:1});expect(JSON.stringify(s)).not.toContain('PRIVATE_DIALOGUE');expect(s.playbackReady).toBe(false);expect(s).not.toHaveProperty('audio')
+ const f=fixture();f.state.draft={key:'private',text:'PRIVATE_DRAFT',revision:1};f.state.acceptedDraft={key:'private',revision:1};const s=await f.call({type:'snapshot'});expect(s.chat.conversation).toEqual({id:'c1',title:'synthetic',messageCount:1});expect(JSON.stringify(s)).not.toContain('PRIVATE_DIALOGUE');expect(JSON.stringify(s)).not.toContain('PRIVATE_DRAFT');expect(s.chat).not.toHaveProperty('draft');expect(s.chat).not.toHaveProperty('acceptedDraft');expect(s.playbackReady).toBe(false);expect(s).not.toHaveProperty('audio')
 })
-it.each(['ready','read','played','scheduled','outputStopped'])('settings cannot acquire playback operation %s',async type=>{
+it.each(['ready','read','replay','reroll','reproduce','played','scheduled','outputStopped'])('settings cannot acquire playback operation %s',async type=>{
  const f=fixture();await expect(f.call({type:'voice',action:{type},context:f.context()})).rejects.toThrow('CHAT_SETTINGS_ACTION');expect(f.chat.voice.manage).not.toHaveBeenCalled()
 })
 it.each(['send','character','conversation','attention','codex-mode','import-pack'])('settings rejects unexposed chat action %s',async type=>{
@@ -41,4 +41,9 @@ it('closing settings does not revoke chat playback; updates are management-only'
 })
 it('dialog operations receive the initiating settings owner and live guard',async()=>{
  const f=fixture();await f.call({type:'chat',action:{type:'import-model',id:'12B'},context:f.context()});const [,owner,current]=f.chat.manage.mock.calls[0];expect(owner).toBe(f.settings.window);expect(current()).toBe(true);f.expire();expect(current()).toBe(false)
+})
+
+it('Qwen managed installation and cancel are admitted through the production settings contract',async()=>{
+ const f=fixture();let release!:()=>void;f.chat.voice.manage.mockImplementation((v:any)=>v.type==='installQwen'?new Promise<void>(r=>release=r):Promise.resolve());const pending=f.call({type:'voice',action:{type:'installQwen'},context:f.context()});await vi.waitFor(()=>expect(release).toBeTypeOf('function'))
+ await f.call({type:'voice',action:{type:'cancelInstallQwen'},context:f.context()});expect(f.chat.voice.manage.mock.calls.map((c:any)=>c[0].type)).toEqual(['installQwen','cancelInstallQwen']);release();await pending
 })

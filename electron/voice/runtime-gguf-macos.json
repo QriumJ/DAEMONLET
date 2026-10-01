@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "profile": "macos-arm64-gguf-f16-v1",
   "sourceCommit": "873056743b74e1a4ce5dcf7290e2298428e214db",
-  "nativeSourceSha256": "64e7205890ed9061d37cbaa0dd6632e28061353afcc6dda569c53f779ff585b1",
+  "nativeSourceSha256": "b62f2068dc51ca900f8f4153c16b4c0e9ebbd6f27b171fe087bbccd264d09b66",
   "originalBaseSha256": "f7f964cfa9da23653baec6e6f7750719977ad944ed9f95fe52fe3a620506891d",
   "nativeFiles": {
-    "native/daemonlet-voice-engine": "71e1af4d880454f75b53f32674f43123a8c715a73a99aa2be448a61b5f8becd0",
+    "native/daemonlet-voice-engine": "9cdc293365c522f74c2744306d34edf0768a424a13fd7158ca52e9258afa186f",
     "native/ggml-metal.metal": "1345fbb9c42d3db8813fbaee5c0714407d2fc8cac867e380f6b5c1261db7dc4c",
     "native/ggml-common.h": "33667042e675da25d8ea0c6d5d0999506f1edfce2b7d97c2d78830ac5fb3fa46",
     "native/ggml-metal-impl.h": "f740a962b4e23b3c5d946d5da9351ba14a4d124c67f2f3cda54350b3e55e003e",
@@ -14,7 +14,7 @@
   },
   "originalRuntimeSha256": "877cdf6819268877669bfbf6837ed2fe85f009fb80b0bae502c35bb962d1e174",
   "cachedRuntimeSha256": "993c1afcf88cade33d5e8759c54e7c8daaadb4c5929489829d8f0486de8b5b6d",
-  "cacheRecipeSha256": "48045edac60db9ea39fc45463f794475b0a0f71a4d888da6b71ead469388351b",
+  "cacheRecipeSha256": "10d57593269b99d591d2a79de84056d3405660575b25f01f7ccf905f40f8f88c",
   "selectedRegressionGGUF": {
     "VoxCPM2-BaseLM-F16.gguf": "9cec912d8961f0fe9a43187e6cc6b717eb5e3adf0be6ad5921e531f47e50213d",
     "VoxCPM2-Acoustic-F16.gguf": "38cdeef9dbf11bd48090ec862cf725a99475afdf5d7f1727bbe28381fef6d09d"
@@ -40,5 +40,6 @@
     "gguf-py/gguf/utility.py": "da920e2c62166ec9f30e407e9fb35ec29fda671310ffbf0f8ce856b62f1c70d7",
     "gguf-py/gguf/vocab.py": "c3a6ddea051579d48e1a591c1cb481bddd4439b756952531a25c4cddf6382b97",
     "tools/omni/voxcpm2/convert_voxcpm2_to_gguf.py": "dfd9c199b2b1fab207d1f0127905224d7cefa3dca773f3e5de2782310bf4ba66"
-  }
+  },
+  "seedContractSha256": "1e9736fddb2dcac03b936425936f7ba710e409a0e7d9a6fd66bc0de74095c470"
 }

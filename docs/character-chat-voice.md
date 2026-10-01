@@ -115,7 +115,9 @@ renderer visibility and decode-generation checks provide additional protection.
 
 Audio is 48kHz mono PCM16. Web Audio performs output-device resampling and gain;
 volume does not change synthesis settings. The default neutral reference mode,
-CFG 2, 10 steps, seed 42, normalize/denoise/retry disabled, max_len 600 are fixed.
+CFG 2, 10 steps, normalize/denoise/retry disabled and max_len 600 remain fixed.
+Seeds follow the [reply seed policy](character-chat-voice-seeds.md): random per
+reply by default, or an explicit fixed value. Package manifests remain unchanged.
 No unsupported emotion parameters or fabricated lip sync are used.
 
 ## Lifetimes and failures

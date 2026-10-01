@@ -1,3 +1,4 @@
+import {beforeEach as seedBeforeEach} from 'vitest'
 import {afterEach,expect,it,vi} from 'vitest'
 import {EventEmitter} from 'node:events'
 import {PassThrough} from 'node:stream'
@@ -32,11 +33,11 @@ async function fixture(policy:SpeechPolicy='legacy-sentence-v1'){
   ++spawns
   const child:any=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.exitCode=null
   child.kill=()=>{++kills;child.exitCode=0;queueMicrotask(()=>child.emit('close',0));return true}
-  const send=(r:any,type:string,extra={})=>child.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...extra})+'\n')
+  const send=(r:any,type:string,extra={})=>child.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,effectiveSeed:r.seed,...extra})+'\n')
   child.stdin.on('data',(bytes:Buffer)=>{for(const line of bytes.toString().trim().split('\n')){
    const r=JSON.parse(line);requests.push(r)
    if(r.type==='cancel-stream')cancelReply=()=>send(r,'cancelled',{target:r.target,cleanupComplete:true,keptWarm:true})
-   if(r.type==='init'){cache=r.cache;queueMicrotask(()=>send(r,'ready'))}
+   if(r.type==='init'){cache=r.cache;queueMicrotask(()=>send(r,'ready',{seedContract:1}))}
    if(r.type==='synthesize'){
     finish=()=>{writeFileSync(join(cache,r.audioId+'.wav'),wav());send(r,'audio-ready',{audioId:r.audioId,binding:r.binding,segmentIndex:r.segmentIndex,generationMs:1,rtf:.01})}
     if(!hold)queueMicrotask(finish)
@@ -56,7 +57,9 @@ async function fixture(policy:SpeechPolicy='legacy-sentence-v1'){
  const chat={epoch:1,model:'E4B',character:{id:'test',revision:'rev'},conversation:{id:'chat',messages:[message]}} as LocalChatSnapshot
  const service=new CharacterVoiceService(root,join(root,'synthetic'),()=>chat,()=>{},e=>events.push(e),()=>runtime,undefined,undefined,policy)
  cleanup.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})})
- await service.initialize();(service as any).state.executionProfile='baseline';await service.configure(process.execPath,root);await service.enabled(true)
+ await service.initialize();
+ // Synthetic external runtime supports these modes independently of the test host.
+ ;(service as any).state.availableProfiles=['baseline','cached','compiled'];(service as any).state.executionProfile='baseline';await service.configure(process.execPath,root);await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',fingerprint:'fingerprint'}]
  await service.bind('test','voice@1');service.setOutputReady(true)
  ;(service as any).state.executionProfile='cached'
@@ -185,3 +188,6 @@ it.each(['baseline','cached'] as const)('grouped R1 real service retires termina
  const oldRequest=f.requests.find(r=>r.type==='stream').requestId
  expect(f.requests.filter(r=>r.type==='credit'&&r.requestId===oldRequest).map(r=>r.chunkIndex)).toEqual([0,1])
 })
+
+// These service fixtures use synthetic paths and no installed model/runtime.
+seedBeforeEach(()=>{vi.spyOn(CharacterVoiceService.prototype as any,'replayAssets').mockResolvedValue('synthetic-asset-identity')})

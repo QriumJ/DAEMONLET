@@ -29,3 +29,14 @@ describe("multi-monitor bounds recovery", () => {
     expect(recoverWindowBounds(saved({ x: 1300, y: 700 }), [smaller], smaller)).toMatchObject({ x: 516, y: 216, displayId: 1 })
   })
 })
+
+it("recovers oversized windows on a removed display without leaving the new display", () => {
+  const b = recoverWindowBounds(saved({x:-4000,y:-4000,width:1840,height:1840,displayId:99}), [primary], primary)
+  expect(b).toEqual({x:516,y:0,width:900,height:900,displayId:1})
+})
+it("handles a work area smaller than the minimum and keeps mixed-DPI negative positions", () => {
+  const tiny: DisplayLike = {id:3,scaleFactor:3,workArea:{x:-100,y:40,width:80,height:60}}
+  expect(recoverWindowBounds(saved({x:9000}), [tiny], tiny)).toEqual({x:-100,y:40,width:60,height:60,displayId:3})
+  const b = saved({x:-1800,y:-60,width:92,height:92,displayId:2})
+  expect(recoverWindowBounds(b,[primary,left],primary)).toEqual(b)
+})

@@ -6,7 +6,7 @@ import type { SpeechOutline } from "../../electron/shared/speech-outline"
 
 /** Keep the surface lease while speech remains visible. Replacing a line must
  * not hide the same bubble while waiting for another cross-process round trip. */
-export function useBubblePresentation(snapshot: DialogueSnapshot, anchor: BubbleAnchor | null, layoutReady: boolean, available: boolean, characterEpoch: number, controller?: CharacterDialogueController, size?: { width: number; height: number; outline?: SpeechOutline; measuredText?: string | null }) {
+export function useBubblePresentation(snapshot: DialogueSnapshot, anchor: BubbleAnchor | null, layoutReady: boolean, available: boolean, characterEpoch: number, controller?: CharacterDialogueController, size?: { width: number; height: number; outline?: SpeechOutline; measuredText?: string | null; dotSequence?: number }) {
   const [epoch, setEpoch] = useState(0)
   const [reportedAnchor, setReportedAnchor] = useState<BubbleAnchor | null>(null)
   const lastAnchorAt = useRef(-Infinity)
@@ -45,13 +45,13 @@ export function useBubblePresentation(snapshot: DialogueSnapshot, anchor: Bubble
     const retryReport = () => {
       if (alive && available) retryTimer = setTimeout(() => setRetry(value => value + 1), 180)
     }
-    const speech = wanted && snapshot.text && size ? { text: snapshot.text, width: Math.ceil(size.width), height: Math.ceil(size.height), fadeMs: snapshot.fadeMs, ...(size.outline ? { outline: size.outline } : {}) } : undefined
+    const speech = wanted && snapshot.text && size ? { text: snapshot.text, width: Math.ceil(size.width), height: Math.ceil(size.height), fadeMs: snapshot.fadeMs, ...(size.outline ? { outline: size.outline } : {}), ...(size.dotSequence ? { dotSequence: size.dotSequence } : {}) } : undefined
     void window.petDesktop.bubble.report({ epoch, sequence: seq, available, phase, anchor: reportedAnchor, ...(speech ? { speech } : {}) }).then(permit => {
       if (alive && wanted && permit.granted && permit.epoch === epoch && permit.sequence === seq && sequence.current === seq) setGrantedKey(key)
       else if (permit.epoch !== epoch || permit.sequence !== seq || wanted && !granted) retryReport()
     }).catch(retryReport)
     return () => { alive = false; if (retryTimer !== null) clearTimeout(retryTimer) }
-  }, [epoch, key, wanted, granted, snapshot.phase, snapshot.text, snapshot.fadeMs, size?.width, size?.height, size?.outline, size?.measuredText, available, reportedAnchor, controller, retry])
+  }, [epoch, key, wanted, granted, snapshot.phase, snapshot.text, snapshot.fadeMs, size?.width, size?.height, size?.outline, size?.measuredText, size?.dotSequence, available, reportedAnchor, controller, retry])
   useLayoutEffect(() => () => { controller?.setPresentationPaused(false) }, [controller])
   return controller ? granted : wanted
 }

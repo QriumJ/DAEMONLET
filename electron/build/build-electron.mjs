@@ -20,7 +20,7 @@ await mkdir(resolve(outdir, "voice"), { recursive: true })
 await copyFile(resolve(root, "electron/voice/worker.py"), resolve(outdir, "voice/worker.py"))
 await copyFile(resolve(root, "electron/voice/engine.py"), resolve(outdir, "voice/engine.py"))
 await copyFile(resolve(root, "electron/voice/control.py"), resolve(outdir, "voice/control.py"))
-for (const file of ['base-voice-defaults.json','backend.py','macos_runtime.py','runtime-macos.json','gguf_worker.py','gguf_runtime.py','gguf_cache.py','gguf_prepare.py','voice_package.py','runtime-gguf-macos.json','windows_base_worker.py','runtime-windows-base.json','install-windows-base.json','install_windows_base.py']) await copyFile(resolve(root, 'electron/voice', file), resolve(outdir, 'voice', file))
+for (const file of ['install_qwen.py','install-qwen-darwin-arm64.json','install-qwen-win32-x64.json','windows_model_check.py','qwen_mlx_worker.py', 'qwen_audio.py', 'qwen-mlx-policy.json', 'qwen_worker.py','qwen_memory.py','qwen-policy.json','base-voice-defaults.json','reference-policy.json','reference_condition.py','seed_contract.py','backend.py','macos_runtime.py','runtime-macos.json','gguf_worker.py','gguf_runtime.py','gguf_cache.py','gguf_prepare.py','voice_package.py','runtime-gguf-macos.json','windows_base_worker.py','runtime-windows-base.json','install-windows-base.json','install_windows_base.py']) await copyFile(resolve(root, 'electron/voice', file), resolve(outdir, 'voice', file))
 const chatTarget = runtimeTarget(process.env.PET_BUILD_PLATFORM || process.platform, process.env.PET_BUILD_ARCH || process.arch)
 const baseRuntime=resolve(root,'.generated/voice-base-runtime',chatTarget)
 if(existsSync(baseRuntime)){const trusted=JSON.parse(await (await import('node:fs/promises')).readFile(resolve(root,'electron/voice/runtime-base-macos.json'),'utf8'));await verifyRuntime(baseRuntime,chatTarget,{trusted});await cp(baseRuntime,resolve(outdir,'voice/base-native'),{recursive:true})}
@@ -47,6 +47,7 @@ const common = {
 }
 
 const bundles = await Promise.all([
+  build({ ...common, entryPoints: [resolve(root, 'electron/utility/reference-import-worker.ts')], outfile: resolve(outdir, 'voice/reference-import-worker.cjs') }),
   build({ ...common, entryPoints: [resolve(root, "electron/preload/character-chat-preload.ts")], outfile: resolve(outdir, "character-chat-preload.cjs") }),
   build({ ...common, entryPoints: [resolve(root, "electron/utility/character-pack-worker.ts")], outfile: resolve(outdir, "character-pack-worker.cjs") }),
   build({ ...common, entryPoints: [resolve(root, "electron/main/main.ts")], outfile: resolve(outdir, "main.cjs") }),
@@ -77,6 +78,11 @@ await writeFile(resolve(outdir, "build-mode.json"), `${JSON.stringify({ schemaVe
 await writeFile(resolve(outdir, "app-update.yml"), JSON.stringify({ provider: "github", owner: "ddol2ya", repo: "DAEMONLET", private: false, updaterCacheDirName: "daemonlet-for-codex-updater" }) + "\n")
 
 await import("./build-dictation.mjs")
+await import("./build-belle-credential.mjs")
+await import("./build-windows-belle.mjs")
+await import("./build-modifier-state.mjs")
+await mkdir(resolve(outdir,"dot"),{recursive:true})
+for(const file of ["dot-presentation-mcp.mjs","belle-tunnel-supervisor.mjs"])await copyFile(resolve(root,"scripts",file),resolve(outdir,"dot",file))
 await import("./build-hook-host.mjs")
 await import("../../scripts/release/stage-notices.mjs")
 

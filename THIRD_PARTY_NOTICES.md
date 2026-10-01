@@ -63,3 +63,14 @@ Google Gemma 4 QAT Q4_0 GGUF repositories declare Apache-2.0; the license
 text accompanies the model installation information. Character artwork and
 source material retain their separate rights and are not covered by these
 software/model licenses.
+
+### Experimental external Qwen voice engines
+
+Qwen3-TTS official PyTorch model and tokenizer: Apache-2.0, Qwen team.
+The optional Apple Silicon arm uses the Apache-2.0 model-card-declared
+mlx-community 4bit conversion. MLX Audio, MLX and MLX LM: MIT, their respective
+contributors (MLX Audio copyright 2025 Prince Canuma and contributors).
+These external packages and model weights are not bundled in the app.
+Pinned snapshots, distribution source hashes, and installation license receipts
+are documented in `docs/character-chat-voice-qwen-ab.md` and the Qwen policies.
+No dots-voice source code or bundled voice is incorporated.

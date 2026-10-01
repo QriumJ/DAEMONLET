@@ -3,10 +3,13 @@ import { automaticBubblePlacement, parseBubblePlacement, type BubblePlacement } 
 export const DESKTOP_SETTINGS_SCHEMA_VERSION = 1 as const
 export const CHARACTER_IDS = ["gpichan"] as const
 export const CHARACTER_NAMES = { gpichan: "지피쨩" } as const
-export const SCALE_PRESETS = [0.65, 0.8, 1, 1.25, 1.5] as const
-export const MIN_WINDOW_SIZE = 280
-export const MAX_WINDOW_SIZE = 720
+export const SCALE_PRESETS = [0.25, 0.5, 0.65, 0.8, 1, 1.25, 1.5, 2, 3, 4] as const
+export const MIN_SCALE = 0.2
+export const MAX_SCALE = 4
 export const DEFAULT_WINDOW_SIZE = 460
+export const MIN_WINDOW_SIZE = DEFAULT_WINDOW_SIZE * MIN_SCALE
+export const MAX_WINDOW_SIZE = DEFAULT_WINDOW_SIZE * MAX_SCALE
+export const OPACITY_CLICK_THROUGH_THRESHOLD = 0.5
 
 export type DesktopCharacterId = string
 const builtinCharacter = (id: string) => (CHARACTER_IDS as readonly string[]).includes(id)
@@ -23,6 +26,7 @@ export type DesktopSettingsV1 = {
   characterId: DesktopCharacterId
   language: AppLanguage
   scale: number
+  opacity: number
   bounds: DesktopBounds
   visible: boolean
   alwaysOnTop: boolean
@@ -40,7 +44,7 @@ export type DesktopSettingsV1 = {
 }
 
 export type DesktopSettingsPatch = Partial<Pick<DesktopSettingsV1,
-  "characterId" | "language" | "scale" | "visible" | "alwaysOnTop" | "showOnAllWorkspaces" |
+  "characterId" | "language" | "scale" | "opacity" | "visible" | "alwaysOnTop" | "showOnAllWorkspaces" |
   "showOverFullScreen" | "clickThrough" | "adapterAutoStart" | "speechBubblesEnabled" | "codexUsageEnabled" | "taskBubblesEnabled" | "sideChatEnabled" | "updateAutoCheck" | "bubblePlacement"
 >>
 
@@ -60,6 +64,7 @@ export function defaultDesktopSettings(): DesktopSettingsV1 {
     characterId: "gpichan",
     language: "ko",
     scale: 1,
+    opacity: 1,
     bounds: { x: 24, y: 24, width: DEFAULT_WINDOW_SIZE, height: DEFAULT_WINDOW_SIZE, displayId: null },
     visible: true,
     alwaysOnTop: true,
@@ -78,7 +83,7 @@ export function defaultDesktopSettings(): DesktopSettingsV1 {
 }
 
 export function windowSizeForScale(scale: number): number {
-  return Math.round(clamp(DEFAULT_WINDOW_SIZE * scale, MIN_WINDOW_SIZE, MAX_WINDOW_SIZE))
+  return Math.round(DEFAULT_WINDOW_SIZE * normalizeScale(scale))
 }
 
 export function normalizeScale(value: unknown, fallback = 1): number {
@@ -110,6 +115,7 @@ export function normalizeDesktopSettings(value: unknown, characterAllowed: (id: 
     characterId,
     language: normalizeAppLanguage(input.language),
     scale,
+    opacity: finite(input.opacity) ? clamp(input.opacity, 0, 1) : defaults.opacity,
     bounds,
     visible: bool(input.visible, defaults.visible),
     alwaysOnTop: bool(input.alwaysOnTop, defaults.alwaysOnTop),
@@ -132,7 +138,7 @@ export function normalizeDesktopSettings(value: unknown, characterAllowed: (id: 
 export function validateDesktopSettingsPatch(value: unknown, characterAllowed: (id: string) => boolean = builtinCharacter): DesktopSettingsPatch | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const input = value as Record<string, unknown>
-  const allowed = new Set(["characterId", "language", "scale", "visible", "alwaysOnTop", "showOnAllWorkspaces", "showOverFullScreen", "clickThrough", "adapterAutoStart", "speechBubblesEnabled", "codexUsageEnabled", "taskBubblesEnabled", "sideChatEnabled", "updateAutoCheck", "bubblePlacement"])
+  const allowed = new Set(["characterId", "language", "scale", "opacity", "visible", "alwaysOnTop", "showOnAllWorkspaces", "showOverFullScreen", "clickThrough", "adapterAutoStart", "speechBubblesEnabled", "codexUsageEnabled", "taskBubblesEnabled", "sideChatEnabled", "updateAutoCheck", "bubblePlacement"])
   if (Object.keys(input).some((key) => !allowed.has(key))) return null
   const patch: DesktopSettingsPatch = {}
   if ("bubblePlacement" in input) { const placement = parseBubblePlacement(input.bubblePlacement); if (!placement) return null; patch.bubblePlacement = placement }
@@ -147,6 +153,10 @@ export function validateDesktopSettingsPatch(value: unknown, characterAllowed: (
   if ("scale" in input) {
     if (!finite(input.scale) || input.scale < MIN_WINDOW_SIZE / DEFAULT_WINDOW_SIZE || input.scale > MAX_WINDOW_SIZE / DEFAULT_WINDOW_SIZE) return null
     patch.scale = input.scale
+  }
+  if ("opacity" in input) {
+    if (!finite(input.opacity) || input.opacity < 0 || input.opacity > 1) return null
+    patch.opacity = input.opacity
   }
   for (const key of ["visible", "alwaysOnTop", "showOnAllWorkspaces", "showOverFullScreen", "clickThrough", "adapterAutoStart", "speechBubblesEnabled", "codexUsageEnabled", "taskBubblesEnabled", "sideChatEnabled", "updateAutoCheck"] as const) {
     if (key in input) {
@@ -174,10 +184,13 @@ export function recoverWindowBounds(saved: DesktopBounds, displays: DisplayLike[
     ? preferred
     : displays.find((display) => isSufficientlyVisible(saved, display.workArea))
   if (matching) return { ...saved, displayId: matching.id }
-  const size = clamp(Math.min(saved.width, saved.height), MIN_WINDOW_SIZE, Math.min(MAX_WINDOW_SIZE, primary.workArea.width, primary.workArea.height))
+  const available = Math.max(1, Math.min(MAX_WINDOW_SIZE, primary.workArea.width, primary.workArea.height))
+  const size = clamp(Math.min(saved.width, saved.height), Math.min(MIN_WINDOW_SIZE, available), available)
+  const insetX = Math.min(margin, Math.max(0, primary.workArea.width - size))
+  const insetY = Math.min(margin, Math.max(0, primary.workArea.height - size))
   return {
-    x: Math.round(primary.workArea.x + primary.workArea.width - size - margin),
-    y: Math.round(primary.workArea.y + primary.workArea.height - size - margin),
+    x: Math.round(primary.workArea.x + primary.workArea.width - size - insetX),
+    y: Math.round(primary.workArea.y + primary.workArea.height - size - insetY),
     width: size,
     height: size,
     displayId: primary.id,

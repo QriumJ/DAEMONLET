@@ -1,2 +1,9 @@
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; user-select: none; }
 .dialogue-bubble.speech-bubble { max-width: calc(100% - 12px); --bubble-font-size: 13px; }
+.speech-bubble[data-dot="true"] { pointer-events: auto; text-wrap: wrap; }
+.speech-bubble[data-dot="true"] .speech-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
+.speech-bubble[data-dot="true"][data-expanded="true"] .speech-text { display: block; overflow-y: auto; overscroll-behavior: contain; user-select: text; scrollbar-gutter: stable; }
+.speech-expand { display: block; margin-top: 6px; padding: 3px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--bubble-muted); font: inherit; font-size: 12px; cursor: pointer; }
+.speech-expand[hidden] { display: none; }
+.speech-expand:hover { background: rgba(85,73,67,.08); }
+.speech-expand:focus-visible { outline: 2px solid #746761; outline-offset: 1px; }

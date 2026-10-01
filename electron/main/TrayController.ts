@@ -32,6 +32,10 @@ export function intersectsDisplay(bounds: Rectangle, displays: Rectangle[]): boo
 }
 
 export type TrayActions = {
+  dot?():{quiet:boolean;muted:boolean}
+  dotQuiet?(value:boolean):void
+  dotMuted?(value:boolean):void
+  dotCancel?():void
   activity?(): ActivitySnapshot
   openActivity?(): void
   openTaskControl?(): void
@@ -56,18 +60,31 @@ export type TrayActions = {
 export function buildTrayMenu(settings: DesktopSettingsV1, adapter: AdapterStatus, actions: TrayActions): MenuItemConstructorOptions[] {
   const t = createTranslator(settings.language)
   if (actions.inputLocked?.()) return [{ label: t("업데이트 적용을 준비하고 있어요…"), enabled: false }]
+  const activity = actions.activity?.()
   const adapterLabel = adapter.state === "READY" ? "READY (Owned)" : adapter.state
   return [
     { label: settings.visible ? t("캐릭터 숨기기") : t("캐릭터 표시"), click: actions.toggleVisible },
     ...(actions.openActivity ? [
       { label: t("작업 목록"), click: actions.openActivity },
-      ...(actions.activity ? [{ label: activitySummary(actions.activity(), settings.language), enabled: false }] : []),
+      ...(activity ? (process.platform === "darwin" ? [{ label: t("작업 현황"), submenu: [
+        { label: activity.connection === "READY" ? "READY" : t("재확인 중"), enabled: false },
+        { label: t`입력 필요 ${activity.counts.waiting}`, enabled: false },
+        { label: `${t("미확인 실패")}: ${activity.counts.failed}`, enabled: false },
+        { label: `${t("미확인 종료")}: ${activity.counts.completed}`, enabled: false },
+        { label: `${t("실행 중")}: ${activity.counts.running}`, enabled: false },
+      ] }] : [{ label: activitySummary(activity, settings.language), enabled: false }]) : []),
     ] : []),
-    ...(actions.openCharacterChat ? [{ label: t("캐릭터챗 · 로컬"), click: actions.openCharacterChat }] : []),
-    ...(actions.openSideChat ? [{ label: t("캐릭터와 대화"), click: actions.openSideChat }] : []),
+    ...(actions.openCharacterChat ? [{ label: t("로컬 캐릭터 대화"), click: actions.openCharacterChat }] : []),
+    ...(actions.openSideChat ? [{ label: t("Codex 작업 대화"), click: actions.openSideChat }] : []),
+    ...(actions.dot?.() ? [{type:'separator' as const},{label:t('dot 표현 · 현재 세션'),enabled:false},
+      {label:t('표현 일시 중지'),type:'checkbox' as const,checked:actions.dot!().quiet,click:()=>actions.dotQuiet?.(!actions.dot!().quiet)},
+      {label:t('음소거'),type:'checkbox' as const,checked:actions.dot!().muted,click:()=>actions.dotMuted?.(!actions.dot!().muted)},
+      {label:t('현재 표현 중단'),click:actions.dotCancel},
+    {type:'separator' as const}] : []),
     { type: "separator" },
     { label: t("캐릭터 이동·크기 조절"), click: () => actions.setLayout(true) },
     { label: t("위치 초기화"), click: actions.resetPosition },
+    { label: t("불투명도 100% 복원"), click: () => actions.updateSettings({ opacity: 1, visible: true }) },
     ...(actions.bubblePlacement ? [{ label: t("말풍선 위치"), submenu: [
       { label: t("자동"), type: "radio" as const, checked: settings.bubblePlacement.mode === "auto", click: () => actions.bubblePlacement!("auto") },
       { label: t("위치 조절"), type: "radio" as const, checked: settings.bubblePlacement.mode === "relative", click: () => actions.bubblePlacement!("adjust") },
@@ -88,8 +105,12 @@ export function buildTrayMenu(settings: DesktopSettingsV1, adapter: AdapterStatu
         click: () => actions.updateSettings({ scale }),
       })),
     },
+    { label: t("캐릭터 불투명도"), submenu: [100, 75, 50, 25, 0].map(percent => ({
+      label: `${percent}%`, type: "radio" as const, checked: Math.round(settings.opacity * 100) === percent,
+      click: () => actions.updateSettings({ opacity: percent / 100 }),
+    })) },
     { type: "separator" },
-    ...(actions.openTaskControl ? [{ label: t("Codex 제어 · 음성 입력"), click: actions.openTaskControl }] : []),
+    ...(actions.openTaskControl ? [{ label: t("Codex 작업 제어 · 음성 입력"), click: actions.openTaskControl }] : []),
     { label: t("항상 위에 표시"), type: "checkbox", checked: settings.alwaysOnTop, click: () => actions.updateSettings({ alwaysOnTop: !settings.alwaysOnTop }) },
     { label: t("캐릭터 대사 표시"), type: "checkbox", checked: settings.speechBubblesEnabled, click: () => actions.updateSettings({ speechBubblesEnabled: !settings.speechBubblesEnabled }) },
     { label: t("작업 말풍선 표시"), type: "checkbox", checked: settings.taskBubblesEnabled, click: () => actions.updateSettings({ taskBubblesEnabled: !settings.taskBubblesEnabled }) },
@@ -155,9 +176,13 @@ export class TrayController {
     }
   }
 
-  popup(window: BrowserWindow): boolean {
+  popup(window: BrowserWindow, point?: { x: number; y: number }): boolean {
     if (!this.menu) return false
-    this.menu.popup({ window })
+    // macOS expects content-view coordinates. Capture the context-menu event's
+    // point instead of consulting the cursor later in Electron's native popup task.
+    const location = process.platform === "darwin" && point && Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.y >= 0
+      ? { x: Math.round(point.x), y: Math.round(point.y) } : {}
+    this.menu.popup({ window, ...location })
     return true
   }
 

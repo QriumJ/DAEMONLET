@@ -11,7 +11,7 @@ const output = resolve(process.argv[2] ?? 'outputs/window-drag-smoke')
 const stage = await mkdtemp(join(tmpdir(), 'daemonlet-drag-smoke-'))
 try {
   await mkdir(output, { recursive: true }); await mkdir(join(stage, 'renderer'))
-  await writeFile(join(stage, 'renderer/pet.html'), '<!doctype html><body style="margin:0"><canvas width="300" height="300"></canvas><script type="module" src="/drag.js"></script>')
+  await writeFile(join(stage, 'renderer/pet.html'), '<!doctype html><body style="margin:0"><link rel="stylesheet" href="/drag.css"><div class="pet-root"><canvas width="300" height="300"></canvas><div id="layout-root"></div></div><script type="module" src="/drag.js"></script>')
   const common = { bundle: true, logLevel: 'silent' }
   await build({ ...common, entryPoints: [join(root, 'tests/smoke/window-drag-renderer.ts')], outfile: join(stage, 'renderer/drag.js'), platform: 'browser', format: 'esm' })
   await build({ ...common, entryPoints: [join(root, 'electron/preload/pet-preload.ts')], outfile: join(stage, 'preload.cjs'), platform: 'node', format: 'cjs', external: ['electron'] })

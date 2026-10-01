@@ -55,6 +55,7 @@ def inside(root, name):
 
 
 PUBLIC_ERRORS = {
+    'VOICE_SEED_INVALID', 'VOICE_SEED_UNSUPPORTED', 'VOICE_SEED_MISMATCH', 'VOICE_REFERENCE_CHANGED', 'VOICE_REFERENCE_RUNTIME', 'VOICE_REFERENCE_BINDING',
     "GGUF_CONVERSION_FAILED", "GGUF_CACHE_CHANGED", "GGUF_DISK_SPACE",
     "RUNTIME_POLICY", "RUNTIME_TENSORS", "RUNTIME_RECEIPT", "UNSUPPORTED_DEVICE", "JSON_LIMIT", "PATH", "LINK", "SELECTION_MISMATCH",
     "PACKAGE_CHANGED", "MODEL_REVISION", "MODEL_MANIFEST", "MODEL_CHANGED",
@@ -110,8 +111,17 @@ class Worker:
         required = {"config.json", "audiovae.pth", "model.safetensors", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "tokenization_voxcpm2.py"}
         if not required.issubset(snapshot["files"]):
             raise ValueError("MODEL_MANIFEST")
+        if request.get('modelVerification', 'full') not in ('full', 'installed'):
+            raise ValueError('VOICE_MODEL_POLICY')
         for name, expected in snapshot["files"].items():
-            if sha(inside(base, name)) != expected:
+            path = inside(base, name)
+            # The Mac path and LoRA/reference/package checks remain unchanged.
+            if self.backend is CudaDevice and request.get('modelVerification') == 'installed' and path.suffix.lower() in {'.safetensors', '.pth', '.pt', '.bin'}:
+                pinned = read_json(Path(__file__).with_name('runtime-windows-base.json'))['model']['files'].get(name)
+                if not pinned or pinned['sha256'] != expected or not path.is_file() or path.stat().st_size != pinned['bytes']:
+                    raise ValueError("MODEL_CHANGED")
+                continue
+            if sha(path) != expected:
                 raise ValueError("MODEL_CHANGED")
         phases['fileValidationMs'] = (time.perf_counter()-phase)*1000
         phase = time.perf_counter()
@@ -175,10 +185,12 @@ class Worker:
         if request.get('warmup', True):
             self.engine.warmup()
         self.vae_forwards = [(mod, mod.forward) for mod in self.model.tts_model.audio_vae.decoder.modules()]
-        return dict(workerPid=os.getpid(), loadMs=(time.perf_counter()-started)*1000, loadedKeys=len(loaded), skippedKeys=len(skipped), missingKeys=len(expected-set(loaded)), tensorAudit=tensor_audit, backend=self.backend.device, dtype=self.backend.dtype, adapterSha256=ADAPTER,
+        return dict(seedContract=1, warmupSeed=42, workerPid=os.getpid(), loadMs=(time.perf_counter()-started)*1000, loadedKeys=len(loaded), skippedKeys=len(skipped), missingKeys=len(expected-set(loaded)), tensorAudit=tensor_audit, backend=self.backend.device, dtype=self.backend.dtype, adapterSha256=ADAPTER,
                     modelRevision=REVISION, sourceCommit=SOURCE, referenceSha256=sha(self.reference), executionProfile=profile, runtimeFingerprint=fingerprint, phases=phases, compileWarningsCaptured=False, referenceCacheBuilds=self.engine.cache_builds, firstInferenceAfterCompileMs=self.engine.audit.get('warmupMs') if profile == 'compiled' else None, **self.engine.audit)
 
     def synthesize(self, request):
+        from seed_contract import request_seed
+        seed = request_seed(request)
         import numpy as np
         import soundfile as sf
         import torch
@@ -191,7 +203,7 @@ class Worker:
         self.backend.synchronize(torch)
         self.backend.begin_measurement(torch)
         start = time.perf_counter()
-        with contextlib.closing(self.engine.generate(text)) as generated:
+        with contextlib.closing(self.engine.generate(text, seed=seed)) as generated:
             audio = next(generated)
         self.backend.synchronize(torch)
         elapsed = (time.perf_counter()-start)*1000
@@ -207,11 +219,13 @@ class Worker:
                 raise ValueError("INVALID_WAV")
         temporary.replace(output)
         duration = len(audio) / sr * 1000
-        return dict(audioId=audio_id, binding=request["binding"], segmentIndex=request["segmentIndex"],
+        return dict(effectiveSeed=self.engine.effective_seed, audioId=audio_id, binding=request["binding"], segmentIndex=request["segmentIndex"],
                     sampleRate=sr, durationMs=duration, generationMs=elapsed, rtf=elapsed/duration,
                     **self.backend.memory(torch))
 
     def stream(self, request, credit):
+        from seed_contract import request_seed
+        seed = request_seed(request)
         import numpy as np
         import soundfile as sf
         import torch
@@ -228,7 +242,7 @@ class Worker:
         self.stream_files = []
 
         # Three 160ms chunks in flight; parent credits are returned on playback.
-        with contextlib.closing(self.engine.generate(text, streaming=True)) as generated:
+        with contextlib.closing(self.engine.generate(text, streaming=True, seed=seed)) as generated:
             while True:
                 waited = time.perf_counter()
                 credit(chunks)
@@ -254,14 +268,14 @@ class Worker:
                     first = elapsed
                 if onset is None and magnitude >= 1e-7:
                     onset = elapsed
-                emit('audio-chunk', request['requestId'], audioId=audio_id, binding=request['binding'], synthesisId=request['synthesisId'], segmentIndex=request['segmentIndex'], chunkIndex=chunks, sampleOffset=total, sampleCount=int(audio.size), sampleRate=48000, firstChunkReadyMs=first)
+                emit('audio-chunk', request['requestId'], effectiveSeed=self.engine.effective_seed, audioId=audio_id, binding=request['binding'], synthesisId=request['synthesisId'], segmentIndex=request['segmentIndex'], chunkIndex=chunks, sampleOffset=total, sampleCount=int(audio.size), sampleRate=48000, firstChunkReadyMs=first)
                 total += audio.size
                 chunks += 1
         self.backend.synchronize(torch)
         if peak < 1e-7 or not total:
             raise ValueError('INVALID_WAVEFORM')
         elapsed = (time.perf_counter()-start)*1000
-        return dict(synthesisId=request['synthesisId'], totalSamples=total, totalChunks=chunks, firstChunkReadyMs=first, firstSignalChunkReadyMs=onset, generationMs=elapsed, producerBlockedMs=blocked, rtf=elapsed/(total/48), **self.backend.memory(torch))
+        return dict(compileCounts=self.engine.compile_counts,referenceCacheBuilds=self.engine.cache_builds,effectiveSeed=self.engine.effective_seed, synthesisId=request['synthesisId'], totalSamples=total, totalChunks=chunks, firstChunkReadyMs=first, firstSignalChunkReadyMs=onset, generationMs=elapsed, producerBlockedMs=blocked, rtf=elapsed/(total/48), **self.backend.memory(torch))
 
     def reuse_audit(self):
         return dict(referenceCacheBuilds=self.engine.cache_builds, compileCounts=self.engine.compile_counts)

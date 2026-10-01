@@ -1,3 +1,4 @@
+import {beforeEach as seedBeforeEach} from 'vitest'
 import {afterEach,expect,it,vi} from 'vitest'
 import {mkdtemp,mkdir,writeFile,rm,symlink,realpath} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
@@ -36,3 +37,6 @@ it.skipIf(process.platform!=='darwin')('disables imported Windows profile and as
  await service.initialize();expect(service.snapshot()).toMatchObject({enabled:false,executionProfile:'gguf-metal-f16',error:'VOICE_PLATFORM_PROFILE'})
  await service.close()
 })
+
+// These service fixtures use synthetic paths and no installed model/runtime.
+seedBeforeEach(()=>{vi.spyOn(CharacterVoiceService.prototype as any,'replayAssets').mockResolvedValue('synthetic-asset-identity')})

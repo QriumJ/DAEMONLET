@@ -35,3 +35,13 @@ it('Windows verification cancellation waits for the actual child close event',as
  const task=(installer as any).run(process.execPath,['-e','setTimeout(()=>{},30000)'],controller.signal).catch((e:Error)=>e.message)
  controller.abort();expect(await task).toBe('VOICE_INSTALL_CANCELLED')
 })
+
+it('installed preparation still verifies runtime and small files while skipping only weight digests',async()=>{
+ const {root}=await fixture(),installer=new WindowsVoiceInstaller(root,'/resources',()=>{}),runtime=dirname(dirname(installer.executable))
+ await mkdir(runtime,{recursive:true});await writeFile(join(runtime,'install-receipt.json'),JSON.stringify({fingerprint:runtime.split(/[\\/]/).at(-1)}))
+ vi.spyOn(installer as any,'assetIdentity').mockReturnValue({snapshot:vi.fn(async()=> 'stable'),close:()=>{}})
+ const run=vi.spyOn(installer as any,'run').mockResolvedValue('{}'),hash=vi.spyOn(installer as any,'checkFile').mockResolvedValue(undefined)
+ await installer.ready('installed');expect(run).toHaveBeenCalledOnce();expect(run.mock.calls[0][1]).toContain('--metadata-only')
+ expect(hash.mock.calls.length).toBeGreaterThan(0);expect(hash.mock.calls.some(([path])=>/\.(safetensors|pth)$/.test(path as string))).toBe(false)
+ hash.mockClear();await installer.ready();expect(hash.mock.calls.some(([path])=>/\.safetensors$/.test(path as string))).toBe(true)
+})

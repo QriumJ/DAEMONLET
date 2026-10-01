@@ -1,0 +1,95 @@
+import type {TunnelDiagnosticSink} from './BelleTunnelDiagnostics'
+import {OwnedTunnelCleanupError} from './OwnedTunnelCleanupError'
+import {connectionIds,restoredConnectionConfig,validRuntimeKey,type BelleConnectionConfig,type BelleConnectionSnapshot} from '../../shared/belle-connection'
+export interface RuntimeCredentialStore{readonly kind?:'macos-keychain'|'windows-credential-manager';available():Promise<boolean>;has():Promise<boolean>;put(key:string):Promise<void>;get(signal?:AbortSignal):Promise<string>;remove():Promise<void>}
+export interface RunningTunnel{stop():Promise<void>;ready():Promise<boolean>}
+export interface TunnelRuntime{probe():Promise<{clientVersion:string;nodeVersion:string}>;start(config:BelleConnectionConfig,key:string,bridge:{port:number;token:string},signal:AbortSignal,onExit:()=>void):Promise<RunningTunnel>}
+export interface ConnectionMetadata{load():Promise<unknown>;save(value:BelleConnectionConfig|null):Promise<void>}
+const publicCodes=new Set(['STORE_UNAVAILABLE','STORE_LOCKED','STORE_DENIED','KEY_MISSING','CLIENT_MISSING','CLIENT_VERSION','NODE_MISSING','NODE_VERSION','ADAPTER_MISSING','EXTERNAL_SESSION','LOCAL_NOT_READY','CONNECTION_FAILED','SAVE_FAILED','INVALID_CONFIG','INVALID_KEY','SHUTTING_DOWN'])
+export const connectionError=(e:unknown)=>e instanceof Error&&publicCodes.has(e.message)?e.message:'CONNECTION_FAILED'
+/** Serial operations, immediate abort on stop, generation guards and bounded owned-child retries. */
+export class BelleConnectionManager{
+ private config:BelleConnectionConfig|null=null
+ private value:BelleConnectionSnapshot={state:'unconfigured',config:null,credentialStored:false,secureStore:'unavailable',clientVersion:null,nodeVersion:null,error:null,retry:0,muted:true}
+ private listeners=new Set<(v:BelleConnectionSnapshot)=>void>();private queue:Promise<unknown>=Promise.resolve()
+ private attempt:AbortController|null=null;private running:RunningTunnel|null=null;private timer:ReturnType<typeof setTimeout>|null=null;private monitor:ReturnType<typeof setInterval>|null=null
+ private closed=false;private desired=false;private generation=0;private healthBusy=false
+ constructor(private options:{store:RuntimeCredentialStore;metadata:ConnectionMetadata;runtime:TunnelRuntime;bridge:{start(signal:AbortSignal):Promise<{port:number;token:string}>;stop():Promise<void>};external?:boolean;manualConnectOnly?:boolean;diagnostic?:TunnelDiagnosticSink;retryDelay?:(attempt:number)=>number}){}
+ snapshot(){return structuredClone(this.value)}
+ subscribe(listener:(v:BelleConnectionSnapshot)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener)}}
+ private emit(patch:Partial<BelleConnectionSnapshot>){this.value={...this.value,...patch,config:this.config?{...this.config}:null};for(const l of this.listeners)l(this.snapshot())}
+ private serial<T>(task:()=>Promise<T>):Promise<T>{const next=this.queue.then(task,task);this.queue=next.catch(()=>{});return next}
+ async initialize(){
+  if(this.options.external){this.emit({state:'external'});return this.snapshot()}
+  try{this.config=restoredConnectionConfig(await this.options.metadata.load());const available=await this.options.store.available();const stored=available&&await this.options.store.has();this.emit({secureStore:available?(this.options.store.kind??'macos-keychain'):'unavailable',credentialStored:stored,state:this.options.external?'external':this.config?'disconnected':'unconfigured',error:null})}
+  catch(e){this.emit({state:'error',error:connectionError(e)})}
+  if(!this.options.external&&this.value.secureStore!=='unavailable'){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}
+  if(this.config?.autoConnect&&!this.options.manualConnectOnly&&!this.options.external&&this.value.secureStore!=='unavailable'&&this.value.credentialStored&&!this.value.error)void this.connect().catch(()=>{})
+  return this.snapshot()
+ }
+ refresh(){return this.serial(async()=>{this.ensureOpen();if(this.options.external)return this.snapshot();let available:boolean,stored:boolean
+   try{available=await this.options.store.available();stored=available&&await this.options.store.has()}
+   catch(e){this.emit({secureStore:'unavailable',credentialStored:false,error:connectionError(e)});return this.snapshot()}
+   this.emit({secureStore:available?(this.options.store.kind??'macos-keychain'):'unavailable',credentialStored:stored,error:available?null:'STORE_UNAVAILABLE'});if(available){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}
+   const current=this.running,generation=this.generation
+   if(current){const ready=await current.ready().catch(()=>false);if(current===this.running&&generation===this.generation)this.emit({state:ready?'ready':'reconnecting'})}
+   return this.snapshot()
+  })}
+ configure(value:{tunnelId:string;organizationId:string;key:string}){
+  const ids=connectionIds(value);if(!ids||Object.keys(value).some(k=>!['tunnelId','organizationId','key'].includes(k)))return Promise.reject(Error('INVALID_CONFIG'))
+  if(!validRuntimeKey(value.key))return Promise.reject(Error('INVALID_KEY'))
+  // Caller has already obtained action-time consent. No secret is retained in config/state.
+  return this.serial(async()=>{
+   this.ensureOpen();if(this.options.external)throw Error('EXTERNAL_SESSION');if(!await this.options.store.available())throw Error('STORE_UNAVAILABLE')
+   this.desired=false;this.abort();await this.cleanup()
+   const previous=this.config,next:BelleConnectionConfig={...ids,autoConnect:false,consentVersion:1}
+   await this.options.metadata.save(next)
+   try{await this.options.store.put(value.key)}catch(e){await this.options.metadata.save(previous).catch(()=>{});throw e}finally{value.key=''}
+   this.config=next;this.emit({state:'disconnected',secureStore:this.options.store.kind??'macos-keychain',credentialStored:true,error:null,retry:0,muted:true});return this.snapshot()
+  })
+ }
+ async setAutoConnect(enabled:boolean){return this.serial(async()=>{this.ensureOpen();if(typeof enabled!=='boolean'||!this.config)throw Error('INVALID_CONFIG');if(enabled&&(!await this.options.store.available()||!await this.options.store.has()))throw Error('STORE_UNAVAILABLE');const next={...this.config,autoConnect:enabled};await this.options.metadata.save(next);this.config=next;this.emit({error:null});return this.snapshot()})}
+ connect(){return this.serial(async()=>{this.ensureOpen();if(this.options.external)throw Error('EXTERNAL_SESSION');if(this.running||this.desired)return this.snapshot();if(!this.config)throw Error('INVALID_CONFIG');this.desired=true;this.emit({retry:0,error:null});await this.launch();return this.snapshot()})}
+ private ensureOpen(){if(this.closed)throw Error('SHUTTING_DOWN')}
+ private async launch(){
+  if(!this.desired||this.closed)return
+  const generation=++this.generation,controller=this.attempt=new AbortController();this.emit({state:this.value.retry?'reconnecting':'checking',error:null,muted:true})
+  const began=Date.now();let phase=1;const record=(code?:number)=>{try{this.options.diagnostic?.({source:1,phase,elapsedMs:Math.min(3600000,Date.now()-began),...(code===undefined?{}:{code})})}catch{}}
+  record()
+  try{
+   if(!await this.options.store.available())throw Error('STORE_UNAVAILABLE')
+   phase=2;record();const versions=await this.options.runtime.probe();if(controller.signal.aborted)return;this.emit({...versions,state:'connecting'})
+   phase=3;record();let key=await this.options.store.get(controller.signal);if(!validRuntimeKey(key))throw Error('KEY_MISSING')
+   try{
+    phase=4;record();const bridge=await this.options.bridge.start(controller.signal)
+    phase=5;record();const running=await this.options.runtime.start(this.config!,key,bridge,controller.signal,()=>{if(generation===this.generation&&this.desired&&!this.closed){this.abort();void this.serial(()=>this.lost()).catch(()=>{})}})
+    this.running=running
+    if(controller.signal.aborted||generation!==this.generation){await this.cleanup();return}
+   }finally{key=''}
+   phase=6;record();this.emit({state:'ready',credentialStored:true,error:null})
+   this.monitor=setInterval(()=>{if(this.healthBusy||!this.running)return;this.healthBusy=true;const current=this.running;void current.ready().then(ready=>{if(current===this.running&&generation===this.generation)this.emit({state:ready?'ready':'reconnecting'})}).catch(()=>{if(current===this.running)this.emit({state:'reconnecting'})}).finally(()=>{this.healthBusy=false})},5000)
+   this.monitor.unref?.()
+  }catch(e){record([...publicCodes].indexOf(connectionError(e))+1);if(e instanceof OwnedTunnelCleanupError){this.running=e.running;this.desired=false;this.abort();this.emit({state:'error',error:'CONNECTION_FAILED',muted:true});await this.options.bridge.stop();return}if(!controller.signal.aborted&&generation===this.generation){await this.cleanup();this.emit({state:'error',error:connectionError(e)});this.scheduleRetry()}else await this.cleanup()}
+ }
+ private scheduleRetry(){
+  if(!this.desired||this.closed)return
+  if(this.options.manualConnectOnly){this.desired=false;return}
+  // Locked/denied storage, invalid dependencies and auth readiness failures need user action.
+  if(this.value.error!=='CONNECTION_FAILED'||this.value.retry>=3){this.desired=false;return}
+  this.emit({state:'reconnecting',retry:this.value.retry+1});const generation=this.generation
+  this.timer=setTimeout(()=>{this.timer=null;if(generation===this.generation&&this.desired&&!this.closed)void this.serial(()=>this.launch()).catch(()=>{})},this.options.retryDelay?.(this.value.retry)??1000*2**(this.value.retry-1));this.timer.unref?.()
+ }
+ private async lost(){await this.cleanup();if(!this.desired||this.closed)return;this.emit({state:'error',error:'CONNECTION_FAILED'});this.scheduleRetry()}
+ private abort(){this.generation++;this.attempt?.abort();this.attempt=null;if(this.timer)clearTimeout(this.timer);this.timer=null;if(this.monitor)clearInterval(this.monitor);this.monitor=null}
+ private async cleanup(){const running=this.running;if(this.monitor)clearInterval(this.monitor);this.monitor=null;try{await running?.stop();if(this.running===running)this.running=null}catch{this.desired=false;this.emit({state:'error',error:'CONNECTION_FAILED',muted:true});throw running?new OwnedTunnelCleanupError(running):Error('CONNECTION_FAILED')}finally{await this.options.bridge.stop()}}
+ disconnect(){this.desired=false;this.abort();return this.serial(async()=>{
+  let saveFailed=false
+  try{if(this.config?.autoConnect){const next={...this.config,autoConnect:false};await this.options.metadata.save(next);this.config=next}}
+  catch{saveFailed=true}
+  finally{await this.cleanup()}
+  if(saveFailed){this.emit({state:'error',error:'SAVE_FAILED',muted:true});throw Error('SAVE_FAILED')}
+  this.emit({state:this.options.external?'external':this.config?'disconnected':'unconfigured',error:null,retry:0,muted:true});return this.snapshot()
+ })}
+ forget(){this.desired=false;this.abort();return this.serial(async()=>{this.ensureOpen();if(this.options.external)throw Error('EXTERNAL_SESSION');await this.cleanup();await this.options.store.remove();await this.options.metadata.save(null);this.config=null;this.emit({state:'unconfigured',credentialStored:false,error:null,retry:0,muted:true});return this.snapshot()})}
+ async close(){this.closed=true;this.desired=false;this.abort();await this.serial(()=>this.cleanup());this.listeners.clear()}
+}

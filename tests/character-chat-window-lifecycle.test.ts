@@ -9,8 +9,8 @@ import {CHAT_SETTINGS_IPC} from '../electron/shared/chat-settings-contract'
 import {ChatSettingsIpcController} from '../electron/main/character-chat/ChatSettingsIpcController'
 import {randomUUID} from 'node:crypto'
 import {ConversationStore} from '../electron/main/character-chat/ConversationStore'
-const environment=vi.hoisted(()=>({root:'',windows:vi.fn(),confirm:vi.fn()}))
-vi.mock('electron',async()=>({app:{getPath:()=>environment.root,isPackaged:false},BrowserWindow:environment.windows,ipcMain:{handle:vi.fn(),removeHandler:vi.fn()},screen:new (await import('node:events')).EventEmitter(),dialog:{showMessageBox:environment.confirm}}))
+const environment=vi.hoisted(()=>({root:'',windows:vi.fn(),confirm:vi.fn(),appFocus:vi.fn(),active:true}))
+vi.mock('electron',async()=>({app:{getPath:()=>environment.root,isPackaged:false,focus:environment.appFocus,isActive:()=>environment.active},BrowserWindow:environment.windows,ipcMain:{handle:vi.fn(),removeHandler:vi.fn(),on:vi.fn(),removeListener:vi.fn()},screen:new (await import('node:events')).EventEmitter(),dialog:{showMessageBox:environment.confirm}}))
 vi.mock('../electron/main/SecurityPolicy',()=>({secureWebContents:vi.fn(),expectedRendererUrl:()=> 'pet://app/character-chat.html',isTrustedSender:()=>true}))
 import {CharacterChatWindow} from '../electron/main/character-chat/CharacterChatWindow'
 const roots:string[]=[]
@@ -31,7 +31,7 @@ it.each([['baseline',false],['baseline',true],['cached',false],['cached',true],[
  message.status='complete';(window.service as any).notifyVoice(message)
  await new Promise(r=>setTimeout(r,30));if(profile==='baseline')expect(runtime.start).not.toHaveBeenCalled();expect(runtime.synthesize).not.toHaveBeenCalled();expect((runtime as any).stream).not.toHaveBeenCalled();expect(win.webContents.send.mock.calls.filter((call:any[])=>call[0]===VOICE_IPC.event&&call[1]?.type==='audio')).toEqual([]);await window.dispose()
 })
-afterEach(async()=>{vi.restoreAllMocks();environment.windows.mockReset();environment.confirm.mockReset();for(const r of roots.splice(0))await rm(r,{recursive:true,force:true})})
+afterEach(async()=>{vi.restoreAllMocks();environment.windows.mockReset();environment.confirm.mockReset();environment.appFocus.mockReset();environment.active=true;for(const r of roots.splice(0))await rm(r,{recursive:true,force:true})})
 async function fixture(){
  environment.root=await mkdtemp(join(tmpdir(),'chat-window-lifecycle-'));roots.push(environment.root)
  await mkdir(join(environment.root,'character-chat'))
@@ -79,8 +79,8 @@ function mockWindows(){
  environment.windows.mockImplementation(function(){
   const win=new EventEmitter() as any
   let dead=false
-  win.webContents=new EventEmitter();win.webContents.send=vi.fn();win.webContents.isDestroyed=()=>dead;win.isVisible=()=>true
-  win.isDestroyed=()=>dead;win.show=vi.fn();win.focus=vi.fn();win.loadURL=vi.fn(async()=>{})
+  win.webContents=new EventEmitter();win.webContents.send=vi.fn();win.webContents.isDestroyed=()=>dead;win.webContents.focus=vi.fn();win.webContents.isFocused=()=>true;win.isVisible=()=>true
+  win.isDestroyed=()=>dead;win.isFocused=()=>true;win.getBounds=()=>({x:0,y:0,width:410,height:500});win.setBounds=vi.fn();win.setMinimumSize=vi.fn();win.setAlwaysOnTop=vi.fn();win.showInactive=vi.fn();win.hide=vi.fn();win.show=vi.fn();win.focus=vi.fn();win.loadURL=vi.fn(async()=>{})
   win.destroy=()=>{dead=true;win.emit('closed')};win.close=win.destroy
   return win
  })
@@ -198,4 +198,51 @@ it.each([true,false])('settings receives playback readiness without a synthesis 
   await handle(VOICE_IPC.action)({} as any,{type:'ready'});expect(latest()?.playbackReady).toBe(true)
   win.webContents.emit('render-process-gone');expect(latest()?.playbackReady).toBe(false)
  }finally{management.dispose();await window.dispose()}
+})
+
+it('the narrow draft IPC preserves a draft across window close/reopen without copying history',async()=>{
+ const {LOCAL_CHAT_IPC}=await import('../electron/shared/character-chat-contract')
+ const {window}=await savedFixture();mockWindows();await window.open()
+ const handler=vi.mocked(ipcMain.handle).mock.calls.filter(([channel])=>channel===LOCAL_CHAT_IPC.draft).at(-1)![1]
+ const draft=window.service.snapshot().draft!,snapshot=vi.spyOn(window.service,'snapshot')
+ expect(await handler({} as any,{key:draft.key,text:'미전송 초안',revision:1})).toBeUndefined()
+ expect(snapshot).not.toHaveBeenCalled()
+ ;(window.window as any).close();await window.open()
+ expect(window.service.snapshot().draft!.text).toBe('미전송 초안')
+ await window.dispose();expect(ipcMain.removeHandler).toHaveBeenCalledWith(LOCAL_CHAT_IPC.draft)
+})
+it('draft IPC rejects untrusted senders and malformed drafts',async()=>{
+ const {LOCAL_CHAT_IPC}=await import('../electron/shared/character-chat-contract'),policy=await import('../electron/main/SecurityPolicy')
+ const {window}=await savedFixture();mockWindows();await window.open()
+ const handler=vi.mocked(ipcMain.handle).mock.calls.filter(([channel])=>channel===LOCAL_CHAT_IPC.draft).at(-1)![1]
+ const draft=window.service.snapshot().draft!
+ await expect(handler({} as any,{key:draft.key,text:'x'.repeat(6001),revision:1})).rejects.toThrow()
+ const trust=vi.spyOn(policy,'isTrustedSender').mockReturnValue(false)
+ await expect(handler({} as any,{key:draft.key,text:'blocked',revision:1})).rejects.toThrow('UNTRUSTED_SENDER');trust.mockRestore()
+ expect(window.service.snapshot().draft!.text).toBe('');await window.dispose()
+})
+
+it('Mac explicit open and inactive composer click recover native keyboard focus without background activation',async()=>{
+ if(process.platform!=='darwin')return
+ const {window}=await savedFixture();mockWindows();await window.open();const win=window.window as any
+ expect(environment.windows.mock.calls.at(-1)![0]).toMatchObject({focusable:true,acceptFirstMouse:true})
+ await window.open();expect(environment.appFocus).toHaveBeenCalledWith({steal:true});expect(win.webContents.focus).toHaveBeenCalledOnce()
+ environment.appFocus.mockClear();win.focus.mockClear();win.webContents.focus.mockClear();environment.active=false
+ win.webContents.emit('before-mouse-event',{}, {type:'mouseMove',x:10,y:10});win.webContents.emit('before-mouse-event',{}, {type:'mouseDown',button:'right',x:10,y:10})
+ expect(environment.appFocus).not.toHaveBeenCalled()
+ win.webContents.emit('before-mouse-event',{}, {type:'mouseDown',button:'left',x:10,y:10})
+ expect(environment.appFocus).toHaveBeenCalledOnce();expect(win.focus).toHaveBeenCalledOnce();expect(win.webContents.focus).toHaveBeenCalledOnce()
+ environment.appFocus.mockClear();win.webContents.focus.mockClear();environment.active=true
+ win.webContents.emit('before-mouse-event',{}, {type:'mouseDown',button:'left',x:10,y:10})
+ expect(environment.appFocus).not.toHaveBeenCalled();expect(win.webContents.focus).not.toHaveBeenCalled()
+ win.webContents.isFocused=()=>false;win.webContents.emit('before-mouse-event',{}, {type:'mouseDown',button:'left',x:10,y:10})
+ expect(win.webContents.focus).toHaveBeenCalledOnce();await window.dispose()
+})
+it('automatic pet positioning preserves another window keyboard focus',async()=>{
+ const {window,hooks}=await savedFixture();mockWindows()
+ const {screen}=await import('electron');(screen as any).getDisplayMatching=()=>({workArea:{x:0,y:0,width:1728,height:1012}})
+ const pet=new EventEmitter() as any;pet.webContents={send:vi.fn()};pet.isDestroyed=()=>false;pet.isVisible=()=>true;pet.getBounds=()=>({x:1400,y:750,width:160,height:180});hooks.pet=()=>pet
+ await window.open();const win=window.window as any;win.emit('ready-to-show')
+ environment.appFocus.mockClear();win.focus.mockClear();win.webContents.focus.mockClear();pet.emit('move');pet.emit('restore');(screen as any).emit('display-metrics-changed')
+ expect(environment.appFocus).not.toHaveBeenCalled();expect(win.focus).not.toHaveBeenCalled();expect(win.webContents.focus).not.toHaveBeenCalled();await window.dispose()
 })

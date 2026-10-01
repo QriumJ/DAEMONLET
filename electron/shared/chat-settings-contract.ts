@@ -2,11 +2,11 @@ import type {LocalChatAction,LocalChatSnapshot} from './character-chat-contract'
 import type {VoiceAction,VoiceSnapshot} from './character-voice-contract'
 export const CHAT_SETTINGS_IPC={action:'chat-settings.action',changed:'chat-settings.changed',open:'chat-settings.open'} as const
 export const CHAT_MANAGEMENT_ACTIONS=['snapshot','new','delete','retry','layout-reset','model','download','cancel-download','import-model','remove-model','memory-save','memory-delete'] as const
-export const VOICE_MANAGEMENT_ACTIONS=['snapshot','enabled','auto','volume','bind','remove','import','configure','executionProfile','installBase','cancelInstallBase','prepare','test','stop'] as const
+export const VOICE_MANAGEMENT_ACTIONS=['modelVerification','checkModel','cancelModelCheck','engine','configureQwen','qwenClone','seedSettings','snapshot','importReference','renameReference','cancelReferenceImport','enabled','auto','volume','bind','remove','import','configure','executionProfile','installBase','cancelInstallBase','installQwen','cancelInstallQwen','prepare','test','stop'] as const
 export type ChatManagementAction=Extract<LocalChatAction,{type:typeof CHAT_MANAGEMENT_ACTIONS[number]}>
 export type VoiceManagementAction=VoiceAction & {type:typeof VOICE_MANAGEMENT_ACTIONS[number]}
 export type SettingsContext={characterId:string|null;revision:string|null;conversationId:string|null}
 export function settingsContext(chat:LocalChatSnapshot):SettingsContext{return {characterId:chat.character?.id??null,revision:chat.character?.revision??null,conversationId:chat.conversation?.id??null}}
-export type ChatSettingsSnapshot={revision:number;context:SettingsContext;chat:Omit<LocalChatSnapshot,'conversation'|'meaning'> & {conversation:{id:string;title:string;messageCount:number}|null};voice:VoiceSnapshot;playbackReady:boolean}
+export type ChatSettingsSnapshot={revision:number;context:SettingsContext;chat:Omit<LocalChatSnapshot,'conversation'|'meaning'|'draft'|'acceptedDraft'> & {conversation:{id:string;title:string;messageCount:number}|null};voice:VoiceSnapshot;playbackReady:boolean}
 export type ChatSettingsAction={type:'snapshot'|'open-chat'}|{type:'chat';action:ChatManagementAction;context:SettingsContext}|{type:'voice';action:VoiceManagementAction;context:SettingsContext}
 export interface ChatSettingsApi{onOpen(listener:()=>void):()=>void;action(value:ChatSettingsAction):Promise<ChatSettingsSnapshot>;subscribe(listener:(value:ChatSettingsSnapshot)=>void):()=>void}

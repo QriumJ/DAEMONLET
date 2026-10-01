@@ -1,8 +1,10 @@
+import {PlaybackMouthMeter,type MouthSink,type MouthClock} from './PlaybackMouthMeter'
 import type {VoiceApi,VoiceEvent} from '../../electron/shared/character-voice-contract'
 
 export class AudioPlaybackController {
  private context:AudioContext|null=null
  private gain:GainNode|null=null
+ private meter:PlaybackMouthMeter|null=null
  private source:AudioBufferSourceNode|null=null
  private epoch=0
  private generation=0
@@ -17,10 +19,10 @@ export class AudioPlaybackController {
  private queued=0
  private streams=new Map<string,{index:number;offset:number;segment:number}>()
  private lastSegment=-1
- constructor(private api:VoiceApi,private createContext=()=>new AudioContext({sampleRate:48000})){}
+ constructor(private api:Pick<VoiceApi,'action'|'audio'>,private createContext=()=>new AudioContext({sampleRate:48000}),private mouth?:{sink:MouthSink;clock?:MouthClock}){}
  setVisible(value:boolean){this.visible=value;if(!value)this.stop()}
- setVolume(value:number){this.volume=value;if(this.gain)this.gain.gain.value=value}
- stop(){++this.generation;for(const source of this.sources){source.onended=null;try{source.stop()}catch{}source.disconnect()}this.sources.clear();this.source=null;this.nextTime=0;this.streaming=false;this.queued=0;this.streams.clear();this.lastSegment=-1;this.decoding=Promise.resolve()}
+ setVolume(value:number){this.volume=value;if(this.gain)this.gain.gain.value=value;if(value===0)this.meter?.reset();if(this.sources.size)this.meter?.start()}
+ stop(){++this.generation;this.meter?.stop();for(const source of this.sources){source.onended=null;try{source.stop()}catch{}source.disconnect()}this.sources.clear();this.source=null;this.nextTime=0;this.streaming=false;this.queued=0;this.streams.clear();this.lastSegment=-1;this.decoding=Promise.resolve()}
  async receive(event:VoiceEvent){
   if(event.epoch<this.epoch)return
   if(event.type==='stop'){this.epoch=event.epoch;this.stop();if(event.requestedAt)void this.api.action({type:'outputStopped',epoch:event.epoch,elapsedMs:Math.max(0,Date.now()-event.requestedAt)}).catch(()=>{});return}
@@ -41,7 +43,13 @@ export class AudioPlaybackController {
   try{
    const bytes=await this.api.audio(event.audioId,event.epoch);if(!current())return
    const context=this.context??=this.createContext()
-   if(!this.gain){this.gain=context.createGain();this.gain.connect(context.destination)}
+   if(!this.gain){
+    this.gain=context.createGain()
+    if(this.mouth){
+     const analyser=context.createAnalyser();this.gain.connect(analyser);analyser.connect(context.destination)
+     this.meter=new PlaybackMouthMeter(context,analyser,this.mouth.sink,()=>this.epoch,()=>this.volume>0&&this.sources.size>0,this.mouth.clock)
+    }else this.gain.connect(context.destination)
+   }
    this.gain.gain.value=this.volume
    const buffer=await context.decodeAudioData(Uint8Array.from(bytes).buffer);if(!current())return
    if(event.stream&&(buffer.sampleRate!==48000||buffer.length!==event.stream.sampleCount||buffer.numberOfChannels!==1)){
@@ -56,12 +64,12 @@ export class AudioPlaybackController {
    const now=context.currentTime||0,previous=this.nextTime
    const start=event.stream?Math.max(now+(previous?0.005:0.24),previous):now
    if(event.stream){if(start-now+buffer.duration>6)throw Error('VOICE_QUEUE_LIMIT');this.nextTime=start+buffer.duration}
-   source.onended=()=>{if(current()){source.disconnect();this.sources.delete(source);if(this.source===source)this.source=null;if(event.stream)--this.queued;void this.api.action({type:'played',audioId:event.audioId,epoch:event.epoch}).catch(()=>{})}}
-   source.start(start)
+   source.onended=()=>{if(current()){source.disconnect();this.sources.delete(source);if(this.source===source)this.source=null;if(event.stream)--this.queued;if(!this.sources.size)this.meter?.stop();void this.api.action({type:'played',audioId:event.audioId,epoch:event.epoch}).catch(()=>{})}}
+   source.start(start);this.meter?.start()
    void this.api.action({type:'scheduled',audioId:event.audioId,epoch:event.epoch,delayMs:(start-now)*1000,gapMs:previous?Math.max(0,start-previous)*1000:0}).catch(()=>{})
   }catch{if(current()){this.stop();void this.api.action({type:'played',audioId:event.audioId,epoch:event.epoch,error:true}).catch(()=>{})}}
   }
   if(event.stream){const task=this.decoding.then(play);this.decoding=task.catch(()=>{});await task}else await play()
  }
- dispose(){this.disposed=true;this.stop();void this.context?.close().catch(()=>{});this.context=null}
+ dispose(){this.disposed=true;this.stop();this.meter?.dispose();this.meter=null;void this.context?.close().catch(()=>{});this.context=null}
 }

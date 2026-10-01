@@ -46,8 +46,10 @@ describe("desktop settings", () => {
     expect(validateDesktopSettingsPatch({ arbitrary: true })).toBeNull()
     expect(validateDesktopSettingsPatch({ scale: 99 })).toBeNull()
     expect(validateDesktopSettingsPatch({ visible: "yes" })).toBeNull()
-    expect(windowSizeForScale(0.1)).toBe(280)
-    expect(windowSizeForScale(3)).toBe(720)
+    expect(windowSizeForScale(0.1)).toBe(92)
+    expect(windowSizeForScale(3)).toBe(1380)
+    expect(windowSizeForScale(99)).toBe(1840)
+    expect(windowSizeForScale(NaN)).toBe(460)
   })
 })
 
@@ -61,5 +63,21 @@ describe("speech bubble desktop settings", () => {
     expect(normalizeDesktopSettings(JSON.parse(JSON.stringify(settings)))).toEqual({ value: settings, migrated: false, warnings: [] })
     expect(validateDesktopSettingsPatch({ speechBubblesEnabled })).toEqual({ speechBubblesEnabled })
     expect(validateDesktopSettingsPatch({ speechBubblesEnabled: String(speechBubblesEnabled) })).toBeNull()
+  })
+})
+
+describe("free size and opacity settings", () => {
+  it.each([.2, .37, 1.73, 4])("persists custom size %s", scale => {
+    const settings = { ...defaultDesktopSettings(), scale, opacity: .37 };
+    expect(validateDesktopSettingsPatch({ scale, opacity: .37 })).toEqual({ scale, opacity: .37 })
+    expect(normalizeDesktopSettings(settings).value).toMatchObject({ scale, opacity: .37, bounds: { width: windowSizeForScale(scale) } })
+  })
+  it.each([NaN, Infinity, -Infinity, -1, 0, .19, 4.01, "1"])("rejects unsafe size %s", scale => expect(validateDesktopSettingsPatch({ scale })).toBeNull())
+  it.each([NaN, Infinity, -1, 1.01, "0.5"])("rejects unsafe opacity %s", opacity => expect(validateDesktopSettingsPatch({ opacity })).toBeNull())
+  it("migrates missing opacity to opaque and preserves zero", () => {
+    const {opacity: _, ...old} = defaultDesktopSettings()
+    expect(normalizeDesktopSettings(old)).toMatchObject({ migrated: true, value: { opacity: 1 } })
+    for (const opacity of [0, .5, 1]) expect(normalizeDesktopSettings({ ...old, opacity }).value.opacity).toBe(opacity)
+    expect(normalizeDesktopSettings({ ...old, opacity: -3 }).value.opacity).toBe(0)
   })
 })

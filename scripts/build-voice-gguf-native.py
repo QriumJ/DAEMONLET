@@ -73,7 +73,7 @@ def main():
     original=source/'tools/omni/voxcpm2/voxcpm2_runtime.cpp';patched=out/'voxcpm2_runtime.cpp';patched.write_text(cached_source(original.read_text()))
     def compile(source_file,target,obj):
         flags=(cmake/f'CMakeFiles/{target}.dir/flags.make').read_text();includes=next(l.split(' = ',1)[1] for l in flags.splitlines() if l.startswith('CXX_INCLUDES = '))
-        subprocess.run(['/usr/bin/c++','-O3','-DNDEBUG','-std=c++17','-arch','arm64',*(['-mmacosx-version-min=13.0'] if a.base else []),*shlex.split(includes),'-I',str(out),'-c',str(source_file),'-o',str(obj)],check=True)
+        subprocess.run(['/usr/bin/c++','-O3','-DNDEBUG','-std=c++17','-arch','arm64','-mmacosx-version-min=13.0',*shlex.split(includes),'-I',str(out),'-c',str(source_file),'-o',str(obj)],check=True)
     compile(patched,'voxcpm2_runtime',out/'runtime.o');worker_source=ROOT/('electron/voice/native_base_worker.cpp' if a.base else 'electron/voice/native_worker.cpp');compile(worker_source,'voxcpm2-cli',out/'worker.o')
     link=shlex.split((cmake/'CMakeFiles/voxcpm2-cli.dir/link.txt').read_text());link[link.index('CMakeFiles/voxcpm2-cli.dir/voxcpm2/voxcpm2_cli.cpp.o')]=str(out/'worker.o');link[link.index('libvoxcpm2_runtime.a')]=str(out/'runtime.o');link[link.index('-o')+1]=str(out/'daemonlet-voice-engine');link=[x for x in link if not ('/openssl@' in x and x.endswith('.dylib'))];link.append('-Wl,-dead_strip_dylibs');subprocess.run(link,cwd=cmake,check=True)
     dependencies=subprocess.check_output(['otool','-L',str(out/'daemonlet-voice-engine')],text=True)
@@ -81,7 +81,7 @@ def main():
     for name in ['ggml-metal.metal','ggml-common.h','ggml-metal-impl.h']:shutil.copyfile(source/a.build_dir/'bin'/name,out/name)
     (out/'licenses').mkdir();shutil.copyfile(source/'LICENSE',out/'licenses/llama-cpp-MIT.txt');shutil.copyfile(a.package/'VOXCPM-LICENSE',out/'licenses/VoxCPM-LICENSE')
     names=['daemonlet-voice-engine','ggml-metal.metal','ggml-common.h','ggml-metal-impl.h','licenses/llama-cpp-MIT.txt','licenses/VoxCPM-LICENSE']
-    receipt=dict(sourceCommit=PIN,originalRuntimeSha256=sha(original),cachedRuntimeSha256=sha(patched),nativeSourceSha256=sha(worker_source),cacheRecipeSha256=sha(Path(__file__)),nativeFiles={'native/'+name:sha(out/name) for name in names},dynamicLibraries=dependencies)
+    receipt=dict(seedContractSha256=sha(ROOT/'electron/voice/seed_contract.h'),sourceCommit=PIN,originalRuntimeSha256=sha(original),cachedRuntimeSha256=sha(patched),nativeSourceSha256=sha(worker_source),cacheRecipeSha256=sha(Path(__file__)),nativeFiles={'native/'+name:sha(out/name) for name in names},dynamicLibraries=dependencies)
     if a.base:receipt['baseVoiceDefaultsSha256']=sha(defaults)
     (out/'native-build.json').write_text(json.dumps(receipt,indent=2)+'\n');print(json.dumps({k:v for k,v in receipt.items() if k!='dynamicLibraries'}))
 

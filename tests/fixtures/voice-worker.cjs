@@ -3,7 +3,7 @@ const readline=require('node:readline'),fs=require('node:fs'),path=require('node
 let cache
 let stream
 let cancelMode=''
-const send=(r,type,extra={})=>process.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...extra})+'\n')
+const send=(r,type,extra={})=>process.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...(r.seed===undefined?{}:{effectiveSeed:r.text==='wrong-seed'?r.seed+1:r.seed}),...extra})+'\n')
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const r=JSON.parse(line)
  if(r.type==='cancel-stream'){
@@ -22,8 +22,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(r.package.endsWith('crash')){process.exit(2);return}
   if(r.package.endsWith('contaminate')){process.stdout.write('upstream log\n');return}
   if(r.package.endsWith('partial')){process.stdout.write('{"protocolVersion":');return}
-  send(r,'ready');return
+  if(r.engine==='qwen3-tts-06b'){send(r,'ready',{capabilities:{engine:r.engine,synthesisStreaming:r.package.endsWith('bad-qwen-capabilities')?true:r.executionProfile.startsWith('qwen-mlx'),cancellation:'owned-process-termination',warmCancellationReuse:false},seedContract:1,referenceContract:1,mode:'wav-reference',referenceSha256:r.conditioning.sha256,conditioningFingerprint:r.conditioning.fingerprint,referenceCacheBuilds:1,adapterSha256:null,defaultVoice:null,loaded:true,warmed:false,modelVerification:r.modelVerification||'full'});return}
+  send(r,'ready',r.package.endsWith('old-seed')?{}:{seedContract:1});return
  }
+ if(r.type==='prewarm'){send(r,'warmed',{loaded:true,warmed:true,ready:true});return}
  if(r.type==='synthesize'){
   if(r.text==='hang')return
   if(r.text==='oom'){send(r,'error',{code:'CUDA_OOM'});return}

@@ -23,6 +23,10 @@ jobs:
       - run: npm run source:check
       - run: npm run typecheck
       - run: npm test
+      - name: Voice seed contract (no GPU or model)
+        run: python -B scripts/test-voice-seed.py
+      - name: WAV reference contract (no GPU or model)
+        run: python -B scripts/test-voice-reference.py
       - name: Voice worker protocol and device errors (no GPU or model)
         run: python -B scripts/test-voice-worker.py
       - run: python -m unittest discover -s tests/creator -v
@@ -53,6 +57,10 @@ jobs:
       # POSIX Hook host/permission cases are explicitly skipped on Windows;
       # the existing Unix job still runs them. This is not native app acceptance.
       - run: npm test
+      - name: Voice seed contract (no GPU or model)
+        run: python -B scripts/test-voice-seed.py
+      - name: WAV reference contract (no GPU or model)
+        run: python -B scripts/test-voice-reference.py
       - run: npm run build:renderer
       - run: npm run build:electron:production
       - run: npm run release:verify

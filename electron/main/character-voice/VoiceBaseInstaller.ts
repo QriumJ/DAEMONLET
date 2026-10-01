@@ -9,9 +9,9 @@ import {streamChunks} from '../character-chat/stream'
 import type {VoiceProfile,VoiceInstallState} from '../../shared/character-voice-contract'
 import {VoiceAssetIdentity} from './VoiceAssetIdentity'
 import defaults from '../../voice/base-voice-defaults.json'
-export const BASE_VOICE:VoiceProfile={id:'voxcpm2_default',version:catalog.revision,name:'기본 음성 · VoxCPM2',fingerprint:createHash('sha256').update(JSON.stringify({catalog,defaults})).digest('hex'),adapterSha256:'none'}
+export const BASE_VOICE:VoiceProfile={kind:'base-default',id:'voxcpm2_default',version:catalog.revision,name:'기본 음성 · VoxCPM2',fingerprint:createHash('sha256').update(JSON.stringify({catalog,defaults})).digest('hex'),adapterSha256:'none'}
 export const BASE_KEY=BASE_VOICE.id+'@'+BASE_VOICE.version
-export interface BaseVoiceInstallation {readonly native:boolean;readonly profile:VoiceProfile;readonly executable:string;readonly path:string;snapshot():VoiceInstallState;initialize():Promise<void>;identity():Promise<string|null>;ready():Promise<string>;cancelVerification():Promise<void>;install():Promise<void>;cancel():Promise<void>}
+export interface BaseVoiceInstallation {readonly native:boolean;readonly profile:VoiceProfile;readonly executable:string;readonly path:string;snapshot():VoiceInstallState;initialize():Promise<void>;identity():Promise<string|null>;ready(modelVerification?:'full'|'installed'):Promise<string>;recordModelCheck?(valid:boolean):void;cancelVerification():Promise<void>;install():Promise<void>;cancel():Promise<void>}
 export class VoiceBaseInstaller implements BaseVoiceInstallation {
  readonly native=true
  readonly profile=BASE_VOICE

@@ -27,6 +27,7 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  get path(){return join(this.root,'models',policy.model.revision)}
  get executable(){return join(this.runtime,'python','python.exe')}
  snapshot(){return {...this.status}}
+ recordModelCheck(valid:boolean){if(!valid)this.assetsIdentity?.invalidate();this.update({installed:valid,error:valid?null:'VOICE_BASE_CHANGED'})}
  private assetIdentity(){return this.assetsIdentity??=new VoiceAssetIdentity(JSON.stringify({fingerprint,defaults,resources:this.resources}),[this.path,this.runtime,this.resources],[
   ...Object.entries(policy.model.files).map(([name,f])=>({path:join(this.path,name),bytes:f.bytes})),
   {path:join(this.runtime,'install-receipt.json')},{path:this.executable},{path:join(this.runtime,'python','voice-runtime.json')},
@@ -48,17 +49,18 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
   child.once('close',()=>{closed=true;finish()})
  })}
  private async checkFile(path:string,bytes:number,sha256:string,signal?:AbortSignal){const s=await lstat(path);if(!s.isFile()||s.isSymbolicLink()||s.size!==bytes||await digestFile(path,signal)!==sha256)throw Error('VOICE_BASE_CHANGED')}
- ready():Promise<string>{
+ ready(modelVerification:'full'|'installed'='full'):Promise<string>{
   if(this.verifying)return this.verifying
   const controller=this.verifyController=new AbortController()
-  const task=this.verifying=this.verifyReady(controller.signal).finally(()=>{if(this.verifying===task){this.verifying=null;this.verifyController=null}})
+  const task=this.verifying=this.verifyReady(controller.signal,modelVerification).finally(()=>{if(this.verifying===task){this.verifying=null;this.verifyController=null}})
   return task
  }
- private async verifyReady(signal:AbortSignal){
+ private async verifyReady(signal:AbortSignal,modelVerification:'full'|'installed'){
   try{
    const receipt=JSON.parse(await readFile(join(this.runtime,'install-receipt.json'),'utf8'));if(receipt.fingerprint!==fingerprint)throw Error('VOICE_BASE_CHANGED')
-   await this.run(this.executable,['-I','-B',join(this.resources,'install_windows_base.py'),'--downloads',join(this.root,'downloads'),'--policy',join(this.resources,'runtime-windows-base.json'),'--lock',join(this.resources,'install-windows-base.json'),'--verify'],signal)
-   for(const [name,f] of Object.entries(policy.model.files))await this.checkFile(join(this.path,name),f.bytes,f.sha256,signal)
+   await this.run(this.executable,['-I','-B',join(this.resources,'install_windows_base.py'),'--downloads',join(this.root,'downloads'),'--policy',join(this.resources,'runtime-windows-base.json'),'--lock',join(this.resources,'install-windows-base.json'),'--verify','--metadata-only'],signal)
+   for(const [name,f] of Object.entries(policy.model.files))if(modelVerification==='full'||! /\.(safetensors|pth|pt|bin)$/i.test(name))await this.checkFile(join(this.path,name),f.bytes,f.sha256,signal)
+   await this.assetIdentity().snapshot(false)
    this.update({installed:true});return this.path
   }catch(e){if(!signal.aborted)this.update({installed:false});throw e}
  }

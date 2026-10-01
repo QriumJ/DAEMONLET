@@ -13,6 +13,7 @@ import uuid
 import wave
 import math
 from control import StreamCancelled
+from seed_contract import request_seed
 from gguf_runtime import validate
 from worker import sha, ADAPTER, REVISION
 
@@ -80,12 +81,13 @@ class GgufWorker:
                     except queue.Full:pass
         threading.Thread(target=reader,daemon=True).start()
         ready = self._receive()
+        if ready.get('seedContract') != 1:raise ValueError('VOICE_SEED_UNSUPPORTED')
         # The engine rejects a non-Metal acoustic backend; also require all LM layers.
         deadline=time.monotonic()+1
         while 'offloaded 29/29 layers to GPU' not in self.native_log and time.monotonic()<deadline:time.sleep(.01)
         if ready.get('type')!='ready' or ready.get('backend')!='Metal' or ready.get('pid')!=self.native.pid or ready.get('referenceCacheBuilds')!=1 or 'offloaded 29/29 layers to GPU' not in self.native_log or 'falling back to CPU' in self.native_log:
             raise ValueError('UNSUPPORTED_DEVICE')
-        return dict(workerPid=os.getpid(),nativePid=self.native.pid,loadMs=(time.perf_counter()-started)*1000,
+        return dict(seedContract=1,workerPid=os.getpid(),nativePid=self.native.pid,loadMs=(time.perf_counter()-started)*1000,
                     executionProfile='gguf-metal-f16',backend='Metal',dtype='float16-weights',
                     adapterSha256=assets['selected']['adapterSha256'],modelRevision=REVISION,referenceSha256=sha(assets['reference']),
                     adapterRepresentation='merged-once-fp32-then-f16',mergedKeys=384,mergedMatrices=192,
@@ -93,16 +95,17 @@ class GgufWorker:
                     runtimeFingerprint=sha(Path(__file__).with_name('runtime-gguf-macos.json')),**assets['cacheAudit'])
 
     def stream(self, request, credit):
-        text=request.get('text')
+        seed=request_seed(request);text=request.get('text')
         if request.get('streamVersion')!=1 or not isinstance(text,str) or not text.strip() or len(text)>400 or len(text.encode())>1600 or request.get('style') is not None:
             raise ValueError('SYNTHESIS_INPUT')
         ident=self.active=request['synthesisId'];start=time.perf_counter();total=chunks=native_index=native_offset=0;first=None;peak=blocked=0
         self.stream_files=[]
-        self._send(dict(type='generate',id=ident,text=text))
+        self._send(dict(type='generate',id=ident,text=text,seed=seed))
         ended=False
         def checkpoint():
             if hasattr(credit,'checkpoint'):credit.checkpoint(chunks)
         def terminal(row):
+            if row.get('effectiveSeed')!=seed:raise ValueError('VOICE_SEED_MISMATCH')
             if row.get('id')!=ident or row.get('type')!='end' or row.get('error') or row.get('cleanupComplete') is not True or row.get('cancelled') or row.get('samples')!=native_offset:
                 raise ValueError('STREAM_CLEANUP')
             self.active=None
@@ -116,6 +119,7 @@ class GgufWorker:
             for _ in range(3):
                 if native_index:self._send(dict(type='credit',id=ident,index=native_index-1))
                 row=self._receive(checkpoint=checkpoint)
+                if row.get('effectiveSeed')!=seed:raise ValueError('VOICE_SEED_MISMATCH')
                 if row.get('id')!=ident:raise ValueError('STREAM_CANCEL_BINDING')
                 if row.get('type')=='end':
                     terminal(row);ended=True;break
@@ -135,11 +139,11 @@ class GgufWorker:
                 output.setnchannels(1);output.setsampwidth(2);output.setframerate(48000);output.writeframes(samples.tobytes())
             temporary.replace(path);elapsed=(time.perf_counter()-start)*1000
             if first is None:first=elapsed
-            self.emit('audio-chunk',request['requestId'],audioId=audio_id,binding=request['binding'],synthesisId=ident,segmentIndex=request['segmentIndex'],chunkIndex=chunks,sampleOffset=total,sampleCount=len(pcm),sampleRate=48000,firstChunkReadyMs=first)
+            self.emit('audio-chunk',request['requestId'],effectiveSeed=seed,audioId=audio_id,binding=request['binding'],synthesisId=ident,segmentIndex=request['segmentIndex'],chunkIndex=chunks,sampleOffset=total,sampleCount=len(pcm),sampleRate=48000,firstChunkReadyMs=first)
             total+=len(pcm);chunks+=1
         if not total or total!=native_offset or peak<1e-7:raise ValueError('INVALID_WAVEFORM')
         elapsed=(time.perf_counter()-start)*1000
-        return dict(synthesisId=ident,totalSamples=total,totalChunks=chunks,firstChunkReadyMs=first,generationMs=elapsed,producerBlockedMs=blocked,rtf=elapsed/(total/48))
+        return dict(effectiveSeed=seed,synthesisId=ident,totalSamples=total,totalChunks=chunks,firstChunkReadyMs=first,generationMs=elapsed,producerBlockedMs=blocked,rtf=elapsed/(total/48))
 
     def synthesize(self, request):
         raise ValueError('EXECUTION_PROFILE')

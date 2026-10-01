@@ -1,3 +1,5 @@
+import { ModifierStateMonitor } from "./ModifierStateMonitor"
+import { OPACITY_CLICK_THROUGH_THRESHOLD } from "../shared/desktop-settings"
 import { NativeDragStart } from "./NativeDragStart"
 import { bindWindowLanguage, languageArguments } from "./AppLanguage"
 import { BrowserWindow, screen, type Rectangle } from "electron"
@@ -8,16 +10,27 @@ import { expectedRendererUrl, secureWebContents } from "./SecurityPolicy"
 
 type PetWindowOptions = {
   preloadPath: string
+  modifierHelperPath?: string
+  modifierMonitor?: (sample: (pressed: boolean) => void) => Pick<ModifierStateMonitor, "start" | "stop">
   devServerUrl?: string
   onBoundsChanged: (bounds: Rectangle) => void
   onWarning: (message: string) => void
   onCloseRequested: () => void
-  onContextMenu?: (window: BrowserWindow) => void
+  onContextMenu?: (window: BrowserWindow, point: { x: number; y: number }) => void
   onRendererReset?: () => void
 }
 
 export class PetWindowController {
   window: BrowserWindow | null = null
+  private opacity = 1
+  private nativeOpacity: number | null = null
+  private alwaysOnTop = true
+  private allWorkspaces = true
+  private overFullScreen = false
+  private modifierEditing = false
+  private suspended = false
+  private layoutBounds: Rectangle | null = null
+  private modifierMonitor: Pick<ModifierStateMonitor, "start" | "stop"> | null = null
   private layoutMode = false
   private interactionLocked = false
   private requestedPassthrough = false
@@ -37,7 +50,10 @@ export class PetWindowController {
   create(settings: DesktopSettingsV1): BrowserWindow {
     if (this.window && !this.window.isDestroyed()) return this.window
     this.clickThrough = settings.clickThrough
+    this.opacity = settings.opacity
     this.desiredVisible = settings.visible
+    this.alwaysOnTop = settings.alwaysOnTop; this.allWorkspaces = settings.showOnAllWorkspaces; this.overFullScreen = settings.showOverFullScreen
+    this.nativeOpacity = null
     const win = new BrowserWindow({
       ...settings.bounds,
       show: false,
@@ -69,11 +85,28 @@ export class PetWindowController {
       },
     })
     bindWindowLanguage(win); this.window = win
+    const sample = (pressed: boolean) => {
+      if (win.isDestroyed()) { this.modifierEditing = false; return }
+      const bounds = win.getBounds(), cursor = screen.getCursorScreenPoint()
+      const inside = cursor.x >= bounds.x && cursor.y >= bounds.y && cursor.x < bounds.x + bounds.width && cursor.y < bounds.y + bounds.height
+      this.modifierEditing = pressed && inside && this.ready && this.desiredVisible && win.isVisible() && !this.suspended
+      this.applyMousePolicy()
+    }
+    this.modifierMonitor = this.options.modifierMonitor?.(sample) ?? ((process.platform === "darwin" || process.platform === "win32") && this.options.modifierHelperPath
+      ? new ModifierStateMonitor(process.platform === "win32" ? this.options.modifierHelperPath + ".exe" : this.options.modifierHelperPath, sample, () => this.options.onWarning(process.platform === "win32" ? "Alt recovery is unavailable; restore opacity in the tray or Settings" : "Option recovery is unavailable; restore opacity in the tray or Settings")) : null)
     secureWebContents(win.webContents, "pet", this.options.devServerUrl)
     win.setAlwaysOnTop(settings.alwaysOnTop, "floating")
     if (process.platform === "darwin") win.setVisibleOnAllWorkspaces(settings.showOnAllWorkspaces, { visibleOnFullScreen: settings.showOverFullScreen })
-    win.on("move", () => this.options.onBoundsChanged(win.getBounds()))
-    win.on("moved", () => this.options.onBoundsChanged(win.getBounds()))
+    const capture = () => {
+      const bounds = win.getBounds()
+      if (this.layoutBounds) {
+        this.layoutBounds = { ...this.layoutBounds, x: Math.round(bounds.x + (bounds.width - this.layoutBounds.width) / 2), y: Math.round(bounds.y + (bounds.height - this.layoutBounds.height) / 2) }
+        this.options.onBoundsChanged(this.layoutBounds)
+      } else this.options.onBoundsChanged(bounds)
+    }
+    win.on("move", capture); win.on("moved", capture)
+    win.on("blur", () => { this.interactionLocked = false; this.modifierEditing = false; this.applyMousePolicy() })
+    win.on("hide", () => { this.interactionLocked = false; this.modifierEditing = false; this.modifierMonitor?.stop(); this.applyMousePolicy() })
     win.on("close", (event) => {
       if (!win.isDestroyed()) { event.preventDefault(); this.options.onCloseRequested() }
     })
@@ -82,11 +115,11 @@ export class PetWindowController {
       this.failSafe(`Pet renderer exited: ${details.reason}`)
       if (!this.crashReloaded) { this.crashReloaded = true; win.webContents.reload() }
     })
-    win.webContents.on("did-start-loading", () => this.options.onRendererReset?.())
+    win.webContents.on("did-start-loading", () => { this.ready = false; this.modifierEditing = false; this.modifierMonitor?.stop(); this.applyMousePolicy(); this.options.onRendererReset?.() })
     win.webContents.on("did-fail-load", (_event, code, description, url, mainFrame) => {
       if (mainFrame) this.failSafe(`Pet load failed (${code} ${description}): ${url}`)
     })
-    win.webContents.on("context-menu", () => this.options.onContextMenu?.(win))
+    win.webContents.on("context-menu", (_event, params) => this.options.onContextMenu?.(win, { x: params.x, y: params.y }))
     win.webContents.on("before-mouse-event", (_event, input) => {
       if (input.type !== "mouseDown") return
       // Electron omits modifiers from before-mouse-event. The renderer checks
@@ -100,7 +133,7 @@ export class PetWindowController {
       })
     }
     win.on("unresponsive", () => this.failSafe("Pet renderer became unresponsive"))
-    win.once("closed", () => { this.stopPointerBoundaryCheck(); this.window = null })
+    win.once("closed", () => { this.modifierMonitor?.stop(); this.stopPointerBoundaryCheck(); this.window = null })
     // Windows click-through can stop DOM mouse delivery without pointerleave.
     // Check native coordinates without moving the cursor or taking focus.
     if (process.platform === "win32") {
@@ -129,6 +162,8 @@ export class PetWindowController {
     if (this.readyTimer) clearTimeout(this.readyTimer)
     this.readyTimer = null
     if (this.desiredVisible && this.window && !this.window.isDestroyed()) this.window.showInactive()
+    this.syncModifierMonitor()
+    this.applyMousePolicy()
     for (const finish of [...this.revealWaiters]) finish(true)
   }
 
@@ -166,7 +201,14 @@ export class PetWindowController {
   }
 
   setLayoutMode(enabled: boolean): void {
+    const win = this.window
+    if (enabled && !this.layoutMode && win) this.layoutBounds = win.getBounds()
     this.layoutMode = enabled
+    if (win && this.layoutBounds) {
+      const bounds = this.layoutBounds
+      if (enabled) this.setBounds(bounds)
+      else { this.layoutBounds = null; win.setBounds(bounds, false) }
+    }
     this.applyMousePolicy()
     this.window?.setFocusable(true)
     this.send(IPC.layoutChanged, enabled)
@@ -177,17 +219,34 @@ export class PetWindowController {
     const win = this.window
     if (!win || win.isDestroyed()) return
     this.clickThrough = settings.clickThrough
+    this.opacity = settings.opacity
     this.desiredVisible = settings.visible
     if (!settings.visible) for (const finish of [...this.revealWaiters]) finish(false)
-    win.setAlwaysOnTop(settings.alwaysOnTop, "floating")
-    if (process.platform === "darwin") win.setVisibleOnAllWorkspaces(settings.showOnAllWorkspaces, { visibleOnFullScreen: settings.showOverFullScreen })
+    if (this.alwaysOnTop !== settings.alwaysOnTop) { this.alwaysOnTop = settings.alwaysOnTop; win.setAlwaysOnTop(settings.alwaysOnTop, "floating") }
+    if (process.platform === "darwin" && (this.allWorkspaces !== settings.showOnAllWorkspaces || this.overFullScreen !== settings.showOverFullScreen)) {
+      this.allWorkspaces = settings.showOnAllWorkspaces; this.overFullScreen = settings.showOverFullScreen
+      win.setVisibleOnAllWorkspaces(settings.showOnAllWorkspaces, { visibleOnFullScreen: settings.showOverFullScreen })
+    }
     if (win.isVisible() !== settings.visible) settings.visible ? win.showInactive() : win.hide()
+    this.syncModifierMonitor()
     this.applyMousePolicy()
     this.send(IPC.settingsChanged, settings)
   }
 
-  setBounds(bounds: Rectangle): void { this.window?.setBounds(bounds, false) }
-  show(): void { if (this.window && !this.window.isDestroyed()) { if (this.window.isMinimized()) this.window.restore(); this.window.showInactive(); this.window.moveTop() } }
+  /** The selected character geometry, excluding the temporary minimum editor. */
+  getLogicalBounds(): Rectangle | undefined {
+    const win = this.window
+    return win && !win.isDestroyed() ? { ...(this.layoutBounds ?? win.getBounds()) } : undefined
+  }
+  setBounds(bounds: Rectangle): void {
+    if (this.layoutMode) {
+      this.layoutBounds = { ...bounds }
+      const size = Math.max(280, bounds.width, bounds.height)
+      this.window?.setBounds({ ...bounds, x: Math.round(bounds.x + (bounds.width - size) / 2), y: Math.round(bounds.y + (bounds.height - size) / 2), width: size, height: size }, false)
+    } else this.window?.setBounds(bounds, false)
+  }
+  setSuspended(value: boolean) { this.suspended = value; this.modifierEditing = false; this.syncModifierMonitor(); this.applyMousePolicy() }
+  show(): void { if (this.window && !this.window.isDestroyed()) { if (this.window.isMinimized()) this.window.restore(); this.window.showInactive(); this.syncModifierMonitor(); this.applyMousePolicy(); this.window.moveTop() } }
   hide(): void { this.window?.hide() }
   reload(): void { this.crashReloaded = false; this.failSafe("Pet reload requested"); this.window?.webContents.reload() }
   send(channel: string, value: unknown): void { if (this.window && !this.window.isDestroyed()) this.window.webContents.send(channel, value) }
@@ -197,12 +256,18 @@ export class PetWindowController {
 
   destroy(): void {
     for (const finish of [...this.revealWaiters]) finish(false)
+    this.modifierMonitor?.stop(); this.modifierMonitor = null
     this.stopPointerBoundaryCheck()
     if (this.readyTimer) clearTimeout(this.readyTimer)
     this.readyTimer = null
     const win = this.window
     this.window = null
     if (win && !win.isDestroyed()) { win.removeAllListeners("close"); win.destroy() }
+  }
+
+  private syncModifierMonitor(): void {
+    if (this.ready && this.desiredVisible && !this.suspended && this.opacity <= OPACITY_CLICK_THROUGH_THRESHOLD) this.modifierMonitor?.start()
+    else { this.modifierEditing = false; this.modifierMonitor?.stop() }
   }
 
   private stopPointerBoundaryCheck(): void {
@@ -213,14 +278,18 @@ export class PetWindowController {
   private applyMousePolicy(): void {
     const win = this.window
     if (!win || win.isDestroyed()) return
-    const ignore = this.ready && this.clickThrough && this.requestedPassthrough && !this.interactionLocked && !this.layoutMode && !this.dragging
-    this.effectivePassthrough = ignore
-    win.setIgnoreMouseEvents(ignore, { forward: true })
+    const lowOpacity = this.opacity <= OPACITY_CLICK_THROUGH_THRESHOLD
+    const ignore = this.ready && (lowOpacity && !this.modifierEditing || this.clickThrough && this.requestedPassthrough) && !this.interactionLocked && !this.layoutMode && !this.dragging
+    const opacity = !this.ready || this.layoutMode || this.modifierEditing ? 1 : this.opacity
+    if (opacity !== this.nativeOpacity) { this.nativeOpacity = opacity; win.setOpacity(opacity) }
+    if (ignore !== this.effectivePassthrough) { this.effectivePassthrough = ignore; win.setIgnoreMouseEvents(ignore, { forward: true }) }
   }
 
   private failSafe(message: string): void {
     for (const finish of [...this.revealWaiters]) finish(false)
     this.ready = false
+    this.modifierEditing = false; this.modifierMonitor?.stop()
+    this.nativeOpacity = 1; this.window?.setOpacity(1)
     this.requestedPassthrough = false
     this.effectivePassthrough = false
     this.window?.setIgnoreMouseEvents(false)

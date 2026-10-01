@@ -1,6 +1,7 @@
 import { useT } from "../i18n/useLanguage"
 import { CharacterPacks } from "./CharacterPacks"
-import { SCALE_PRESETS, type DesktopSettingsPatch, type DesktopSettingsV1 } from "../../electron/shared/desktop-settings"
+import { PercentSetting } from "./PercentSetting"
+import { MIN_SCALE, MAX_SCALE, type DesktopSettingsPatch, type DesktopSettingsV1 } from "../../electron/shared/desktop-settings"
 import type { SettingsPageProps } from "./SettingsApp"
 
 const toggles = [
@@ -21,7 +22,10 @@ export function AppearancePage({ api, status, settings, run, busy }: SettingsPag
   return <>
     <header className="page-header"><h1>{t("캐릭터·표시")}</h1></header>
     <section className="section-card"><CharacterPacks api={api} run={run} busy={busy} selected={settings.characterId} />
-      <div className="preference-row"><div><strong>{t("캐릭터 크기")}</strong><p>{t`현재 ${Math.round(settings.scale * 100)}%`}</p></div><label className="visually-hidden" htmlFor="character-scale">{t("캐릭터 크기")}</label><select id="character-scale" value={settings.scale} disabled={Boolean(busy)} onChange={(event) => update({ scale: Number(event.target.value) })}>{!SCALE_PRESETS.some((value) => Math.abs(value - settings.scale) < 0.001) && <option value={settings.scale}>{t`${Math.round(settings.scale * 100)}% (현재)`}</option>}{SCALE_PRESETS.map((value) => <option key={value} value={value}>{Math.round(value * 100)}%</option>)}</select></div>
+      <div className="preference-row"><div><strong>{t("캐릭터 크기")}</strong><p>{t("20~400% 사이에서 직접 입력할 수 있어요.")}</p></div><PercentSetting id="character-scale" label="캐릭터 크기" value={settings.scale} min={MIN_SCALE * 100} max={MAX_SCALE * 100} disabled={Boolean(busy)} onApply={scale => update({ scale })} /></div>
+      <div className="preference-row"><div><strong>{t("캐릭터 불투명도")}</strong><p>{t("50% 이하에서는 캐릭터 뒤의 앱을 클릭할 수 있어요. 말풍선과 작업창은 그대로 표시돼요.")}</p></div><PercentSetting id="character-opacity" label="캐릭터 불투명도" value={settings.opacity} min={0} max={100} disabled={Boolean(busy)} onApply={opacity => update({ opacity })} /></div>
+      <div className="button-row"><button className="button secondary small" disabled={Boolean(busy)} onClick={() => update({ opacity: 1, visible: true })}>{t("불투명도 100% 복원")}</button></div>
+      <p>{status.app.platform === "darwin" ? t("캐릭터 위에서 Option + 휠로 불투명도를 조절하세요. 낮은 불투명도에서는 Option을 누르면 잠시 조작할 수 있어요. 복귀가 안 되면 트레이의 복원 메뉴를 사용하세요.") : t("캐릭터 위에서 Alt + 휠로 불투명도를 조절하세요. 클릭 통과 중에는 트레이나 설정에서 불투명도를 복원하세요.")}</p>
       <p>{status.app.platform === "darwin" ? t("Option + 드래그로 캐릭터를 이동할 수 있어요.") : t("Alt + 드래그로 캐릭터를 이동할 수 있어요.")}</p>
     </section>
     <section className="section-card"><h2>{t("말풍선 위치")}</h2>

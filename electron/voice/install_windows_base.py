@@ -16,7 +16,7 @@ def safe(name):
     if not name or name.startswith('/') or '\\' in name or ':' in name or any(p in ('','.','..') or p.endswith((' ','.')) or re.match(r'^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)',p,re.I) for p in name.split('/')):raise ValueError('PATH')
     return name
 
-p=argparse.ArgumentParser();p.add_argument('--downloads',type=Path,required=True);p.add_argument('--policy',type=Path,required=True);p.add_argument('--lock',type=Path,required=True);p.add_argument('--verify',action='store_true');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--downloads',type=Path,required=True);p.add_argument('--policy',type=Path,required=True);p.add_argument('--lock',type=Path,required=True);p.add_argument('--verify',action='store_true');p.add_argument('--metadata-only',action='store_true');a=p.parse_args()
 policy=json.loads(a.policy.read_text(encoding='utf-8'));lock=json.loads(a.lock.read_text(encoding='utf-8'));root=Path(sys.prefix).resolve();site=root/'Lib/site-packages';receipt=root/'voice-runtime.json'
 lock_sha,compatible_lock_hashes=lock_hashes(a.lock)
 if sys.platform!='win32' or sys.version.split()[0]!=policy['python']:raise ValueError('RUNTIME_VERSION')
@@ -53,6 +53,8 @@ for name,digest in policy['sourceFiles'].items():
     if target.is_symlink() or not target.resolve().is_relative_to(site) or hashlib.sha256(target.read_bytes().replace(b'\r\n',b'\n')).hexdigest()!=digest:raise ValueError('RUNTIME_SOURCE_CHANGED')
 for name,version in policy['dependencies'].items():
     if metadata.version(name)!=version:raise ValueError('RUNTIME_VERSION:'+name)
-import torch,torchaudio,voxcpm,triton
-if torch.__version__!='2.8.0+cu128' or not triton.__version__.startswith('3.4.'):raise ValueError('RUNTIME_IMPORT')
-print(json.dumps(dict(status='PASS',python=sys.version.split()[0],torch=torch.__version__,triton=triton.__version__,dependencies=len(policy['dependencies']))))
+if a.metadata_only and not a.verify:raise ValueError('INSTALL_REQUIRES_IMPORT_CHECK')
+if not a.metadata_only:
+    import torch,torchaudio,voxcpm,triton
+    if torch.__version__!='2.8.0+cu128' or not triton.__version__.startswith('3.4.'):raise ValueError('RUNTIME_IMPORT')
+print(json.dumps(dict(status='PASS',python=sys.version.split()[0],dependencies=len(policy['dependencies']),importCheck=not a.metadata_only)))

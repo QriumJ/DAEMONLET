@@ -28,17 +28,18 @@ export function mouthFrameOffset(u: number, v: number, profile: MouthMorphProfil
   return [u*c-v*s, u*s+v*c]
 }
 
-export function deformMouthPoint(x: number, y: number, expression: Expression, mouthOpen: number, mouthForm: number, profile: MouthMorphProfile): [number, number] {
+export function deformMouthPoint(x: number, y: number, expression: Expression, mouthOpen: number, mouthForm: number, profile: MouthMorphProfile, speechClosed?: "neutral" | "smile"): [number, number] {
   const shape = profile[expression], angle = profile.angleDeg*Math.PI/180
   const c = Math.cos(angle), s = Math.sin(angle), dx = x-profile.center.cx, dy = y-profile.center.cy
   const u = dx*c+dy*s, v = -dx*s+dy*c, t = (u-shape.u0)/(shape.u1-shape.u0)
-  const smile = smooth(mouthForm), { aperture } = mouthMorphWeights(mouthOpen, mouthForm)
-  const closedTop = mix(sample(profile.neutral.upper, t), sample(profile.smile.upper, t), smile)
-  const closedBottom = mix(sample(profile.neutral.lower, t), sample(profile.smile.lower, t), smile)
+  const smile = speechClosed ? 0 : smooth(mouthForm), { aperture } = mouthMorphWeights(mouthOpen, speechClosed ? 0 : mouthForm)
+  const neutral = speechClosed ? profile[speechClosed] : profile.neutral
+  const closedTop = mix(sample(neutral.upper, t), sample(profile.smile.upper, t), smile)
+  const closedBottom = mix(sample(neutral.lower, t), sample(profile.smile.lower, t), smile)
   const targetTop = mix(closedTop, sample(profile.open.upper, t), aperture)
   const targetBottom = mix(closedBottom, sample(profile.open.lower, t), aperture)
-  const u0 = mix(mix(profile.neutral.u0, profile.smile.u0, smile), profile.open.u0, aperture)
-  const u1 = mix(mix(profile.neutral.u1, profile.smile.u1, smile), profile.open.u1, aperture)
+  const u0 = mix(mix(neutral.u0, profile.smile.u0, smile), profile.open.u0, aperture)
+  const u1 = mix(mix(neutral.u1, profile.smile.u1, smile), profile.open.u1, aperture)
   const sourceTop = sample(shape.upper, t), sourceBottom = sample(shape.lower, t)
   let mappedV: number
   if (expression !== "open" && sourceBottom-sourceTop < .1) mappedV = v-sourceTop+(targetTop+targetBottom)/2

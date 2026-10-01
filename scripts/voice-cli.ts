@@ -1,3 +1,4 @@
+import {seedAb,seedAbHelp} from './voice-seed-ab'
 import {segmentationAb,segmentationHelp} from './voice-segmentation-ab'
 import {resolve,join} from 'node:path'
 import {mkdir,writeFile,readdir} from 'node:fs/promises'
@@ -9,8 +10,9 @@ import {isStreamingProfile,type ExecutionProfile,type SpeechBinding} from '../el
 const [command,...args]=process.argv.slice(2)
 function option(name:string){const index=args.indexOf('--'+name);if(index<0||!args[index+1])throw Error('Missing --'+name);return resolve(args[index+1])}
 function value(name:string,fallback:string){const index=args.indexOf('--'+name);return index<0?fallback:args[index+1]}
-if(command==='segmentation-ab')await segmentationAb(args)
-else if(command==='--help'||command==='help'){console.log('doctor | import | smoke | stream | '+segmentationHelp)}
+if(command==='seed-ab')await seedAb(args)
+else if(command==='segmentation-ab')await segmentationAb(args)
+else if(command==='--help'||command==='help'){console.log('doctor | import | smoke | stream | '+segmentationHelp+' | '+seedAbHelp)}
 else {
 const source=option('package')
 const verified=await verifyVoicePackage(source,SELECTED_VOICE)
@@ -23,7 +25,7 @@ else if(command==='import'){
  const worker=new TtsRuntimeSupervisor({python:option('python'),model:option('model'),worker:resolve('electron/voice/worker.py'),cacheRoot:join(data,'voice','cache'),executionProfile:value('profile',process.platform==='darwin'?'mps-fp32-baseline':'baseline') as ExecutionProfile},300_000)
  try{
   await worker.start(join(data,'voice','profiles',profileKey(result.profile)),result.profile.fingerprint)
-  const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:result.profile.id,voiceProfileVersion:result.profile.version,voiceFingerprint:result.profile.fingerprint,runtimeSessionId:worker.sessionId}
+  const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:result.profile.id,voiceProfileVersion:result.profile.version,voiceFingerprint:result.profile.fingerprint,effectiveSeed:42,runtimeSessionId:worker.sessionId}
   const measurements=[]
   for(let i=0;i<2;i++){
    const audio=await worker.synthesize('응, 듣고 있어. 지금은 어떤 이야기를 할까?',binding,i)
@@ -54,7 +56,7 @@ else if(command==='import'){
  const report:any={profile,scope:'worker-stream-with-immediate-credit',appPlayback:'NOT_TESTED',physicalListening:'NOT_TESTED',measurements:[]}
  try{
   await worker.start(source,verified.profile.fingerprint+':'+profile);report.audit=worker.audit
-  const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:verified.profile.id,voiceProfileVersion:verified.profile.version,voiceFingerprint:verified.profile.fingerprint,runtimeSessionId:worker.sessionId,executionProfile:profile}
+  const binding:SpeechBinding={characterId:'diagnostic',revision:'diagnostic',conversationId:randomUUID(),messageId:randomUUID(),requestId:randomUUID(),epoch:1,speechEpoch:1,personaHash:'diagnostic',semanticHash:'diagnostic',modelId:'E4B',voiceProfileId:verified.profile.id,voiceProfileVersion:verified.profile.version,voiceFingerprint:verified.profile.fingerprint,effectiveSeed:42,runtimeSessionId:worker.sessionId,executionProfile:profile}
   const allTexts=['응.','오빠, 오늘은 어떤 이야기를 할까?','응, 듣고 있어. 지금은 어떤 이야기를 할까?','내일 오후 세 시에 다시 확인해 줘.','RTX 4090으로 음성을 만들고 있어.','먼저 파일을 확인할게. 문제가 없으면 다음 작업으로 넘어가자.']
   const texts=allTexts
   for(let repeat=0;repeat<Number(value("repeats","2"));repeat++)for(let index=0;index<(args.includes("--quick")?2:texts.length);index++){

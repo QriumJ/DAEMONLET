@@ -177,8 +177,8 @@ class CacheTests(unittest.TestCase):
         fake = SimpleNamespace(cuda=SimpleNamespace(synchronize=lambda: None))
         with patch.dict('sys.modules', {'torch': fake}):
             engine.prepare()
-            list(engine.generate('응.\n  다음 문장'))
-            list(engine.generate('새 문장'))
+            list(engine.generate('응.\n  다음 문장', seed=42))
+            list(engine.generate('새 문장', seed=42))
         self.assertEqual(engine.cache_builds, 1)
         self.assertEqual([c[0] for c in calls], ['reference', 'generate', 'generate'])
         first, second = calls[1][1], calls[2][1]
@@ -200,8 +200,8 @@ class CacheTests(unittest.TestCase):
         tts.generate_with_prompt_cache_streaming = streaming
         with patch.dict('sys.modules', {'torch': SimpleNamespace()}):
             engine.prepare()
-            list(engine.generate('안녕.'))
-            list(engine.generate('안녕.', streaming=True))
+            list(engine.generate('안녕.', seed=42))
+            list(engine.generate('안녕.', seed=42, streaming=True))
         self.assertEqual(engine.cache_builds, 0)
         self.assertEqual([c[0] for c in calls], ['generate', 'stream'])
         for _, kwargs in calls:
@@ -221,7 +221,7 @@ class CacheTests(unittest.TestCase):
             finally:
                 events.append('closed')
         tts.generate_with_prompt_cache_streaming = streaming
-        generated = engine.generate('응', streaming=True)
+        generated = engine.generate('응', seed=42, streaming=True)
         self.assertEqual(next(generated), [0.1, 0.2])
         self.assertEqual(events, ['first'])
         generated.close()
@@ -268,11 +268,11 @@ class CacheTests(unittest.TestCase):
             worker.backend = CudaDevice
             worker.cache = Path(cache)
             worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
-            worker.engine = SimpleNamespace(generate=lambda *a, **k: iter_chunks())
+            worker.engine = SimpleNamespace(effective_seed=42, compile_counts={}, cache_builds=1, generate=lambda *a, **k: iter_chunks())
             def iter_chunks():
                 yield SimpleNamespace(ndim=1, size=7680, peak=0)
                 yield SimpleNamespace(ndim=1, size=13, peak=0.1)
-            result = worker.stream(dict(text='응.', style=None, streamVersion=1, requestId='s', binding={}, synthesisId='s', segmentIndex=0), lambda index: None)
+            result = worker.stream(dict(text='응.', style=None, seed=42, streamVersion=1, requestId='s', binding={}, synthesisId='s', segmentIndex=0), lambda index: None)
         self.assertEqual(result['totalSamples'], 7693)
         self.assertEqual(result['totalChunks'], 2)
         self.assertEqual([v['sampleOffset'] for v in emitted], [0, 7680])
@@ -327,7 +327,7 @@ class CancellationTests(unittest.TestCase):
         module = runpy.run_path(str(WORKER))
         emitted, events = [], []
         module['emit'].__globals__['emit'] = lambda *a, **k: emitted.append(k)
-        request = dict(streamVersion=1, requestId='old', synthesisId='s', text='test', binding=dict(runtimeSessionId='session', speechEpoch=1))
+        request = dict(seed=42, streamVersion=1, requestId='old', synthesisId='s', text='test', binding=dict(runtimeSessionId='session', speechEpoch=1))
         target = dict(requestId='old', synthesisId='s', **request['binding'])
         def generate(*args, **kwargs):
             try:
@@ -343,7 +343,7 @@ class CancellationTests(unittest.TestCase):
                 worker.backend = CudaDevice
                 worker.cache = Path(cache)
                 worker.model = SimpleNamespace(tts_model=SimpleNamespace(sample_rate=48000))
-                worker.engine = SimpleNamespace(generate=generate)
+                worker.engine = SimpleNamespace(effective_seed=42, compile_counts={}, cache_builds=1, generate=generate)
                 with self.assertRaises(StreamCancelled) as raised:
                     worker.stream(request, StreamControl(inbox, request, lambda _: False))
                 self.assertEqual(raised.exception.boundary, 'chunk-boundary')
@@ -518,6 +518,41 @@ class WindowsReceiptTests(unittest.TestCase):
                     before = self.receipt.read_bytes()
                     self.run_installer(current)
                     self.assertEqual(self.receipt.read_bytes(), before)
+
+    def test_worker_verifies_raw_pinned_vox_sources_without_distribution_or_import(self):
+        self.check_worker_import_target(False)
+
+    def test_worker_rejects_actual_finder_extension_precedence_over_pinned_python(self):
+        self.check_worker_import_target(True)
+
+    def check_worker_import_target(self, extension):
+        import hashlib, importlib
+        from importlib.machinery import EXTENSION_SUFFIXES, ExtensionFileLoader
+        import windows_base_worker as runtime
+        entry=self.target.parent/'__init__.py'
+        entry.write_bytes(b"raise AssertionError('must not import during verification')\n")
+        self.policy['sourceFiles']['__init__.py']=hashlib.sha256(entry.read_bytes()).hexdigest()
+        if extension:(self.target.parent/('__init__'+EXTENSION_SUFFIXES[0])).write_bytes(b'unverified binary')
+        self.saved(self.lock)
+        with patch('sys.prefix', str(self.root)), patch('sys.platform', 'win32'), \
+             patch.object(runtime.platform, 'python_version', return_value=self.policy['python']), \
+             patch.object(runtime, 'SOURCE', self.policy['sourceCommit']), \
+             patch.object(runtime.metadata, 'version', return_value='1.0'), \
+             patch.object(runtime.metadata, 'distribution', side_effect=AssertionError('no Vox dist-info')), \
+             patch('sys.path', [str(self.target.parent.parent),*sys.path]), patch.dict(sys.modules):
+            sys.modules.pop('voxcpm',None)
+            importlib.invalidate_caches()
+            if extension:
+                self.assertIsInstance(importlib.util.find_spec('voxcpm').loader,ExtensionFileLoader)
+                with self.assertRaisesRegex(ValueError,'RUNTIME_SOURCE_CHANGED'):
+                    runtime.verify_environment(self.policy)
+                self.assertNotIn('voxcpm',sys.modules)
+                return
+            runtime.verify_environment(self.policy)
+            self.assertNotIn('voxcpm',sys.modules)
+            self.target.write_bytes(b'TAMPERED = True\n')
+            with self.assertRaisesRegex(ValueError, 'RUNTIME_SOURCE_CHANGED'):
+                runtime.verify_environment(self.policy)
 
     def test_new_receipt_uses_lf_digest_even_from_crlf_checkout(self):
         import hashlib

@@ -12,6 +12,10 @@ import { SETUP_IPC } from '../../electron/shared/codex-integration-contract'
 import { TASK_CONTROL_IPC } from '../../electron/shared/task-control-contract'
 import { ACTIVITY_IPC } from '../../electron/shared/activity-contract'
 import { CHARACTER_IPC } from '../../electron/shared/character-pack-contract'
+import { SIDE_CHAT_IPC } from '../../electron/shared/side-chat-contract'
+import { PLACEMENT_IPC } from '../../electron/shared/bubble-placement'
+import { CODEX_USAGE_IPC, emptyCodexUsage } from '../../electron/shared/codex-usage-contract'
+import { PACK_UPDATE_IPC } from '../../electron/shared/pack-update-contract'
 
 async function run() {
 const root = process.cwd(), output = resolve(root, process.env.DAEMONLET_LANGUAGE_SMOKE_OUTPUT ?? 'outputs/evidence/app-language')
@@ -30,6 +34,12 @@ let voiceId = '', starts = 0, stops = 0
 let selectDone: (() => void) | undefined
 const bind = (channel: string, handler: (...args: any[]) => any) => ipcMain.handle(channel, async (_e, ...args) => ({ ok: true, value: await handler(...args) }))
 const emit = (channel: string, value: unknown) => windows.forEach(w => !w.isDestroyed() && w.webContents.send(channel, value))
+// Current renderer surfaces also read these inactive capabilities at mount.
+// Keep their real response shapes; the existing zero-console-error assertion stays strict.
+ipcMain.handle(SIDE_CHAT_IPC.get, () => ({ok:false,code:'CHAT_DISABLED'}))
+ipcMain.handle(PLACEMENT_IPC.get, () => ({editing:false,revision:0}))
+bind(CODEX_USAGE_IPC.get, emptyCodexUsage)
+ipcMain.handle(PACK_UPDATE_IPC.list, () => [])
 bind(SETUP_IPC.status, () => status)
 bind(SETUP_IPC.settingsGet, () => settings)
 bind(SETUP_IPC.settingsPatch, async patch => {
@@ -92,6 +102,20 @@ try {
  // Check loaded settings pages, import progress in English, and narrow-window overflow.
  await evaluate(settingsWindow, `document.querySelector('#tab-appearance').click()`)
  await wait(settingsWindow, `!!document.querySelector('.pack-card') && !document.querySelector('#app-language').disabled`)
+ // Real React numeric controls + preload + persisted, validated fixture IPC.
+ const enterPercent = async (id: string, value: string) => {
+   await evaluate(settingsWindow, `(()=>{const input=document.getElementById('${id}');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,${JSON.stringify(value)});input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
+   await pause(); await evaluate(settingsWindow, `document.getElementById('${id}').form.requestSubmit()`)
+ }
+ await enterPercent('character-scale','173'); await wait(settingsWindow, `document.getElementById('character-scale').value==='173' && !document.getElementById('character-scale').disabled`)
+ assert.equal(settings.scale,1.73); assert.equal((await store.load()).value.scale,1.73)
+ await enterPercent('character-scale','401');assert.equal(settings.scale,1.73)
+ await enterPercent('character-scale','20');await wait(settingsWindow, `!document.getElementById('character-scale').disabled`);assert.equal(settings.scale,.2)
+ await enterPercent('character-opacity','0');await wait(settingsWindow, `!document.getElementById('character-opacity').disabled`);assert.equal(settings.opacity,0);assert.equal(settings.visible,true)
+ assert.equal((await store.load()).value.opacity,0)
+ await evaluate(settingsWindow, `[...document.querySelectorAll('button')].find(b=>b.textContent==='Restore 100% opacity').click()`)
+ await wait(settingsWindow, `document.getElementById('character-opacity').value==='100' && !document.getElementById('character-opacity').disabled`);assert.equal(settings.opacity,1)
+ await enterPercent('character-scale','400');await wait(settingsWindow, `!document.getElementById('character-scale').disabled`);assert.equal(settings.scale,4)
  await capture(settingsWindow, 'appearance-en')
  await evaluate(settingsWindow, `document.querySelector('.pack-choice input').checked=false;document.querySelector('.pack-choice input').click()`)
  await wait(settingsWindow, `!!document.querySelector('.loading-dialog[open]')`)
@@ -106,7 +130,7 @@ try {
  await wait(settingsWindow, `document.querySelector('#app-language')?.value==='en'`)
  assert.equal(await evaluate(settingsWindow, `document.documentElement.lang`),'en')
  assert.deepEqual(errors,[])
- await writeFile(join(output,'result.json'),JSON.stringify({ passed: true, platform: process.platform, languages:['ko','en'], savedAndReloaded:true, draftPreserved:true, recordingContinuedDuringSwitch:true, noHorizontalOverflow:true, englishCharacterProgress:true, realMicrophoneTest:false, errors },null,2))
+ await writeFile(join(output,'result.json'),JSON.stringify({ passed: true, platform: process.platform, languages:['ko','en'], savedAndReloaded:true, draftPreserved:true, recordingContinuedDuringSwitch:true, noHorizontalOverflow:true, englishCharacterProgress:true, realMicrophoneTest:false, customSizeAndOpacity:true, opacityZeroPersistsWithoutHiding:true, traySettingsRecovery:true, errors },null,2))
  console.log('Language UI smoke passed')
 } catch(error) { console.error(error);process.exitCode=1 }
 finally { for (const win of windows) if(!win.isDestroyed())win.destroy(); await rm(temporary,{recursive:true,force:true});app.exit(typeof process.exitCode === 'number' ? process.exitCode : 0) }

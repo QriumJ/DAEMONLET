@@ -1,3 +1,6 @@
+import {audioMouthParameters} from './AudioMouth'
+import {AudioMouthLease} from './AudioMouthLease'
+import type {MouthLevel} from '../../character-chat/PlaybackMouthMeter'
 import { DEFAULT_PARAMETERS } from "./Anime25DParameters"
 import { clientToModel, containTransform } from "./coordinate"
 import { Anime25DRenderer } from "./Anime25DRenderer"
@@ -108,6 +111,8 @@ export class Anime25DRuntime {
   private pointerTarget: { x: number; y: number } | null = null
   /** Kept only for compatibility with older diagnostics tests. */
   private interaction: ActiveInteraction | null = null
+  private audioMouth = new AudioMouthLease()
+  setAudioMouth(level: MouthLevel | null) { this.audioMouth.set(level) }
   private manual: Partial<Anime25DParameterState> = {}
   private autoBlink = true
   private semanticState: CharacterSemanticState = "NORMAL"
@@ -156,6 +161,7 @@ export class Anime25DRuntime {
   }
 
   unload() {
+    this.audioMouth.set(null)
     this.modelRevision++
     this.cancelInteraction("model-unload")
     this.resetPose("model-unload")
@@ -341,7 +347,8 @@ export class Anime25DRuntime {
 
   captureCurrentFrame(): RigImage {
     const parameters = this.qualityMode === "RIG_NEUTRAL" ? DEFAULT_PARAMETERS : this.diagnostics.parameters
-    this.renderer.render(parameters, performance.now(), this.qualityMode === "RIG_NEUTRAL")
+    const mouth=audioMouthParameters(parameters,this.audioMouth.get(),this.poseAsset,this.poseDiagnostics.state,!!this.poseCrossfade)
+    this.renderer.render(parameters, performance.now(), this.qualityMode === "RIG_NEUTRAL",mouth===parameters?undefined:mouth)
     return this.renderer.readFrame()
   }
 
@@ -423,6 +430,7 @@ export class Anime25DRuntime {
       const now = this.clock.now(), previous = this.poseAsset!, sample = this.poseTransition.sample(now)
       this.renderer.crossfadePoseRig(asset.result.model.rig, asset.selection, asset.registration.transform)
       this.poseCrossfade = { previousId: previous.manifest.id, startedAt: now, durationMs: Math.max(1, Math.min(280, asset.manifest.transition.enterMs)), parameters: { ...this.lastPoseParameters }, weight: this.lastPoseWeight, hitResolver: this.poseHitResolver }
+      this.audioMouth.poseChanged()
       this.poseAsset = asset
       this.poseMotionPlayback.reset()
       this.poseTransition.configure(asset.manifest.transition, true)
@@ -508,6 +516,7 @@ export class Anime25DRuntime {
     try {
       const asset = await this.poseLoader.load(manifestUrl, baseRig, { signal: loadController.signal, manifest })
       if (loadController.signal.aborted || this.modelRevision !== expectedModelRevision) throw new Error("POSE_ASSET_LOAD_CANCELLED: base model changed while the pose was loading")
+      this.audioMouth.poseChanged()
       this.poseAsset = asset
       const error = !asset.registration.accepted
         ? `${asset.registration.errorCode}: ${asset.registration.reasons.join("; ")}`
@@ -741,6 +750,11 @@ export class Anime25DRuntime {
     this.renderer.resize()
   }
 
+  getAudioMouthOpen(): number | null {
+    const p=this.diagnostics.parameters,mouth=audioMouthParameters(p,this.audioMouth.get(),this.poseAsset,this.poseDiagnostics.state,!!this.poseCrossfade)
+    return mouth===p?null:mouth.mouthOpen
+  }
+
   getDiagnostics() {
     return this.diagnostics
   }
@@ -803,6 +817,7 @@ export class Anime25DRuntime {
   private applyLoadResult(result: RigLoadResult, options: RigLoadOptions, beforeCommit?: () => void) {
     this.renderer.applyRig(result.model.rig)
     beforeCommit?.()
+    this.audioMouth.set(null)
     this.modelRevision++
     this.cancelInteraction("model-change")
     this.disposePose()
@@ -867,7 +882,8 @@ export class Anime25DRuntime {
     const parameters = this.mixer.evaluate()
     const showNeutral = this.qualityMode === "RIG_NEUTRAL"
     const renderedParameters = showNeutral ? DEFAULT_PARAMETERS : parameters
-    this.renderer.render(renderedParameters, now, showNeutral)
+    const mouth=showNeutral?parameters:audioMouthParameters(parameters,this.audioMouth.get(),this.poseAsset,this.poseDiagnostics.state,!!this.poseCrossfade)
+    this.renderer.render(renderedParameters, now, showNeutral,mouth===parameters?undefined:mouth)
     this.renderedModelRevision = this.model ? this.modelRevision : null
     this.diagnostics = { ...this.diagnostics, parameters: renderedParameters, fps: this.renderer.fps }
     if (now - this.lastDiagnosticEmit > 120) {
