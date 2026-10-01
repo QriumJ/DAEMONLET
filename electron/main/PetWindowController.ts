@@ -16,7 +16,7 @@ type PetWindowOptions = {
   onBoundsChanged: (bounds: Rectangle) => void
   onWarning: (message: string) => void
   onCloseRequested: () => void
-  onContextMenu?: (window: BrowserWindow) => void
+  onContextMenu?: (window: BrowserWindow, point: { x: number; y: number }) => void
   onRendererReset?: () => void
 }
 
@@ -119,7 +119,7 @@ export class PetWindowController {
     win.webContents.on("did-fail-load", (_event, code, description, url, mainFrame) => {
       if (mainFrame) this.failSafe(`Pet load failed (${code} ${description}): ${url}`)
     })
-    win.webContents.on("context-menu", () => this.options.onContextMenu?.(win))
+    win.webContents.on("context-menu", (_event, params) => this.options.onContextMenu?.(win, { x: params.x, y: params.y }))
     win.webContents.on("before-mouse-event", (_event, input) => {
       if (input.type !== "mouseDown") return
       // Electron omits modifiers from before-mouse-event. The renderer checks

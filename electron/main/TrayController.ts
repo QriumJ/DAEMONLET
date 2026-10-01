@@ -60,12 +60,19 @@ export type TrayActions = {
 export function buildTrayMenu(settings: DesktopSettingsV1, adapter: AdapterStatus, actions: TrayActions): MenuItemConstructorOptions[] {
   const t = createTranslator(settings.language)
   if (actions.inputLocked?.()) return [{ label: t("업데이트 적용을 준비하고 있어요…"), enabled: false }]
+  const activity = actions.activity?.()
   const adapterLabel = adapter.state === "READY" ? "READY (Owned)" : adapter.state
   return [
     { label: settings.visible ? t("캐릭터 숨기기") : t("캐릭터 표시"), click: actions.toggleVisible },
     ...(actions.openActivity ? [
       { label: t("작업 목록"), click: actions.openActivity },
-      ...(actions.activity ? [{ label: activitySummary(actions.activity(), settings.language), enabled: false }] : []),
+      ...(activity ? (process.platform === "darwin" ? [{ label: t("작업 현황"), submenu: [
+        { label: activity.connection === "READY" ? "READY" : t("재확인 중"), enabled: false },
+        { label: t`입력 필요 ${activity.counts.waiting}`, enabled: false },
+        { label: `${t("미확인 실패")}: ${activity.counts.failed}`, enabled: false },
+        { label: `${t("미확인 종료")}: ${activity.counts.completed}`, enabled: false },
+        { label: `${t("실행 중")}: ${activity.counts.running}`, enabled: false },
+      ] }] : [{ label: activitySummary(activity, settings.language), enabled: false }]) : []),
     ] : []),
     ...(actions.openCharacterChat ? [{ label: t("로컬 캐릭터 대화"), click: actions.openCharacterChat }] : []),
     ...(actions.openSideChat ? [{ label: t("Codex 작업 대화"), click: actions.openSideChat }] : []),
@@ -169,9 +176,13 @@ export class TrayController {
     }
   }
 
-  popup(window: BrowserWindow): boolean {
+  popup(window: BrowserWindow, point?: { x: number; y: number }): boolean {
     if (!this.menu) return false
-    this.menu.popup({ window })
+    // macOS expects content-view coordinates. Capture the context-menu event's
+    // point instead of consulting the cursor later in Electron's native popup task.
+    const location = process.platform === "darwin" && point && Number.isFinite(point.x) && Number.isFinite(point.y) && point.x >= 0 && point.y >= 0
+      ? { x: Math.round(point.x), y: Math.round(point.y) } : {}
+    this.menu.popup({ window, ...location })
     return true
   }
 

@@ -1279,5 +1279,6 @@
   "선택한 실행 모드는 미리 준비를 지원하지 않아요.": "The selected execution mode does not support prewarming.",
   "음성 준비 또는 재생이 진행 중이에요.": "Voice preparation or playback is in progress.",
   "캐릭터챗을 열지 않고 엔진만 준비해요. 말하거나 대화를 만들지 않아요. Dots 무음과 음량 0은 준비를 막지 않아요.": "Prepare the engine without opening character chat, speaking, or creating a conversation. Dots mute and zero volume do not block preparation.",
-  "선택한 캐릭터의 음성 엔진, 기준 음성과 실행 모드를 확인해 주세요.": "Check the selected character’s voice engine, reference audio and execution mode."
+  "선택한 캐릭터의 음성 엔진, 기준 음성과 실행 모드를 확인해 주세요.": "Check the selected character’s voice engine, reference audio and execution mode.",
+  "작업 현황": "Task status"
 }

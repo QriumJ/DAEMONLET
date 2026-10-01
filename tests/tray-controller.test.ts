@@ -22,7 +22,12 @@ describe("tray menu", () => {
     const entry = menu.find(item => item.label === "작업 목록")!
     entry.click?.({} as never, {} as never, {} as never)
     expect(openActivity).toHaveBeenCalledOnce()
-    expect(menu.some(item => item.label === "입력 필요 1 · 미확인 실패 2 · 미확인 종료 3 · 실행 중 1")).toBe(true)
+    if(process.platform === "darwin") {
+      const status=menu.find(item=>item.label === "작업 현황")!.submenu as Array<Record<string, unknown>>
+      expect(status.map(item=>item.label)).toEqual(["READY","입력 필요 1","미확인 실패: 2","미확인 종료: 3","실행 중: 1"])
+      expect(status.every(item=>item.enabled === false)).toBe(true)
+      expect(menu.some(item=>item.label?.includes(" · 미확인"))).toBe(false)
+    } else expect(menu.some(item => item.label === "입력 필요 1 · 미확인 실패 2 · 미확인 종료 3 · 실행 중 1")).toBe(true)
   })
 
   it("retains the character context menu when native Tray creation fails", async () => {
@@ -134,4 +139,12 @@ it("keeps an explicit opaque/visible recovery action even at zero opacity", asyn
  const menu=buildTrayMenu({...defaultDesktopSettings(),opacity:0,visible:false},{state:"READY",message:null,restartCount:0},{updateSettings} as never)
  const restore=menu.find(item=>item.label==="불투명도 100% 복원")!
  ;(restore.click as Function)();expect(updateSettings).toHaveBeenCalledWith({opacity:1,visible:true})
+})
+
+it('Mac popup uses event coordinates even when the cursor moves; missing/invalid coordinates retain native fallback',async()=>{
+ const {Menu}=await import('electron');const {TrayController}=await import('../electron/main/TrayController');const popup=vi.fn(),window={} as never
+ vi.mocked(Menu.buildFromTemplate).mockReturnValueOnce({popup} as never)
+ const tray=new TrayController();tray.update(defaultDesktopSettings(),{state:'READY',message:null,restartCount:0},{} as never)
+ tray.popup(window,{x:155.4,y:66.7});expect(popup).toHaveBeenLastCalledWith(process.platform==='darwin'?{window,x:155,y:67}:{window})
+ tray.popup(window,{x:NaN,y:10});expect(popup).toHaveBeenLastCalledWith({window});tray.popup(window,{x:-1,y:-1});expect(popup).toHaveBeenLastCalledWith({window});tray.destroy()
 })

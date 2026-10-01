@@ -137,8 +137,8 @@ describe("PetWindowController visibility", () => {
     expect(onCloseRequested).toHaveBeenCalledOnce()
     expect(settings.visible).toBe(false)
     expect(window.hide).toHaveBeenCalledOnce()
-    window.webContents.emit("context-menu")
-    expect(onContextMenu).toHaveBeenCalledWith(window)
+    window.webContents.emit("context-menu",{}, {x:20,y:30})
+    expect(onContextMenu).toHaveBeenCalledWith(window,{x:20,y:30})
     controller.destroy()
   })
 })
@@ -205,4 +205,10 @@ it("recovers logical 20% geometry across display changes while the native editor
   controller.setBounds(recovered);expect(controller.getLogicalBounds()?.width).toBe(92);expect(win.getBounds().width).toBe(280)
   controller.setLayoutMode(false);expect(win.getBounds().width).toBe(92)
  } finally {controller.destroy()}
+})
+
+it('pet context menu retains the originating event point instead of a later cursor position',async()=>{
+ const {PetWindowController}=await import('../electron/main/PetWindowController');const context=vi.fn();const controller=new PetWindowController({preloadPath:'/preload.cjs',onBoundsChanged:vi.fn(),onWarning:vi.fn(),onCloseRequested:vi.fn(),onContextMenu:context})
+ const window=controller.create(defaultDesktopSettings()) as unknown as FakeBrowserWindow
+ window.webContents.emit('context-menu',{}, {x:125,y:40});expect(context).toHaveBeenCalledWith(window,{x:125,y:40});controller.destroy()
 })

@@ -204,7 +204,7 @@ export class AppController {
       onWarning: (message) => this.warn(message),
       onRendererReset: () => { this.dotReady=false;void this.dot?.cancel();this.personaGeneration++; this.transitions.retire() },
       onCloseRequested: () => { if (!this.quitting) this.updateSettings({ visible: false }) },
-      onContextMenu: (window) => { this.tray.popup(window) },
+      onContextMenu: (window, point) => { this.tray.popup(window, point) },
     })
     this.lab = new LabWindowController(preload("lab"), this.devServerUrl, (message) => this.warn(message))
     const workerPath = app.isPackaged ? join(process.resourcesPath, "codex", "codex-adapter-worker.cjs") : join(dirname, "codex", "codex-adapter-worker.cjs")
