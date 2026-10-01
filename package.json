@@ -27,6 +27,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "qa:regression": "node --test scripts/qa/tests/credential-check.test.mjs scripts/qa/tests/rig-worker-bundle.test.mjs",
     "protocol:mock": "node scripts/protocol-mock-server.mjs",
     "codex:adapter": "node --no-warnings --experimental-strip-types scripts/codex-adapter.ts",
     "codex:adapter:doctor": "node --no-warnings --experimental-strip-types scripts/codex-adapter-doctor.ts",
