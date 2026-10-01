@@ -128,6 +128,8 @@ export class VoiceIpcController {
    case 'installBase':return this.service.installBase()
    case 'cancelInstallBase':return this.service.cancelInstallBase()
    case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()
+   case 'engine':return this.service.engine(v.value,contextCurrent)
+   case 'qwenClone':return this.service.qwenClone(v.value,contextCurrent)
    case 'prepare':return this.service.prepare()
    case 'executionProfile':if(!this.service.snapshot().availableProfiles?.includes(v.value))throw Error('VOICE_ACTION');return this.service.executionProfile(v.value)
    case 'enabled':case 'auto':if(typeof v.value!=='boolean')throw Error('VOICE_ACTION');return v.type==='enabled'?this.service.enabled(v.value):this.service.auto(v.value)
@@ -162,7 +164,7 @@ export class VoiceIpcController {
    case 'played':if(!this.presentationOutput&&v.epoch===this.localAudioEpoch){this.localAudioClaims.delete(v.audioId);if(!this.localAudioClaims.size)this.publishMouth(null)}if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||v.error!==undefined&&typeof v.error!=='boolean')throw Error('VOICE_ACTION');return this.service.played(v.audioId,v.epoch,v.error)
    case 'scheduled':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.delayMs)||v.delayMs<0||v.delayMs>6000||!Number.isFinite(v.gapMs)||v.gapMs<0||v.gapMs>180_000)throw Error('VOICE_ACTION');return this.service.scheduled(v.audioId,v.epoch,v.delayMs,v.gapMs)
    case 'outputStopped':if(!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.elapsedMs)||v.elapsedMs<0||v.elapsedMs>180_000)throw Error('VOICE_ACTION');return this.service.outputStopped(v.epoch,v.elapsedMs)
-   case 'import':case 'configure':{
+   case 'import':case 'configure':case 'configureQwen':{
     const win=owner;if(!win||win.isDestroyed()||this.picking)return
     this.picking=true
     const current=()=>isCurrent()&&!win.isDestroyed()
@@ -173,8 +175,8 @@ export class VoiceIpcController {
      }else{
       const python=await dialog.showOpenDialog(win,{title:'독립 TTS 환경의 Python 선택',properties:process.platform==='darwin'?['openFile','noResolveAliases']:['openFile']})
       if(!current()||python.canceled||!python.filePaths[0])return
-      const model=await dialog.showOpenDialog(win,{title:'고정 VoxCPM2 로컬 모델 폴더 선택',properties:['openDirectory']})
-      if(current()&&!model.canceled&&model.filePaths[0])await this.service.configure(python.filePaths[0],model.filePaths[0])
+      const model=await dialog.showOpenDialog(win,{title:v.type==='configureQwen'?'고정 Qwen3-TTS 0.6B 로컬 모델 폴더 선택':'고정 VoxCPM2 로컬 모델 폴더 선택',properties:['openDirectory']})
+      if(current()&&!model.canceled&&model.filePaths[0])await (v.type==='configureQwen'?this.service.configureQwen(python.filePaths[0],model.filePaths[0],contextCurrent):this.service.configure(python.filePaths[0],model.filePaths[0]))
      }
     }finally{this.picking=false}
     return

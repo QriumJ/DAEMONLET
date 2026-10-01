@@ -24,6 +24,6 @@ describe('Windows installer TTS payload',()=>{
  it('rejects altered workers even at an allowed path',()=>expect(()=>checkInstallerPayload(files.map((f,i)=>i===0?{...f,sha256:'0'.repeat(64)}:f),asar)).toThrow('differs'))
  it('rejects missing runtime files',()=>expect(()=>checkInstallerPayload(files.slice(1),asar)).toThrow('Missing'))
  it('rejects duplicate runtime files',()=>expect(()=>checkInstallerPayload([...files,files[0]],asar)).toThrow('Duplicate'))
- it.each(['resources/voice/extra.py','resources/voice/subdir/worker.py','resources/voice/runtime-unknown.json','resources/tools/worker.py','scripts/author.py','resources/voice/__pycache__/worker.pyc','resources/models/model.gguf','resources/voice/belle.petchar'])(
+ it.each(['resources/voice/ab_vox_worker.py','resources/voice/extra.py','resources/voice/subdir/worker.py','resources/voice/runtime-unknown.json','resources/tools/worker.py','scripts/author.py','resources/voice/__pycache__/worker.pyc','resources/models/model.gguf','resources/voice/belle.petchar'])(
   'still rejects %s',path=>expect(()=>checkInstallerPayload([...files,{path,bytes:1,sha256:'0'.repeat(64)}],asar)).toThrow('Authoring'))
 })
