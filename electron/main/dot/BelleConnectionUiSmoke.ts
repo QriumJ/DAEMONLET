@@ -35,6 +35,7 @@ app.whenReady().then(async()=>{
  const shot=async(name:string)=>{await sleep(600);await writeFile(join(dir,name+'.png'),(await win.webContents.capturePage()).toPNG())}
  const text=()=>js('document.body.textContent')
  const press=async(label:string)=>{phase=label;await wait(()=>js(`Array.from(document.querySelectorAll('.belle-connection-page button')).some(b=>b.textContent===${JSON.stringify(label)}&&!b.disabled)`));await js(`Array.from(document.querySelectorAll('.belle-connection-page button')).find(b=>b.textContent===${JSON.stringify(label)}).click()`);await sleep(100)}
+ checks.dotsNaming=await js('document.querySelector("#tab-belle").textContent.includes("Dots 연결")&&document.querySelector(".belle-connection-page h1").textContent==="Dots 연결"&&!document.querySelector(".belle-connection-page").textContent.includes("벨 연결")');
  checks.emptyNoKey=await js('document.querySelector("input[type=password]").value===""')
  checks.autoDefaultOff=await js('!document.querySelector(".belle-connection-page input[type=checkbox]").checked')
  await shot('settings-empty')
@@ -53,7 +54,7 @@ app.whenReady().then(async()=>{
  win.minimize();await wait(()=>win.isMinimized());settings.open();await wait(()=>!win.isMinimized());checks.reopen=true
  missing=true;await press('상태 다시 확인');await wait(()=>text().then(t=>t.includes('공식 tunnel-client가 필요')));checks.missingClientGuidance=true;missing=false
  // Wizard exercises the production renderer/preload with mock consent, store and runtime.
- await press('연결 마법사 열기');await wait(()=>text().then(t=>t.includes('준비 확인')))
+ await press('Dots 연결 마법사 열기');await wait(()=>text().then(t=>t.includes('준비 확인')))
  checks.wizardNoImplicitStart=manager.snapshot().state==='disconnected'
  await shot('wizard-prerequisites')
  guideFails=true;await press('공식 터널 안내 열기');await wait(()=>text().then(t=>t.includes('공식 페이지를 열지 못했습니다')));checks.guideFailureFixed=true;guideFails=false
@@ -71,7 +72,7 @@ app.whenReady().then(async()=>{
  await js('document.querySelector("input[type=password]").value="unsaved-fixture"');await press('중단·기존 설정으로')
  checks.pauseClearsInput=await js('document.querySelector("input[type=password]").value===""')
  checks.pausePreservesStored=key===fake&&config.tunnelId===ids.tunnelId
- await press('연결 마법사 열기');await wait(()=>js('Boolean(document.querySelector(".belle-wizard input[type=password]"))'))
+ await press('Dots 연결 마법사 열기');await wait(()=>js('Boolean(document.querySelector(".belle-wizard input[type=password]"))'))
  checks.resumeStepOnly=await js('localStorage.getItem("daemonlet.belle-wizard.step.v1")==="2"')
  await press('다음');await wait(()=>text().then(t=>t.includes('저장한 대상과 키로')))
  const beforeStarts=starts
@@ -85,19 +86,19 @@ app.whenReady().then(async()=>{
  await wait(()=>text().then(t=>t.includes('사용자가 확인함')))
  checks.toolCallNotClaimed=(await text()).includes('미확인 · 앱에 지원되는 실호출 증거 없음')
  win.setSize(800,650);await js('document.querySelector(".belle-wizard").scrollIntoView()');await shot('wizard-diagnostics-small')
- setAppLanguage('en');await wait(()=>text().then(t=>t.includes('Acknowledged by you')));checks.englishWizard=(await text()).includes('Unverified · the app has no supported evidence of an actual call');await shot('wizard-diagnostics-en');setAppLanguage('ko');await wait(()=>text().then(t=>t.includes('사용자가 확인함')))
+ setAppLanguage('en');await wait(()=>text().then(t=>t.includes('Acknowledged by you')));checks.englishWizard=(await text()).includes('Unverified · the app has no supported evidence of an actual call');checks.englishDotsNaming=(await text()).includes('Dots connection wizard')&&(await text()).includes('Dots connection');await shot('wizard-diagnostics-en');setAppLanguage('ko');await wait(()=>text().then(t=>t.includes('사용자가 확인함')))
  const savedBefore=JSON.stringify(config),startBefore=starts,stopBefore=stops
  await press('안내 처음부터');await wait(()=>text().then(t=>t.includes('준비 확인')))
  checks.restartPreservesConnection=JSON.stringify(config)===savedBefore&&starts===startBefore&&stops===stopBefore
  await press('건너뛰고 진단 보기');checks.skipDoesNotInstall=(await text()).includes('사용자 재확인 필요')
- await press('중단·기존 설정으로');await press('연결 마법사 열기');await wait(()=>text().then(t=>t.includes('사용자 재확인 필요')))
+ await press('중단·기존 설정으로');await press('Dots 연결 마법사 열기');await wait(()=>text().then(t=>t.includes('사용자 재확인 필요')))
  checks.reentryRechecksInstallation=true
  healthy=false;await press('진단 다시 확인');await wait(()=>manager.snapshot().state==='reconnecting');checks.freshReadiness=(await text()).includes('준비 상태 확인 필요')
  healthy=true;await press('진단 다시 확인');await wait(()=>manager.snapshot().state==='ready')
  checks.progressNoSecret=await js(`(()=>{const v=localStorage.getItem("daemonlet.belle-wizard.step.v1");return v==="5"&&!v.includes(${JSON.stringify(fake)})})()`)
  win.webContents.reload();await wait(()=>js('Boolean(document.querySelector("#tab-belle"))'))
  await js('document.querySelector("#tab-belle").click()');await wait(()=>js('Boolean(document.querySelector(".belle-connection-page form"))'))
- await press('연결 마법사 열기');await wait(()=>text().then(t=>t.includes('사용자 재확인 필요')));checks.reloadRestoresOnlyStep=true
+ await press('Dots 연결 마법사 열기');await wait(()=>text().then(t=>t.includes('사용자 재확인 필요')));checks.reloadRestoresOnlyStep=true
  await press('뒤로');await wait(()=>text().then(t=>t.includes('ChatGPT Plugins의 +')))
  await js('document.querySelector(".belle-wizard input[type=checkbox]").click()')
  await press('연결 해제·자동 연결 끄기');await wait(()=>manager.snapshot().state==='disconnected')
@@ -105,7 +106,7 @@ app.whenReady().then(async()=>{
  await press('뒤로');delayed=true;await press('연결');await wait(()=>manager.snapshot().state==='connecting')
  await press('중단·기존 설정으로');checks.pauseDuringConnect=manager.snapshot().state==='connecting'
  await press('연결 해제·자동 연결 끄기');await wait(()=>manager.snapshot().state==='disconnected');delayed=false
- await press('연결 마법사 열기');await wait(()=>text().then(t=>t.includes('저장한 대상과 키로')))
+ await press('Dots 연결 마법사 열기');await wait(()=>text().then(t=>t.includes('저장한 대상과 키로')))
  await press('뒤로');await wait(()=>js('Boolean(document.querySelector(".belle-wizard input[type=password]"))'))
  allow=false;await submit();checks.wizardCancelKeepsConfig=key===fake&&config.tunnelId===ids.tunnelId
  allow=true;denyStore=true;await submit();await wait(()=>text().then(t=>t.includes('OS 보안 저장소 요청이 취소')));checks.wizardSaveFailureKeepsTarget=key===fake&&config.tunnelId===ids.tunnelId;checks.wizardSaveFailureClearsInput=await js('document.querySelector("input[type=password]").value===""');denyStore=false

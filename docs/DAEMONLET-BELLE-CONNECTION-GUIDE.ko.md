@@ -1,6 +1,6 @@
-# DAEMONLET 벨 개인 플러그인 연결 안내서
+# DAEMONLET Dots 개인 플러그인 연결 안내서
 
-확인일 2026년 10월 1일 KST · 대상 `codex/belle-audio-lipsync-v1`의 벨 연결 구현
+확인일 2026년 10월 1일 KST · 대상 `codex/belle-audio-lipsync-v1`의 Dots 연결 구현
 
 이 안내서는 본인의 Mac에서 실행 중인 DAEMONLET 캐릭터에게 ChatGPT Work 또는 dot이 짧은 문장·포즈·상태를 전달하도록 설정하는 방법을 설명합니다. 먼저 개인 터널과 전용 키를 만들고, 앱에서 연결한 다음, 개인 플러그인을 통해 실제 표시와 음성을 확인합니다. 터널은 Mac에서 OpenAI로 나가는 HTTPS 연결을 사용합니다. 공개 수신 포트를 열 필요가 없습니다. [공식 Secure MCP Tunnel 안내](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 
@@ -11,13 +11,13 @@
 - 현재 후보 기능이 포함된 Mac용 DAEMONLET 앱과 사용할 캐릭터 팩이 필요합니다. 기본 캐릭터는 지피쨩이며, 벨은 본인이 보유한 별도 `.petchar` 팩을 가져와 선택해야 합니다.
 - 이번 로컬 Mac 후보는 **Apple Silicon arm64, macOS 13 이상**을 빌드 대상으로 합니다. 앱 메타데이터와 Keychain·받아쓰기·Option 상태 도우미도 macOS 13을 대상으로 맞췄습니다. 실제 GUI 검증은 macOS 27에서만 수행했으므로 macOS 13의 실기기 호환성을 보증하지 않습니다. Intel·다른 macOS 버전은 이번 후보의 검증 대상이 아닙니다.
 - **음성을 사용할 때** Apple Silicon Metal용 음성 엔진·모델과 사용 가능한 음성 설정이 별도로 필요합니다. 기본 음성 런타임의 빌드 하한은 macOS 13이며 Intel Mac은 이 음성 경로를 지원하지 않습니다. 실제 검증 기록은 Apple Silicon/macOS 27 환경에 한정됩니다. 모델 준비가 안 된 상태에서도 먼저 문장 표시만 시험할 수 있습니다.
-- 외부 **Node.js 22.13 이상**, 공식 **tunnel-client 0.0.14 이상 및 앱이 요구하는 기능**이 필요합니다. 벨 연결 화면은 이 구성 요소를 자동 설치하지 않습니다.
+- 외부 **Node.js 22.13 이상**, 공식 **tunnel-client 0.0.14 이상 및 앱이 요구하는 기능**이 필요합니다. Dots 연결 화면은 이 구성 요소를 자동 설치하지 않습니다.
 - 본인 OpenAI 계정의 개인 Platform 조직, 사용할 ChatGPT 워크스페이스, 해당 워크스페이스의 개발자 모드 접근이 필요합니다. 조직의 터널 권한과 ChatGPT 개발자 모드 권한은 별개입니다.
 - 시험하는 동안 Mac이 깨어 있고 인터넷에 연결되어 있으며 DAEMONLET이 실행 중이어야 합니다. 앱 종료 시 앱이 시작한 연결은 종료됩니다.
 
 기본 앱을 실행해 캐릭터를 표시하는 데 음성용 Python·모델·ComfyUI·NVIDIA GPU가 모두 필요한 것은 아닙니다. 음성은 별도 기능입니다. 벨 전용 학습 음성을 쓰려면 기존의 검증된 음성 패키지와 지원 런타임을 준비해야 하며, 터널 연결만으로 새 음성이나 모델이 설치되지 않습니다. [앱 설치 근거](install-macos.md), [기본 음성 설치 근거](character-chat-voice-base-install.md), [Mac 음성 근거](character-chat-voice-macos.md)
 
-**후보 상태를 확인하세요.** 이 안내서는 새 후보의 Developer ID 서명·Apple 공증 완료를 인증하지 않습니다. 이전 공개 릴리스의 서명·공증은 새 바이너리에 승계되지 않습니다. Windows/Linux의 벨 연결은 현재 안전한 키 저장소를 지원하지 않아 키 저장·연결을 차단합니다. 새 Belle **1.2.3 후보 팩**은 기존 **37개 포즈**에 입만 움직이는 립싱크를 적용합니다. 턱·얼굴·원본 그림은 오디오로 변형하지 않습니다. 해당 팩의 새 capability를 지원하는 **동반 후보 앱**이 필요하며, 이전 한 포즈 파일럿 앱과 섞어 설치하지 마세요. 기존 설치 팩은 자동 교체되지 않습니다. 37포즈의 닫힘·작게·크게와 대표 8포즈의 실제 벨 파형 재생을 격리 무음 출력에서 확인했지만, 새 리비전의 개인 플러그인 실제 표시·청취는 소유자 검수 항목입니다. Windows 후보와 실시간 음소 인식은 완료된 기능으로 안내하지 않습니다. [현재 립싱크 범위](belle-audio-lipsync-all-poses.md)
+**후보 상태를 확인하세요.** 이 안내서는 새 후보의 Developer ID 서명·Apple 공증 완료를 인증하지 않습니다. 이전 공개 릴리스의 서명·공증은 새 바이너리에 승계되지 않습니다. Windows/Linux의 Dots 연결은 현재 안전한 키 저장소를 지원하지 않아 키 저장·연결을 차단합니다. 새 Belle **1.2.3 후보 팩**은 기존 **37개 포즈**에 입만 움직이는 립싱크를 적용합니다. 턱·얼굴·원본 그림은 오디오로 변형하지 않습니다. 해당 팩의 새 capability를 지원하는 **동반 후보 앱**이 필요하며, 이전 한 포즈 파일럿 앱과 섞어 설치하지 마세요. 기존 설치 팩은 자동 교체되지 않습니다. 37포즈의 닫힘·작게·크게와 대표 8포즈의 실제 벨 파형 재생을 격리 무음 출력에서 확인했지만, 새 리비전의 개인 플러그인 실제 표시·청취는 소유자 검수 항목입니다. Windows 후보와 실시간 음소 인식은 완료된 기능으로 안내하지 않습니다. [현재 립싱크 범위](belle-audio-lipsync-all-poses.md)
 
 ## 2 조직과 워크스페이스와 Mac 구분하기
 
@@ -51,7 +51,7 @@ brew upgrade openai/tools/tunnel-client
 tunnel-client --version
 ```
 
-현재 앱의 최소 클라이언트 검사는 0.0.14 이상입니다. 숫자만 충족해도 충분한 것은 아니며, 앱은 필요한 health·stdio 옵션도 확인합니다. 위 명령이 성공한 뒤 DAEMONLET을 다시 열고 **벨 연결 → 상태 다시 확인**을 누르세요. [공식 Homebrew 설치 안내](https://github.com/openai/tunnel-client#install-with-homebrew)
+현재 앱의 최소 클라이언트 검사는 0.0.14 이상입니다. 숫자만 충족해도 충분한 것은 아니며, 앱은 필요한 health·stdio 옵션도 확인합니다. 위 명령이 성공한 뒤 DAEMONLET을 다시 열고 **Dots 연결 → 상태 다시 확인**을 누르세요. [공식 Homebrew 설치 안내](https://github.com/openai/tunnel-client#install-with-homebrew)
 
 공식 안내는 macOS에서 Homebrew 설치를 지원합니다. 수동 다운로드 ZIP이 Gatekeeper에 막히면 `xattr`·`spctl` 또는 보안 예외로 우회하지 말고 공식 설치 경로를 사용하세요. Homebrew가 없다면 먼저 [Homebrew 공식 설치 안내](https://brew.sh/)를 확인합니다. 확인일 기준 Homebrew의 공식 Mac 지원은 macOS Sequoia 15 이상입니다. 이 설치 도구의 지원 기준도 음성 엔진의 빌드 하한과 구분하세요. Node.js가 없거나 22.13보다 낮으면 [Node.js 공식 다운로드 안내](https://nodejs.org/en/download)를 확인하세요. 기존 개발 환경을 바꾸기 전에는 그 환경을 사용하는 작업도 확인합니다.
 
@@ -85,7 +85,7 @@ tunnel-client --version
 기존에 터미널 도우미로 같은 터널을 실행했다면 먼저 그 터미널에서 직접 종료하고, 그 방식으로 실행한 앱도 종료합니다. 이후 DAEMONLET을 일반 실행하세요. 기존 `DAEMONLET_DOT_BRIDGE`나 키 환경변수를 상속한 외부 세션을 새 앱 설정이 자동으로 인수하거나 종료하지 않습니다. 같은 터널의 stdio 클라이언트는 하나만 활성 상태여야 합니다. [공식 중복 실행 제한](https://github.com/openai/tunnel-client#install-with-homebrew)
 
 1. DAEMONLET에서 사용할 벨 팩을 선택하고 캐릭터가 화면에 표시되는지 확인합니다. 로컬 캐릭터 대화·Codex 작업 대화·실험 화면이 캐릭터를 사용 중이면 시험 전에 닫습니다.
-2. 앱 메뉴의 **설정 → 벨 연결**을 엽니다. 한국어 화면의 탭 이름은 **벨 연결**, 영어는 **Belle connection**입니다.
+2. 앱 메뉴의 **설정 → Dots 연결**을 엽니다. 한국어 화면의 탭 이름은 **Dots 연결**, 영어는 **Dots connection**입니다.
 3. **터널 ID**에 `<개인 터널 ID>`, **Platform 조직 ID**에 `<개인 Platform 조직 ID>`를 입력합니다. ChatGPT 워크스페이스 ID를 조직 ID 입력란에 넣지 마세요.
 4. **전용 키**에 본인이 만든 Restricted 런타임 키를 직접 입력하고 **키 저장·대상 확인**을 누릅니다.
 5. 앱의 기본 macOS 확인 창에서 대상 터널·조직·허용 기능과 키 보관 기간을 읽습니다. 본인의 대상이 맞으면 **허용**을 선택합니다. 기본 선택은 **취소**입니다. 키는 삭제할 때까지 이 앱의 Keychain 항목에 보관되며 다시 표시되지 않습니다.
@@ -96,7 +96,7 @@ tunnel-client --version
 
 처음에는 **앱 시작 시 자동 연결**을 꺼 둡니다. 실제 출력 시험을 마친 후 원할 때만 켜고 별도의 지속 접근 확인을 허용하세요. 이 옵션은 앱을 직접 열 때마다 저장된 키로 연결합니다. OS 로그인 서비스를 만들지 않으며, 재연결할 때도 음성은 기본 음소거 상태로 시작합니다.
 
-앱 배포본은 도우미를 자동으로 찾습니다. Keychain 도우미는 `.app/Contents/Resources/native/DaemonletBelleCredential`, MCP 어댑터와 수명 관리 도우미는 `.app/Contents/Resources/dot/dot-presentation-mcp.mjs`와 `belle-tunnel-supervisor.mjs`에 들어 있습니다. 개발 실행에서는 같은 파일이 저장소의 `dist-electron/native/`와 `dist-electron/dot/`에 있습니다. 기존 개발용 터미널 명령을 배포 앱의 실행 방법으로 복사하지 말고 일반 앱의 **벨 연결** 화면을 사용하세요. 배포본에도 Node.js와 공식 tunnel-client는 포함되지 않으므로 앞 절의 외부 설치·버전 확인이 필요합니다.
+앱 배포본은 도우미를 자동으로 찾습니다. Keychain 도우미는 `.app/Contents/Resources/native/DaemonletBelleCredential`, MCP 어댑터와 수명 관리 도우미는 `.app/Contents/Resources/dot/dot-presentation-mcp.mjs`와 `belle-tunnel-supervisor.mjs`에 들어 있습니다. 개발 실행에서는 같은 파일이 저장소의 `dist-electron/native/`와 `dist-electron/dot/`에 있습니다. 기존 개발용 터미널 명령을 배포 앱의 실행 방법으로 복사하지 말고 일반 앱의 **Dots 연결** 화면을 사용하세요. 배포본에도 Node.js와 공식 tunnel-client는 포함되지 않으므로 앞 절의 외부 설치·버전 확인이 필요합니다.
 
 ## 6 Tunnel 방식으로 개인 MCP 플러그인 연결하기
 
@@ -105,7 +105,7 @@ MCP는 플러그인이 `present`와 `cancel` 같은 도구를 호출하는 연�
 1. DAEMONLET의 연결을 켜 둡니다. ChatGPT에서 앞서 터널과 연결한 `<대상 ChatGPT 워크스페이스>`를 선택합니다.
 2. 사용 가능한 계정에서 **Settings → Security and login → Developer mode**를 켭니다. 회사·학교 워크스페이스에서 권한이 없다면 해당 관리자에게 접근을 요청해야 합니다.
 3. [ChatGPT Plugins](https://chatgpt.com/plugins)에서 추가 버튼으로 개인 개발자 플러그인 연결을 시작합니다. **Connection → Tunnel**을 선택하고 본인의 터널을 고르거나 `<개인 터널 ID>`를 입력합니다.
-4. 연결 정보를 확인하고 알아보기 쉬운 개인 플러그인 이름을 지정합니다. 예를 들어 `DAEMONLET 벨`로 구분할 수 있습니다.
+4. 연결 정보를 확인하고 알아보기 쉬운 개인 플러그인 이름을 지정합니다. 새 연결의 이름은 예를 들어 `DAEMONLET Dots`로 구분할 수 있습니다. 이미 만든 플러그인이나 터널의 이름은 그대로 사용하며, Dots 명칭을 맞추기 위해 바꿀 필요가 없습니다.
 5. 발견된 도구가 **present**, **cancel**인지 확인합니다. 다른 도구나 임의 파일·명령 접근이 보이면 여기서 설명하는 앱 출력 도구인지 다시 확인합니다.
 6. [개인 Plugins 목록](https://chatgpt.com/plugins/personal)에서 만든 플러그인을 설치합니다. 새 **Work** 대화의 입력란에서 `@`로 해당 플러그인을 선택하고 다음 절의 시험을 요청합니다.
 
@@ -121,12 +121,12 @@ Work 입력란에서 `@`로 본인의 플러그인을 선택한 뒤 아래처럼
 
 ```text
 present 도구를 한 번 호출해 줘.
-text는 "안녕하세요. 벨 연결을 확인하고 있어요.",
+text는 "안녕하세요. Dots 연결을 확인하고 있어요.",
 pose는 "happy", state는 "done", speak는 false,
 durationMs는 12000으로 해 줘.
 ```
 
-Mac에서 같은 문장이 표시되는지 직접 확인합니다. `accepted:true`는 앱이 요청을 받아들였다는 응답입니다. 원하는 벨 팩이 표시되는지, 말풍선이 보이는지까지 확인해야 첫 표시 시험이 끝납니다. 팩에 해당 포즈 규칙이 없으면 기본 포즈로 돌아갈 수 있습니다.
+Mac에서 같은 문장이 표시되는지 직접 확인합니다. `accepted:true`는 앱이 요청을 받아들였다는 응답입니다. 선택한 캐릭터 팩이 표시되는지, 말풍선이 보이는지까지 확인해야 첫 표시 시험이 끝납니다. 팩에 해당 포즈 규칙이 없으면 기본 포즈로 돌아갈 수 있습니다.
 
 ### 음소거 상태와 기존 음성 확인
 
@@ -148,7 +148,7 @@ durationMs는 30000으로 해 줘.
 
 ### 기존 음성 정책은 그대로 사용
 
-벨 연결은 기존에 선택한 캐릭터·음성 패키지·음량·시드 정책을 사용합니다. 모델이나 화자를 바꾸지 않습니다. **새 음성의 시드**는 기본적으로 **답변마다 무작위**이며 **고정**을 선택할 수도 있습니다. 시드는 다음 합성에 적용되고, 같은 시드라도 다른 기기·엔진·버전에서 동일한 녹음을 보장하지 않습니다. 기존 Metal **청크 재생** 또는 **완성 후 재생** 설정도 유지합니다. 청크 재생은 생성된 음성 조각을 순서대로 재생하는 기능이며 전화식 양방향 실시간 대화와는 다릅니다. [시드 정책](character-chat-voice-seeds.md), [재생 방식](character-chat-voice-base-install.md)
+Dots 연결은 기존에 선택한 캐릭터·음성 패키지·음량·시드 정책을 사용합니다. 모델이나 화자를 바꾸지 않습니다. **새 음성의 시드**는 기본적으로 **답변마다 무작위**이며 **고정**을 선택할 수도 있습니다. 시드는 다음 합성에 적용되고, 같은 시드라도 다른 기기·엔진·버전에서 동일한 녹음을 보장하지 않습니다. 기존 Metal **청크 재생** 또는 **완성 후 재생** 설정도 유지합니다. 청크 재생은 생성된 음성 조각을 순서대로 재생하는 기능이며 전화식 양방향 실시간 대화와는 다릅니다. [시드 정책](character-chat-voice-seeds.md), [재생 방식](character-chat-voice-base-install.md)
 
 입 움직임은 동반 후보 앱에서 Belle 1.2.3의 선택된 포즈에 실제 오디오가 재생될 때 작동합니다. MCP `pose`는 semantic enum이며 팩 내부의 `waiting-open` 같은 ID를 직접 입력하지 않습니다. 일반 `neutral` 한 번의 시험이 37포즈 전부를 검사하는 것은 아닙니다. 발화 중 무음·음소거에는 입을 닫고, 출력 소유권이 끝나면 원래 표정을 복원합니다. 마지막 heartbeat가 유실된 경우 direct/dot lease는 약 250ms, 로컬 대화의 watchdog+lease는 약 500ms 뒤 복원될 수 있습니다(이벤트 루프 지연 제외).
 
@@ -166,8 +166,8 @@ durationMs는 30000으로 해 줘.
 dot이나 Work에 다음 지시를 전달할 수 있습니다. 플러그인이 설치·활성화되어 있어야 하며, 해당 환경에서 도구를 선택하는지는 별도로 확인해야 합니다.
 
 ```text
-내가 연결한 DAEMONLET 벨 플러그인을 사용할 수 있고 Mac 앱이 준비되어 있을 때,
-이 대화의 완료된 답변 중 벨에게 보여 주면 도움이 되는 짧은 요약을
+내가 연결한 DAEMONLET 캐릭터 플러그인을 사용할 수 있고 Mac 앱이 준비되어 있을 때,
+이 대화의 완료된 답변 중 현재 선택한 캐릭터에게 보여 주면 도움이 되는 짧은 요약을
 present로 한 번 전달해 줘. text는 600자 이내의 완결된 한국어 문장으로 쓰고,
 문맥에 맞는 pose와 state를 선택해 줘.
 
@@ -227,7 +227,7 @@ present로 한 번 전달해 줘. text는 600자 이내의 완결된 한국어 �
 
 현재 문장·음성만 멈추려면 **현재 표현 중단** 또는 `cancel({})`을 사용합니다. **음소거**는 소리를 차단하고 현재 출력을 취소할 수 있으며, **표현 일시 중지**는 새 표현을 거절합니다. 이 조작만으로 원격 터널 권한이 취소되지는 않습니다.
 
-연결까지 멈추려면 **설정 → 벨 연결 → 연결 해제·자동 연결 끄기**를 누릅니다. 앱이 시작한 연결을 종료하고 앱 시작 시 자동 연결도 끕니다. 앱 종료 역시 앱이 소유한 연결을 종료하지만, 저장 키와 자동 연결 선택 자체를 삭제하지는 않습니다. 외부 터미널 도우미는 그 실행 위치에서 별도로 종료하세요.
+연결까지 멈추려면 **설정 → Dots 연결 → 연결 해제·자동 연결 끄기**를 누릅니다. 앱이 시작한 연결을 종료하고 앱 시작 시 자동 연결도 끕니다. 앱 종료 역시 앱이 소유한 연결을 종료하지만, 저장 키와 자동 연결 선택 자체를 삭제하지는 않습니다. 외부 터미널 도우미는 그 실행 위치에서 별도로 종료하세요.
 
 더 이상 사용하지 않을 때는 본인이 다음 항목을 각각 정리합니다.
 
@@ -269,6 +269,6 @@ present로 한 번 전달해 줘. text는 600자 이내의 완결된 한국어 �
 - [Node.js 공식 다운로드](https://nodejs.org/en/download)
 - [Homebrew 공식 설치](https://brew.sh/)
 
-앱 문구와 동작은 저장소의 [벨 연결 화면](../src/settings/BelleConnectionPage.tsx), [연결 관리자](../electron/main/dot/BelleConnectionManager.ts), [실행 구성](../electron/main/dot/BelleTunnelRuntime.ts), [macOS 확인 동작](../electron/main/dot/BelleConnectionIpcController.ts), [출력 규칙](dot-presentation-bridge.md), [음성 시드](character-chat-voice-seeds.md), [기본 음성 지원 범위](character-chat-voice-base-install.md), [팩과 전체 포즈 립싱크](belle-audio-lipsync-all-poses.md)에 근거합니다. 앱 배포 대상은 [Mac 설치 문서](install-macos.md), [패키지 설정](../package.json), [Forge 패키징 설정](../forge.config.mjs)과 함께 확인했습니다.
+앱 문구와 동작은 저장소의 [Dots 연결 화면](../src/settings/BelleConnectionPage.tsx), [연결 관리자](../electron/main/dot/BelleConnectionManager.ts), [실행 구성](../electron/main/dot/BelleTunnelRuntime.ts), [macOS 확인 동작](../electron/main/dot/BelleConnectionIpcController.ts), [출력 규칙](dot-presentation-bridge.md), [음성 시드](character-chat-voice-seeds.md), [기본 음성 지원 범위](character-chat-voice-base-install.md), [팩과 전체 포즈 립싱크](belle-audio-lipsync-all-poses.md)에 근거합니다. 앱 배포 대상은 [Mac 설치 문서](install-macos.md), [패키지 설정](../package.json), [Forge 패키징 설정](../forge.config.mjs)과 함께 확인했습니다.
 
 이 구현 근거는 계정별 플러그인 생성, 실제 Keychain 접근 확인, 해당 배포 바이너리의 서명·공증, 새 기기의 음성 품질을 대신 검증하지 않습니다. 마지막 확인 목록의 실제 시험은 사용하는 계정과 Mac에서 소유자가 진행합니다.

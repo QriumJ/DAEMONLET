@@ -1,13 +1,13 @@
-# Belle connection wizard
+# Dots connection wizard
 
-Settings → Belle connection → Open connection wizard adds a guided path while keeping the existing settings controls and their OS-storage/connection confirmations.
+Settings → Dots connection → Open Dots connection wizard adds a guided path while keeping the existing settings controls and their OS-storage/connection confirmations.
 
 1. Check prerequisites: official tunnel-client, Node.js 22.13+, visible character, outbound HTTPS, and separate ChatGPT developer-mode workspace access.
 2. Sign in to Platform tunnel settings yourself. Reuse or provision a tunnel yourself, and associate the owning Platform organization and intended ChatGPT workspace. Creating/editing requires Read + Manage; runtime use requires Read + Use.
 3. Enter a Restricted runtime key with Tunnels Read + Use and confirm the exact storage target through the existing dialog. Existing credentials can be reused without replacing them. The app cannot verify key permissions.
 4. Explicitly connect through the existing target-specific confirmation. Navigation, restart, and saving do not connect or enable auto-connect.
 5. In ChatGPT Plugins, create or inspect the connection yourself, choose Tunnel, review discovered tools, and acknowledge the connection. Developer mode and plugin installation remain user actions.
-6. Recheck diagnostics and manually test a short Belle display request in ChatGPT.
+6. Recheck diagnostics and manually test a short selected-character display request in ChatGPT.
 
 ## State boundaries
 
@@ -37,3 +37,7 @@ Checked 2026-10-01:
 - [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt)
 - [Official tunnel-client onboarding](https://github.com/openai/tunnel-client/blob/main/docs/onboarding.md)
 - [Official tunnel-client permissions](https://github.com/openai/tunnel-client/blob/main/docs/permissions.md)
+
+## Naming compatibility
+
+The user-facing name is **Dots connection** (Korean: **Dots 연결**), independent of the selected character. Existing account plugin/tunnel names, credential-store service IDs, saved configuration, and internal Belle class/IPC identifiers are preserved. A new plugin may use the example name `DAEMONLET Dots`; existing names need no migration.

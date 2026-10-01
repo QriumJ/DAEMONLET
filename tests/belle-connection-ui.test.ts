@@ -14,3 +14,5 @@ it('unsupported platform cannot save/connect/auto-enable or use plaintext fallba
 it('errors use fixed helpful guidance and dependencies are never auto-installed',()=>{expect(belleError('CLIENT_MISSING')).toContain('공식');expect(belleError('NODE_MISSING')).toContain('자동');expect(belleError('PRIVATE_RAW_KEY')).not.toContain('PRIVATE_RAW_KEY');expect(html()).toContain('설치·다운로드하거나 새 터널·권한을 만들지')})
 
 it('Windows secure-store status enables owner key input without exposing a key',()=>{const h=html({...state,secureStore:'windows-credential-manager'});expect(h).toContain('Windows 자격 증명 관리자');expect(h).not.toMatch(/type="password"[^>]*disabled=""/)})
+
+it('labels the existing page and wizard entry as Dots for any selected character',()=>{const h=html();expect(h).toContain('<h1>Dots 연결</h1>');expect(h).toContain('Dots 연결 마법사 열기');expect(h).toContain('선택한 캐릭터가 문장·포즈·상태');expect(h).not.toContain('벨 연결');expect(h).not.toContain('벨이')})

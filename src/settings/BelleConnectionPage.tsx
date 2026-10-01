@@ -30,8 +30,8 @@ export function BelleConnectionPage({api,initial}:{api?:BelleConnectionApi;initi
    <p>{t('저장만으로 연결하지 않습니다. 로컬 키 삭제는 Platform 키나 터널 권한을 취소하지 않습니다.')}</p>
   </section>
  return <div className="belle-connection-page">
-  <header className="page-header"><div><h1>{t('벨 연결')}</h1><p>{t('앱을 열고 연결하면 벨이 문장·포즈·상태를 표시해요.')}</p></div></header>
-  <div className="button-row belle-wizard-launch"><button className="button secondary" disabled={busy} onClick={()=>{if(key.current)key.current.value='';setWizard(v=>!v);void run(()=>api.refresh())}}>{t(wizard?'기존 설정 보기':'연결 마법사 열기')}</button></div>
+  <header className="page-header"><div><h1>{t('Dots 연결')}</h1><p>{t('앱을 열고 Dots에 연결하면 선택한 캐릭터가 문장·포즈·상태를 표시해요.')}</p></div></header>
+  <div className="button-row belle-wizard-launch"><button className="button secondary" disabled={busy} onClick={()=>{if(key.current)key.current.value='';setWizard(v=>!v);void run(()=>api.refresh())}}>{t(wizard?'기존 설정 보기':'Dots 연결 마법사 열기')}</button></div>
   {wizard?<BelleConnectionWizard state={state} api={api} busy={busy} error={error||(state.error?belleError(state.error):'')} credentials={credentials} connection={connection} onExit={()=>{if(key.current)key.current.value='';setWizard(false)}} onRefresh={()=>void run(()=>api.refresh())}/>:<>
   {connection}
   {credentials}

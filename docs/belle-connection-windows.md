@@ -1,4 +1,4 @@
-# Windows Belle connection: native lifetime and secure-store boundary
+# Windows Dots connection: native lifetime and secure-store boundary
 
 Windows uses a bundled native Credential Manager helper for one fixed generic
 credential target: `io.github.ddol2ya.daemonlet.belle-connection.runtime-v1`.
