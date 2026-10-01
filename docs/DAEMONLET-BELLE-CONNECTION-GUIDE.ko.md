@@ -9,7 +9,7 @@
 ## 1 시작 전에 준비할 것
 
 - 현재 후보 기능이 포함된 Mac용 DAEMONLET 앱과 사용할 캐릭터 팩이 필요합니다. 기본 캐릭터는 지피쨩이며, 벨은 본인이 보유한 별도 `.petchar` 팩을 가져와 선택해야 합니다.
-- 이번 로컬 Mac 후보는 **Apple Silicon arm64, macOS 13 이상**을 빌드 대상으로 합니다. 앱 메타데이터와 Keychain·받아쓰기 도우미도 macOS 13을 대상으로 맞췄습니다. 실제 GUI 검증은 macOS 27에서만 수행했으므로 macOS 13의 실기기 호환성을 보증하지 않습니다. Intel·다른 macOS 버전은 이번 후보의 검증 대상이 아닙니다.
+- 이번 로컬 Mac 후보는 **Apple Silicon arm64, macOS 13 이상**을 빌드 대상으로 합니다. 앱 메타데이터와 Keychain·받아쓰기·Option 상태 도우미도 macOS 13을 대상으로 맞췄습니다. 실제 GUI 검증은 macOS 27에서만 수행했으므로 macOS 13의 실기기 호환성을 보증하지 않습니다. Intel·다른 macOS 버전은 이번 후보의 검증 대상이 아닙니다.
 - **음성을 사용할 때** Apple Silicon Metal용 음성 엔진·모델과 사용 가능한 음성 설정이 별도로 필요합니다. 기본 음성 런타임의 빌드 하한은 macOS 13이며 Intel Mac은 이 음성 경로를 지원하지 않습니다. 실제 검증 기록은 Apple Silicon/macOS 27 환경에 한정됩니다. 모델 준비가 안 된 상태에서도 먼저 문장 표시만 시험할 수 있습니다.
 - 외부 **Node.js 22.13 이상**, 공식 **tunnel-client 0.0.14 이상 및 앱이 요구하는 기능**이 필요합니다. 벨 연결 화면은 이 구성 요소를 자동 설치하지 않습니다.
 - 본인 OpenAI 계정의 개인 Platform 조직, 사용할 ChatGPT 워크스페이스, 해당 워크스페이스의 개발자 모드 접근이 필요합니다. 조직의 터널 권한과 ChatGPT 개발자 모드 권한은 별개입니다.
@@ -17,7 +17,7 @@
 
 기본 앱을 실행해 캐릭터를 표시하는 데 음성용 Python·모델·ComfyUI·NVIDIA GPU가 모두 필요한 것은 아닙니다. 음성은 별도 기능입니다. 벨 전용 학습 음성을 쓰려면 기존의 검증된 음성 패키지와 지원 런타임을 준비해야 하며, 터널 연결만으로 새 음성이나 모델이 설치되지 않습니다. [앱 설치 근거](install-macos.md), [기본 음성 설치 근거](character-chat-voice-base-install.md), [Mac 음성 근거](character-chat-voice-macos.md)
 
-**후보 상태를 확인하세요.** 이 안내서는 새 후보의 Developer ID 서명·Apple 공증 완료를 인증하지 않습니다. 이전 공개 릴리스의 서명·공증은 새 바이너리에 승계되지 않습니다. Windows/Linux의 벨 연결은 현재 안전한 키 저장소를 지원하지 않아 키 저장·연결을 차단합니다. 이번 입 움직임은 `waiting-open` 포즈 하나를 명시적으로 선택해 적용하는 파일럿입니다. 모든 벨 포즈의 립싱크, Windows 후보, 실시간 음소 인식은 완료된 기능으로 안내하지 않습니다. [현재 립싱크 범위](belle-audio-lipsync-pilot.md)
+**후보 상태를 확인하세요.** 이 안내서는 새 후보의 Developer ID 서명·Apple 공증 완료를 인증하지 않습니다. 이전 공개 릴리스의 서명·공증은 새 바이너리에 승계되지 않습니다. Windows/Linux의 벨 연결은 현재 안전한 키 저장소를 지원하지 않아 키 저장·연결을 차단합니다. 새 Belle **1.2.3 후보 팩**은 기존 **37개 포즈**에 입만 움직이는 립싱크를 적용합니다. 턱·얼굴·원본 그림은 오디오로 변형하지 않습니다. 해당 팩의 새 capability를 지원하는 **동반 후보 앱**이 필요하며, 이전 한 포즈 파일럿 앱과 섞어 설치하지 마세요. 기존 설치 팩은 자동 교체되지 않습니다. 37포즈의 닫힘·작게·크게와 대표 8포즈의 실제 벨 파형 재생을 격리 무음 출력에서 확인했지만, 새 리비전의 개인 플러그인 실제 표시·청취는 소유자 검수 항목입니다. Windows 후보와 실시간 음소 인식은 완료된 기능으로 안내하지 않습니다. [현재 립싱크 범위](belle-audio-lipsync-all-poses.md)
 
 ## 2 조직과 워크스페이스와 Mac 구분하기
 
@@ -150,7 +150,16 @@ durationMs는 30000으로 해 줘.
 
 벨 연결은 기존에 선택한 캐릭터·음성 패키지·음량·시드 정책을 사용합니다. 모델이나 화자를 바꾸지 않습니다. **새 음성의 시드**는 기본적으로 **답변마다 무작위**이며 **고정**을 선택할 수도 있습니다. 시드는 다음 합성에 적용되고, 같은 시드라도 다른 기기·엔진·버전에서 동일한 녹음을 보장하지 않습니다. 기존 Metal **청크 재생** 또는 **완성 후 재생** 설정도 유지합니다. 청크 재생은 생성된 음성 조각을 순서대로 재생하는 기능이며 전화식 양방향 실시간 대화와는 다릅니다. [시드 정책](character-chat-voice-seeds.md), [재생 방식](character-chat-voice-base-install.md)
 
-입 움직임은 해당 후보의 검토된 `waiting-open` 파일럿 포즈가 선택되고 실제 오디오가 재생될 때만 기대할 수 있습니다. 일반 `neutral` 음성 시험이 모든 포즈의 립싱크를 검사하는 것은 아닙니다. 기존 설치 팩이 자동으로 파일럿 팩으로 교체되지 않습니다.
+입 움직임은 동반 후보 앱에서 Belle 1.2.3의 선택된 포즈에 실제 오디오가 재생될 때 작동합니다. MCP `pose`는 semantic enum이며 팩 내부의 `waiting-open` 같은 ID를 직접 입력하지 않습니다. 일반 `neutral` 한 번의 시험이 37포즈 전부를 검사하는 것은 아닙니다. 발화 중 무음·음소거에는 입을 닫고, 출력 소유권이 끝나면 원래 표정을 복원합니다. 마지막 heartbeat가 유실된 경우 direct/dot lease는 약 250ms, 로컬 대화의 watchdog+lease는 약 500ms 뒤 복원될 수 있습니다(이벤트 루프 지연 제외).
+
+### 후보 앱·팩을 함께 적용하고 되돌리기
+
+1. 현재 사용하는 앱과 기존 Belle `.petchar`를 보관합니다. 앱 종료와 후보 실행은 소유자가 직접 진행합니다.
+2. 동반 후보 앱에서 **캐릭터·표시 → 캐릭터 추가**로 새 Belle 1.2.3을 가져옵니다. 같은 `belle` ID의 새 리비전이 현재 선택이 됩니다. 원본 그림·페르소나·음성 자산은 보존되며, 이전 리비전도 저장소에 남습니다.
+3. 되돌리려면 **캐릭터·표시 → 이전 버전 복원**에서 확인 창을 읽고 이전 리비전을 선택합니다. 이전 앱으로 돌아갈 때에는 이전 앱이 지원하는 1.2.2 등 이전 팩으로 먼저 복원합니다.
+4. 같은 개인 프로필의 설정·키를 작업자가 이동하거나 덮어쓰지 않습니다. 새 로컬 서명 앱의 Keychain 접근에는 별도 macOS 확인이 나타날 수 있으므로 소유자가 직접 판단합니다. 키 재입력 불필요를 새 바이너리에 대해 보장하지 않습니다. 모델·음성 런타임 경로도 실제 후보에서 검사하고, 호환성 오류를 무시하지 마세요.
+
+새 앱의 **캐릭터·표시**에서는 크기를 20~400%, 불투명도를 0~100%로 직접 설정할 수 있습니다. 50% 이하에서는 캐릭터 뒤로 클릭이 통과합니다. **트레이 → 불투명도 100% 복원** 또는 설정의 복원 버튼을 사용하면 0%에서도 돌아올 수 있습니다. Mac의 Option+휠 보조 경로와 물리 조작 검수 범위는 [크기·불투명도 안내](character-size-opacity.md)를 확인하세요. 말풍선·작업창의 불투명도와 음성·개인 연결 설정은 이 조절에 포함되지 않습니다.
 
 ## 8 대화 중 문맥에 맞게 출력 요청하기
 
@@ -260,6 +269,6 @@ present로 한 번 전달해 줘. text는 600자 이내의 완결된 한국어 �
 - [Node.js 공식 다운로드](https://nodejs.org/en/download)
 - [Homebrew 공식 설치](https://brew.sh/)
 
-앱 문구와 동작은 저장소의 [벨 연결 화면](../src/settings/BelleConnectionPage.tsx), [연결 관리자](../electron/main/dot/BelleConnectionManager.ts), [실행 구성](../electron/main/dot/BelleTunnelRuntime.ts), [macOS 확인 동작](../electron/main/dot/BelleConnectionIpcController.ts), [출력 규칙](dot-presentation-bridge.md), [음성 시드](character-chat-voice-seeds.md), [기본 음성 지원 범위](character-chat-voice-base-install.md), [팩과 립싱크 파일럿](belle-audio-lipsync-pilot.md)에 근거합니다. 앱 배포 대상은 [Mac 설치 문서](install-macos.md), [패키지 설정](../package.json), [Forge 패키징 설정](../forge.config.mjs)과 함께 확인했습니다.
+앱 문구와 동작은 저장소의 [벨 연결 화면](../src/settings/BelleConnectionPage.tsx), [연결 관리자](../electron/main/dot/BelleConnectionManager.ts), [실행 구성](../electron/main/dot/BelleTunnelRuntime.ts), [macOS 확인 동작](../electron/main/dot/BelleConnectionIpcController.ts), [출력 규칙](dot-presentation-bridge.md), [음성 시드](character-chat-voice-seeds.md), [기본 음성 지원 범위](character-chat-voice-base-install.md), [팩과 전체 포즈 립싱크](belle-audio-lipsync-all-poses.md)에 근거합니다. 앱 배포 대상은 [Mac 설치 문서](install-macos.md), [패키지 설정](../package.json), [Forge 패키징 설정](../forge.config.mjs)과 함께 확인했습니다.
 
 이 구현 근거는 계정별 플러그인 생성, 실제 Keychain 접근 확인, 해당 배포 바이너리의 서명·공증, 새 기기의 음성 품질을 대신 검증하지 않습니다. 마지막 확인 목록의 실제 시험은 사용하는 계정과 Mac에서 소유자가 진행합니다.
