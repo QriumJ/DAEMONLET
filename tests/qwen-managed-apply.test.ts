@@ -1,4 +1,4 @@
-import {afterEach,expect,it,vi} from 'vitest'
+import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {mkdtemp,readFile,rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -6,7 +6,9 @@ import {CharacterVoiceService} from '../electron/main/character-voice/CharacterV
 import type {QwenInstallation,QwenConnection} from '../electron/main/character-voice/QwenVoiceInstaller'
 import type {QwenInstallState,ReferenceVoiceProfile} from '../electron/shared/character-voice-contract'
 const clean:Array<()=>Promise<unknown>>=[]
-afterEach(async()=>{for(const fn of clean.splice(0))await fn();vi.restoreAllMocks()})
+const hostPlatform=Object.getOwnPropertyDescriptor(process,'platform')!
+beforeEach(()=>Object.defineProperty(process,'platform',{...hostPlatform,value:'win32'}))
+afterEach(async()=>{try{for(const fn of clean.splice(0))await fn()}finally{Object.defineProperty(process,'platform',hostPlatform);vi.restoreAllMocks()}})
 function gate<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>resolve=r);return {promise,resolve}}
 const reference:ReferenceVoiceProfile={kind:'wav-reference',id:'wav-owned',version:'1',name:'Authorized WAV',fingerprint:'a'.repeat(64),referenceSha256:'b'.repeat(64),reference:{durationMs:4000,sampleRate:24000,channels:1,encoding:'pcm16',samples:96000,bytes:192044}}
 async function fixture(ref=true){
@@ -56,4 +58,9 @@ it('closed/back/stale settings owner finishes installation but defers registrati
 it('shutdown cancels the owned installer and cannot register a completed obsolete task',async()=>{
  const f=await fixture(),job=f.service.installQwen();await vi.waitFor(()=>expect(f.installer.install).toHaveBeenCalled());await f.service.close();await job
  expect(f.installer.cancel).toHaveBeenCalled();expect(await readFile(join(f.root,'settings.json'),'utf8')).toBe(f.before)
+})
+it('unsupported Linux rejects installation without changing settings or starting the installer',async()=>{
+ const f=await fixture();Object.defineProperty(process,'platform',{...hostPlatform,value:'linux'})
+ await expect(f.service.installQwen()).rejects.toThrow('QWEN_INSTALL_UNSUPPORTED')
+ expect(f.installer.install).not.toHaveBeenCalled();expect(await readFile(join(f.root,'settings.json'),'utf8')).toBe(f.before)
 })
