@@ -92,8 +92,8 @@ export class PetWindowController {
       this.modifierEditing = pressed && inside && this.ready && this.desiredVisible && win.isVisible() && !this.suspended
       this.applyMousePolicy()
     }
-    this.modifierMonitor = this.options.modifierMonitor?.(sample) ?? (process.platform === "darwin" && this.options.modifierHelperPath
-      ? new ModifierStateMonitor(this.options.modifierHelperPath, sample, () => this.options.onWarning("Option recovery is unavailable; restore opacity in the tray or Settings")) : null)
+    this.modifierMonitor = this.options.modifierMonitor?.(sample) ?? ((process.platform === "darwin" || process.platform === "win32") && this.options.modifierHelperPath
+      ? new ModifierStateMonitor(process.platform === "win32" ? this.options.modifierHelperPath + ".exe" : this.options.modifierHelperPath, sample, () => this.options.onWarning(process.platform === "win32" ? "Alt recovery is unavailable; restore opacity in the tray or Settings" : "Option recovery is unavailable; restore opacity in the tray or Settings")) : null)
     secureWebContents(win.webContents, "pet", this.options.devServerUrl)
     win.setAlwaysOnTop(settings.alwaysOnTop, "floating")
     if (process.platform === "darwin") win.setVisibleOnAllWorkspaces(settings.showOnAllWorkspaces, { visibleOnFullScreen: settings.showOverFullScreen })

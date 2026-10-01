@@ -13,3 +13,5 @@ if (platform === "darwin") {
     resolve(root, "electron/native/ModifierState.swift"), "-o", resolve(native, "DaemonletModifierState"), "-framework", "CoreGraphics"],
     { timeout: 120_000, maxBuffer: 1024 * 1024 })
 }
+
+if (platform === "win32") await import("./build-windows-modifier.mjs")
