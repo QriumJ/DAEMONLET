@@ -27,6 +27,7 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  get path(){return join(this.root,'models',policy.model.revision)}
  get executable(){return join(this.runtime,'python','python.exe')}
  snapshot(){return {...this.status}}
+ recordModelCheck(valid:boolean){if(!valid)this.assetsIdentity?.invalidate();this.update({installed:valid,error:valid?null:'VOICE_BASE_CHANGED'})}
  private assetIdentity(){return this.assetsIdentity??=new VoiceAssetIdentity(JSON.stringify({fingerprint,defaults,resources:this.resources}),[this.path,this.runtime,this.resources],[
   ...Object.entries(policy.model.files).map(([name,f])=>({path:join(this.path,name),bytes:f.bytes})),
   {path:join(this.runtime,'install-receipt.json')},{path:this.executable},{path:join(this.runtime,'python','voice-runtime.json')},

@@ -22,3 +22,8 @@ it('a running full check shows cancellation and disables engine controls',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,modelVerification:'full',modelCheck:{busy:true,error:null}},act:()=>{},playbackReady:true}))
  expect(html).toContain('모델 전체 검사 중');expect(html).toContain('검사 중단');expect(html).toContain('aria-label="음성 엔진" disabled')
 })
+
+it('a damaged managed Vox model offers user-initiated repair rather than a disabled installed button',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,engine:'voxcpm2',modelVerification:'installed',baseInstall:{supported:true,installed:false,phase:'idle',bytes:0,total:1,error:'VOICE_BASE_CHANGED'},modelCheck:{busy:false,error:'VOICE_MODEL_CHECK_FAILED'}},act:()=>{},playbackReady:true}))
+ expect(html).toContain('기본 음성 복구 설치');expect(html).not.toContain('>기본 음성 설치됨</button>')
+})
