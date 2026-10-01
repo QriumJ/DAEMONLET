@@ -12,7 +12,7 @@ X-vector mode uses the speaker embedding only. ICL requires the accurate text sp
 
 ## Explicit installation
 
-Use a fresh adjacent experiment root, with `runtime/env`, `cache`, `models`, `evidence` on the large data drive. Create its venv from the approved existing base interpreter; execute `scripts/prepare-qwen-windows.py --root ROOT` with that venv Python. Never execute it with the Vox venv. Installation is an explicit separate operation; the app only connects existing files. Receipts and model artifacts remain outside Git.
+Use a fresh adjacent experiment root, with `runtime/env`, `cache`, `models`, `evidence` on the large data drive. Create its venv from the approved existing base interpreter; execute `scripts/prepare-qwen-windows.py --root ROOT` with that venv Python. Never execute it with the Vox venv. This development script remains a separate explicit operation. The app also provides an explicit [managed Qwen installation button](character-chat-voice-qwen-managed-install.md) for model/runtime download and apply. Receipts and model artifacts remain outside Git.
 
 ## Silent sequential comparison
 

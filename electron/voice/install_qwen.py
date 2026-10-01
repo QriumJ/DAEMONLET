@@ -64,6 +64,12 @@ def install(env,downloads,lock,verify=False):
             ordinary(p)
             if p.is_file() and str(p.relative_to(site)).replace('\\','/').casefold() not in targets:raise ValueError('QWEN_RUNTIME_CHANGED')
 
+def relocate_config(text, final_python):
+    # Callable replacements preserve Windows backslashes literally (\U, \t, etc.).
+    text=re.sub(r'^home = .*$',lambda _: 'home = '+str(final_python.parent),text,flags=re.M)
+    text=re.sub(r'^executable = .*$',lambda _: 'executable = '+str(final_python),text,flags=re.M)
+    return re.sub(r'^command = .*$',lambda _: 'command = managed Qwen offline installation',text,flags=re.M)
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--policy',type=Path,required=True);parser.add_argument('--lock',type=Path,required=True);parser.add_argument('--downloads',type=Path);parser.add_argument('--final-env',type=Path);parser.add_argument('--final-python',type=Path);parser.add_argument('--model',type=Path);parser.add_argument('--verify',action='store_true');parser.add_argument('--audit-env',type=Path);args=parser.parse_args()
     env=Path(sys.prefix);ordinary(env);policy=json.loads(args.policy.read_text());lock=json.loads(args.lock.read_text());receipt=env/'qwen-runtime.json'
@@ -95,9 +101,7 @@ def main():
             import torch,torchaudio,qwen_tts
         import soundfile,scipy
         cfg=env/'pyvenv.cfg';text=cfg.read_text()
-        text=re.sub(r'^home = .*$', 'home = '+str(args.final_python.parent),text,flags=re.M)
-        text=re.sub(r'^executable = .*$', 'executable = '+str(args.final_python),text,flags=re.M)
-        text=re.sub(r'^command = .*$', 'command = managed Qwen offline installation',text,flags=re.M);cfg.write_text(text)
+        cfg.write_text(relocate_config(text,args.final_python))
         inventory={str(p.relative_to(env)).replace('\\','/'):sha(p) for p in env.rglob('*') if p.is_file()}
         saved=dict(schemaVersion=1,engine=policy['engine'],backend='mlx' if sys.platform=='darwin' else 'torch-cuda',revision=policy['revision'],prefix=str(args.final_env),model=policy['model'] if sys.platform=='darwin' else str(args.model),interpreterSha256=sha(Path(sys.executable)),sourcePolicySha256=policy_hash,installLockSha256=lock_hash,installedFiles=inventory,wheels=lock['wheels'],licenses={'model':policy['license'],'python':lock['python']['license']})
         receipt.write_text(json.dumps(saved,indent=2)+'\n')

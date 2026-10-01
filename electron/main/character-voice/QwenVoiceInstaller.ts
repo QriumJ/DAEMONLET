@@ -61,12 +61,22 @@ export class QwenVoiceInstaller implements QwenInstallation {
  private run(command:string,args:string[],signal:AbortSignal):Promise<string>{
   if(this.options.run)return this.options.run(command,args,signal)
   return new Promise((done,fail)=>{
-   let closed=false,result:{error:Error|null;stdout:string}|undefined,timer:ReturnType<typeof setTimeout>|undefined
-   const finish=()=>{if(!closed||!result)return;signal.removeEventListener('abort',abort);if(timer)clearTimeout(timer);if(result.error||signal.aborted)fail(Error(signal.aborted?'QWEN_INSTALL_CANCELLED':'QWEN_RUNTIME_INSTALL'));else done(result.stdout)}
-   const child=execFile(command,args,{windowsHide:true,timeout:600000,maxBuffer:1024**2,env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1'}},(error,stdout)=>{result={error,stdout};finish()})
-   // Only this owned child, and no pip/subprocess package hooks. Wait for close
-   // before deleting its stage. TERM may be ignored during native imports.
-   const abort=()=>{child.kill();timer=setTimeout(()=>child.kill('SIGKILL'),2000)}
+   let closed=false,stopping=false,result:{error:Error|null;stdout:string}|undefined,force:ReturnType<typeof setTimeout>|undefined
+   const finish=()=>{if(!closed||!result||stopping)return;signal.removeEventListener('abort',abort);clearTimeout(deadline);if(force)clearTimeout(force);if(result.error||signal.aborted||expired)fail(Error(signal.aborted?'QWEN_INSTALL_CANCELLED':'QWEN_RUNTIME_INSTALL'));else done(result.stdout)}
+   // Use our deadline rather than execFile's parent-only timeout. Windows venv
+   // redirectors launch a bootstrap Python child, so termination must own /T.
+   let expired=false
+   const child=execFile(command,args,{windowsHide:true,maxBuffer:1024**2,env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1'}},(error,stdout)=>{result={error,stdout};finish()})
+   const abort=()=>{
+    if(closed||stopping)return
+    if(process.platform==='win32'&&child.pid){
+     stopping=true
+     execFile('taskkill.exe',['/PID',String(child.pid),'/T','/F'],{windowsHide:true,timeout:5000,maxBuffer:4096},()=>{stopping=false;finish()})
+     // A failed tree kill must not trigger stage deletion under a live child.
+     // finish still waits for the owned launcher's close (and inherited pipes).
+    }else{child.kill();force=setTimeout(()=>child.kill('SIGKILL'),2000)}
+   }
+   const deadline=setTimeout(()=>{expired=true;abort()},600000)
    child.once('close',()=>{closed=true;finish()});signal.addEventListener('abort',abort,{once:true});if(signal.aborted)abort()
   })
  }

@@ -45,3 +45,12 @@ it('installed, repair, retry and deferred registration offer the correct explici
  }
  const windows=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,qwenInstall:{...managed,communityConversion:false,model:'Qwen/Qwen3-TTS-12Hz-0.6B-Base',modelBytes:2516106051,runtimeBytes:3695031909,total:6211137960,minimumFreeBytes:30*1024**3}},act:()=>{},playbackReady:false}));expect(windows).toContain('Qwen 공식 원본');expect(windows).toContain('6.21 GB');expect(windows).toContain('30 GiB');expect(windows).toContain('PyTorch CUDA')
 })
+
+it('Vox default can install Qwen without changing engine, and keeps failure/cancel/deferred actions visible',()=>{
+ for(const install of [managed,{...managed,error:'VOICE_DOWNLOAD_FAILED'},{...managed,installed:true,applicationDeferred:true},{...managed,phase:'downloading' as const}]){
+  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,engine:'voxcpm2',qwenConfigured:false,qwenInstall:install},act:()=>{},playbackReady:false}))
+  expect(html).toContain('value="voxcpm2" selected');expect(html).toContain('Qwen 다운로드 및 설치')
+  if(install.phase==='downloading')expect(html).toContain('Qwen 설치 중단')
+  else expect(html).toContain(install.installed?'설치된 Qwen 적용':install.error?'Qwen 설치 다시 시도':'Qwen 다운로드·설치 후 적용')
+ }
+})
