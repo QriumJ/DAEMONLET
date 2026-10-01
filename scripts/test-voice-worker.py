@@ -520,15 +520,36 @@ class WindowsReceiptTests(unittest.TestCase):
                     self.assertEqual(self.receipt.read_bytes(), before)
 
     def test_worker_verifies_raw_pinned_vox_sources_without_distribution_or_import(self):
+        self.check_worker_import_target(False)
+
+    def test_worker_rejects_actual_finder_extension_precedence_over_pinned_python(self):
+        self.check_worker_import_target(True)
+
+    def check_worker_import_target(self, extension):
+        import hashlib, importlib
+        from importlib.machinery import EXTENSION_SUFFIXES, ExtensionFileLoader
         import windows_base_worker as runtime
+        entry=self.target.parent/'__init__.py'
+        entry.write_bytes(b"raise AssertionError('must not import during verification')\n")
+        self.policy['sourceFiles']['__init__.py']=hashlib.sha256(entry.read_bytes()).hexdigest()
+        if extension:(self.target.parent/('__init__'+EXTENSION_SUFFIXES[0])).write_bytes(b'unverified binary')
         self.saved(self.lock)
         with patch('sys.prefix', str(self.root)), patch('sys.platform', 'win32'), \
              patch.object(runtime.platform, 'python_version', return_value=self.policy['python']), \
              patch.object(runtime, 'SOURCE', self.policy['sourceCommit']), \
              patch.object(runtime.metadata, 'version', return_value='1.0'), \
              patch.object(runtime.metadata, 'distribution', side_effect=AssertionError('no Vox dist-info')), \
-             patch.object(runtime.importlib.util, 'find_spec', return_value=SimpleNamespace(origin=str(self.target.parent/'__init__.py'))):
+             patch('sys.path', [str(self.target.parent.parent),*sys.path]), patch.dict(sys.modules):
+            sys.modules.pop('voxcpm',None)
+            importlib.invalidate_caches()
+            if extension:
+                self.assertIsInstance(importlib.util.find_spec('voxcpm').loader,ExtensionFileLoader)
+                with self.assertRaisesRegex(ValueError,'RUNTIME_SOURCE_CHANGED'):
+                    runtime.verify_environment(self.policy)
+                self.assertNotIn('voxcpm',sys.modules)
+                return
             runtime.verify_environment(self.policy)
+            self.assertNotIn('voxcpm',sys.modules)
             self.target.write_bytes(b'TAMPERED = True\n')
             with self.assertRaisesRegex(ValueError, 'RUNTIME_SOURCE_CHANGED'):
                 runtime.verify_environment(self.policy)
