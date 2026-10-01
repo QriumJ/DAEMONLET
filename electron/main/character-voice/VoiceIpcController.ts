@@ -1,3 +1,4 @@
+import {QwenVoiceInstaller} from './QwenVoiceInstaller'
 import {VOICE_MOUTH_IPC,validVoiceMouth,type VoiceMouthInput} from '../../shared/voice-mouth'
 import {DOT_IPC} from '../../shared/dot-presentation'
 import {appText,appLanguage} from '../AppLanguage'
@@ -84,6 +85,7 @@ export class VoiceIpcController {
  constructor(root:string,worker:string,private window:()=>BrowserWindow|null,private chat:CharacterChatService,private devServerUrl?:string,private petWindow:()=>BrowserWindow|null=()=>null){
   const metrics=process.platform==='win32'?preparationMetrics(root):undefined
   this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>{console.info('[voice]',JSON.stringify(value));metrics?.(value)},process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
+  this.service.attachQwenInstaller(new QwenVoiceInstaller(join(root,'qwen-managed'),dirname(worker),()=>this.service.refreshBase()))
   const mouth = (event:Electron.IpcMainEvent,value:unknown) => {
    if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl)||!validVoiceMouth(value))return
    const state=this.service.snapshot()
@@ -151,6 +153,8 @@ export class VoiceIpcController {
    case 'ready':this.rendererReady=true;this.updateOutput();return
    case 'snapshot':return
    case 'stop':return this.presentationOutput?this.stopPresentation():this.service.stop(true,false)
+   case 'installQwen':return this.service.installQwen(contextCurrent)
+   case 'cancelInstallQwen':return this.service.cancelInstallQwen()
    case 'installBase':return this.service.installBase()
    case 'cancelInstallBase':return this.service.cancelInstallBase()
    case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()

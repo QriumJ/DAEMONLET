@@ -261,3 +261,8 @@ select { padding: 8px 30px 8px 11px; border: 1px solid #dfe4d9; border-radius: 7
 .belle-wizard-diagnostics dt { font-weight: 600; min-width: 140px; }
 .belle-wizard-diagnostics dd { margin: 0; }
 .belle-wizard .toggle-row { margin-top: 18px; align-items: flex-start; }
+
+.voice-qwen-install { min-width:0; }
+.voice-qwen-install .voice-model-name { overflow-wrap:anywhere; }
+.voice-qwen-progress { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; }
+.voice-qwen-progress [role="status"] { flex-basis:100%; }

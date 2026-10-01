@@ -12,7 +12,7 @@ export function ChatVoicePage({manageCharacters}:{manageCharacters:()=>void}){
  useEffect(()=>{setMemory('');setMemoryId(undefined)},[state?.context.characterId,state?.context.revision])
  const run=async(task:()=>Promise<ChatSettingsSnapshot>,interrupt=false)=>{if(operation.current&&!interrupt)return false;setError('');if(!interrupt){operation.current=true;setBusy(true)};try{receive(await task());return true}catch(e){const message=String(e);setError(message.includes('CONTEXT_CHANGED')?'캐릭터나 대화가 바뀌었습니다. 현재 선택을 확인해 주세요.':message.includes('VOICE_OUTPUT_NOT_READY')?'캐릭터챗을 연 뒤 다시 시험해 주세요.':'설정을 적용하지 못했습니다. 현재 상태를 확인하고 다시 시도해 주세요.');return false}finally{if(!interrupt){operation.current=false;setBusy(false)}}}
  const chat=(action:ChatManagementAction)=>state&&run(()=>api.action({type:'chat',action,context:state.context}),action.type==='cancel-download')
- const voice=(action:VoiceAction)=>state&&run(()=>api.action({type:'voice',action:action as VoiceManagementAction,context:state.context}),['cancelModelCheck','stop','cancelInstallBase','cancelReferenceImport','volume'].includes(action.type))
+ const voice=(action:VoiceAction)=>state&&run(()=>api.action({type:'voice',action:action as VoiceManagementAction,context:state.context}),['cancelModelCheck','stop','cancelInstallBase','cancelInstallQwen','cancelReferenceImport','volume'].includes(action.type))
  if(!state)return <div className="empty-state" role="status">{t(error||'설정 불러오는 중…')}</div>
  const c=state.chat,installed=c.installed.includes(c.model),generating=['loading','generating','replying'].includes(c.phase)
  return <div className="chat-settings-page">

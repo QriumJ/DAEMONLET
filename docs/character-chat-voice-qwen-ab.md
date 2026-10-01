@@ -41,7 +41,7 @@ offline environment flags and `trust_remote_code=False` tokenization.
 Explicit setup: run `scripts/prepare-qwen-macos.py --root <NEW external directory>`
 with an existing Python 3.12. It creates its own venv/cache/model/receipt, records
 wheel URLs, bytes, hashes and licenses, and never modifies an existing runtime.
-The app does not run this installer or download a missing model automatically.
+The app does not run this development installer or download a missing model automatically. The explicit [managed Qwen installation button](character-chat-voice-qwen-managed-install.md) provides model/runtime download and apply in app-managed storage.
 
 `qwen_mlx_worker.py` is separate from Windows `qwen_worker.py`. MLX's pinned
 implementation decodes chunks during token generation with

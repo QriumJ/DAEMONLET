@@ -42,3 +42,8 @@ it('closing settings does not revoke chat playback; updates are management-only'
 it('dialog operations receive the initiating settings owner and live guard',async()=>{
  const f=fixture();await f.call({type:'chat',action:{type:'import-model',id:'12B'},context:f.context()});const [,owner,current]=f.chat.manage.mock.calls[0];expect(owner).toBe(f.settings.window);expect(current()).toBe(true);f.expire();expect(current()).toBe(false)
 })
+
+it('Qwen managed installation and cancel are admitted through the production settings contract',async()=>{
+ const f=fixture();let release!:()=>void;f.chat.voice.manage.mockImplementation((v:any)=>v.type==='installQwen'?new Promise<void>(r=>release=r):Promise.resolve());const pending=f.call({type:'voice',action:{type:'installQwen'},context:f.context()});await vi.waitFor(()=>expect(release).toBeTypeOf('function'))
+ await f.call({type:'voice',action:{type:'cancelInstallQwen'},context:f.context()});expect(f.chat.voice.manage.mock.calls.map((c:any)=>c[0].type)).toEqual(['installQwen','cancelInstallQwen']);release();await pending
+})

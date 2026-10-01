@@ -1,3 +1,4 @@
+import type {QwenInstallation} from './QwenVoiceInstaller'
 import {DEFAULT_VOICE_SEED,validSeedSettings,validVoiceSeed,type VoiceSeedSettings,type VoiceGenerationPlan} from '../../shared/voice-seed'
 import {VoiceReplayCache,type ReplayCandidate} from './VoiceReplayCache'
 import {VoiceAssetIdentity} from './VoiceAssetIdentity'
@@ -20,6 +21,11 @@ export class CharacterVoiceService {
  readonly references:ReferenceProfileStore
  private referenceOperation:{controller:AbortController;task:Promise<void>}|null=null
  private referenceImportError:string|null=null
+ private qwenInstaller?:QwenInstallation
+ private installingQwen:Promise<void>|null=null
+ private qwenInstallEpoch=0
+ private qwenSettingsEpoch=0
+ private qwenApplicationDeferred=false
  private installingBase:Promise<void>|null=null
  private installEpoch=0
  private baseExecutionProfile:ExecutionProfile='cuda-compiled'
@@ -52,11 +58,13 @@ export class CharacterVoiceService {
  private firstPlayback=false
  private lastPlaybackEndAt=0
  constructor(readonly root:string,private worker:string,private chat:()=>LocalChatSnapshot,private changed:(state:VoiceSnapshot)=>void,private event:(event:VoiceEvent)=>void,private makeRuntime:(config:TtsConfig)=>TtsRuntimeSupervisor=config=>new TtsRuntimeSupervisor(config),private diagnostic:(value:Record<string,unknown>)=>void=()=>{},private base?:BaseVoiceInstallation,private speechPolicy:SpeechPolicy=DEFAULT_SPEECH_POLICY,referenceStore?:ReferenceProfileStore,private chooseRandom:()=>number=()=>randomInt(1,0x80000000)){this.references=referenceStore??new ReferenceProfileStore(join(root,'reference-profiles'),workerReferenceConverter(join(dirname(worker),'reference-import-worker.cjs')))}
+ attachQwenInstaller(installer:QwenInstallation){this.qwenInstaller=installer}
  snapshot(){
   this.syncReplayScope()
   const s=structuredClone(this.state),selected=this.selectedProfile(),managed=isManagedVoice(selected)
   if(process.platform==='win32')s.modelVerification=this.modelVerification
   s.availableEngines=this.qwenSupported()?['voxcpm2','qwen3-tts-06b']:['voxcpm2'];s.qwenConfigured=!!this.qwenConfig
+  if(this.qwenInstaller){s.qwenInstall=this.qwenInstaller.snapshot();s.qwenInstall.applied=s.engine==='qwen3-tts-06b'&&!!this.qwenConfig;s.qwenInstall.applicationDeferred=this.qwenApplicationDeferred}
   s.engineCapabilities={synthesisStreaming:isStreamingProfile(this.activeProfile()),cancellation:s.engine==='qwen3-tts-06b'?'owned-process-termination':'cooperative-with-process-fallback'}
   s.results=this.replay.infos()
   s.executionProfile=this.activeProfile();s.runtimeConfigured=!!this.configured();s.referenceImport={busy:!!this.referenceOperation,error:this.referenceImportError}
@@ -72,6 +80,31 @@ export class CharacterVoiceService {
  private activeProfile():ExecutionProfile{if(this.state.engine==='qwen3-tts-06b')return process.platform==='darwin'?this.qwenExecutionProfile:'qwen-complete';return isManagedVoice(this.selectedProfile())&&this.base&&!this.base.native?this.baseExecutionProfile:this.state.executionProfile||'baseline'}
  private bindingKey(id:string){return this.state.bindings[id]??(this.base?.snapshot().supported?this.baseKey():'')}
  refreshBase(){this.emit()}
+ installQwen(current=()=>true):Promise<void>{
+  if(this.installingQwen)return this.installingQwen
+  if(!this.qwenInstaller||!this.qwenSupported())return Promise.reject(Error('QWEN_INSTALL_UNSUPPORTED'))
+  const epoch=this.qwenInstallEpoch,settings=this.qwenSettingsEpoch
+  const valid=()=>!this.disposed&&epoch===this.qwenInstallEpoch&&settings===this.qwenSettingsEpoch&&current()
+  this.qwenApplicationDeferred=false
+  const task:Promise<void>=Promise.resolve().then(async()=>{
+   if(!valid())return
+   const connection=await this.qwenInstaller!.install(this.qwenConfig?.model)
+   if(!connection)return
+   if(!valid()){this.qwenApplicationDeferred=true;this.emit();return}
+   this.qwenInstaller!.applying(true)
+   await this.mutate(async()=>{
+    if(!valid()){this.qwenApplicationDeferred=true;return}
+    await this.stop()
+    if(!valid()){this.qwenApplicationDeferred=true;return}
+    this.qwenConfig=connection;this.state.engine='qwen3-tts-06b';this.runtime=null;this.state.error=null
+    // Preserve compatible user-selected WAV bindings. Missing reference is
+    // truthful setup-needed state; never select another speaker or synthesize.
+    this.state.status=this.state.enabled?'idle':'off'
+   })
+  }).finally(()=>{if(this.installingQwen===task){this.qwenInstaller?.applying(false);this.installingQwen=null}})
+  this.installingQwen=task;return task
+ }
+ async cancelInstallQwen(){++this.qwenInstallEpoch;await this.qwenInstaller?.cancel();await this.installingQwen?.catch(()=>{})}
  installBase():Promise<void>{
   if(this.disposed)return Promise.resolve()
   if(this.installingBase)return this.installingBase
@@ -132,6 +165,7 @@ export class CharacterVoiceService {
     this.state.profiles.push(p.profile)
    }
    this.state.profiles.push(...this.references.list().filter(p=>!this.pendingRemoval.has(profileKey(p))))
+   await this.qwenInstaller?.initialize()
    if(this.base){await this.base.initialize();if(this.base.snapshot().supported)this.state.profiles.push(this.base.profile)}
    for(const [character,key] of Object.entries(this.state.bindings))if(!referenceKey(key)&&!this.state.profiles.some(p=>profileKey(p)===key))delete this.state.bindings[character]
    this.state.status=this.state.enabled?'idle':'off';this.emit()
@@ -160,10 +194,10 @@ export class CharacterVoiceService {
  async cancelReferenceImport(){const operation=this.referenceOperation;if(operation){operation.controller.abort();await operation.task}}
  renameReference(profile:string,name:string,current=()=>true){const task=this.serial.then(async()=>{if(this.disposed||!current())throw Error('CHAT_SETTINGS_EXPIRED');await this.references.rename(profile,name,()=>!this.disposed&&current());const p=this.references.list().find(p=>profileKey(p)===profile);if(p)this.state.profiles=this.state.profiles.map(old=>profileKey(old)===profile?p:old);this.emit()});this.serial=task.catch(()=>{});return task}
  private validQwenClone(value:unknown):value is import('../../shared/character-voice-contract').QwenCloneSettings{const v=value as any;return !!v&&['x-vector','icl'].includes(v.mode)&&typeof v.transcript==='string'&&v.transcript.length<=2000&&!/[\x00-\x08\x0b-\x1f\x7f]/.test(v.transcript)&&(v.mode!=='icl'||!!v.transcript.trim())}
- engine(value:import('../../shared/character-voice-contract').VoiceEngine,current=()=>true){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!['voxcpm2','qwen3-tts-06b'].includes(value)||value==='qwen3-tts-06b'&&!this.qwenSupported())throw Error('VOICE_ACTION');this.state.engine=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
+ engine(value:import('../../shared/character-voice-contract').VoiceEngine,current=()=>true){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!['voxcpm2','qwen3-tts-06b'].includes(value)||value==='qwen3-tts-06b'&&!this.qwenSupported())throw Error('VOICE_ACTION');this.state.engine=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
  qwenClone(value:import('../../shared/character-voice-contract').QwenCloneSettings,current=()=>true){if(!this.validQwenClone(value))throw Error('QWEN_TRANSCRIPT_REQUIRED');void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.state.qwenClone={mode:value.mode,transcript:value.mode==='x-vector'?'':value.transcript};this.runtime=null;this.state.error=null})}
- configureQwen(python:string,model:string,current=()=>true){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenSupported())throw Error('VOICE_ACTION');this.qwenConfig={python,model};this.runtime=null;this.state.error=null})}
- configure(python:string,model:string){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-')||this.state.executionProfile?.startsWith('gguf-metal-'))await verifyMacInterpreter(python,this.state.executionProfile);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
+ configureQwen(python:string,model:string,current=()=>true){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenSupported())throw Error('VOICE_ACTION');this.qwenConfig={python,model};this.runtime=null;this.state.error=null})}
+ configure(python:string,model:string){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-')||this.state.executionProfile?.startsWith('gguf-metal-'))await verifyMacInterpreter(python,this.state.executionProfile);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
  enabled(value:boolean){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(value&&!this.snapshot().availableProfiles?.length)throw Error('UNSUPPORTED_DEVICE');this.state.enabled=value;this.state.status=value?'idle':'off';this.state.error=null})}
  seedSettings(value:VoiceSeedSettings,current=()=>true){if(!validSeedSettings(value))throw Error('VOICE_SEED_INVALID');return this.mutate(async()=>{if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.state.seedSettings={...value};this.state.seedError=false;if(this.state.error==='VOICE_SEED_SETTINGS')this.state.error=null})}
  auto(value:boolean){return this.mutate(async()=>{this.state.autoRead=value})}
@@ -459,5 +493,5 @@ export class CharacterVoiceService {
   }}finally{await verification}
  }
  outputStopped(epoch:number,elapsedMs:number){if(epoch===this.state.epoch)this.diagnose({type:'output-stopped',at:Date.now(),epoch,mainActionToRendererStopMs:elapsedMs})}
- async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();const installation=Promise.all([this.cancelInstallBase(),this.cancelReferenceImport()]);void installation.catch(()=>{});try{await this.stop()}finally{await installation;await this.serial.catch(()=>{})}}
+ async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();const installation=Promise.all([this.cancelInstallBase(),this.cancelInstallQwen(),this.cancelReferenceImport()]);void installation.catch(()=>{});try{await this.stop()}finally{await installation;await this.serial.catch(()=>{})}}
 }
