@@ -41,3 +41,8 @@ it('Qwen refuses a worker whose streaming capability does not match the backend'
  await expect(w.start(root+'bad-qwen-capabilities','bad',{kind:'wav-reference',path:join(root,'reference.wav'),sha256:'a'.repeat(64),fingerprint:'b'.repeat(64),preprocessingVersion:'mono-pcm16-round-v1',sampleRate:24000,samples:48000})).rejects.toThrow('QWEN_CAPABILITIES')
  expect(w.running).toBe(false);expect(await readdir(root)).toEqual([])
 })
+
+it('explicit Windows installed policy reaches the owned worker; absent policy stays full',async()=>{
+ const f=await fixture();await f.start();expect(f.w.audit?.modelVerification).toBe('full')
+ await f.w.stop();f.w.config.modelVerification='installed';await f.start();expect(f.w.audit?.modelVerification).toBe('installed')
+})

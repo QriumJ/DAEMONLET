@@ -11,6 +11,7 @@ import {TtsRuntimeSupervisor,type TtsConfig,type AudioChunk} from './TtsRuntimeS
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 import {type BaseVoiceInstallation,BASE_VOICE,BASE_KEY} from './VoiceBaseInstaller'
 import {ReferenceProfileStore,referenceKey,workerReferenceConverter,type ReferenceCondition} from './ReferenceProfileStore'
+import {checkWindowsModel} from './WindowsModelCheck'
 import {replaceFile} from '../character-chat/replaceFile'
 
 export class CharacterVoiceService {
@@ -27,6 +28,10 @@ export class CharacterVoiceService {
  private qwenSupported(){return process.platform==='win32'||process.platform==='darwin'&&process.arch==='arm64'}
  private qwenConfig:{python:string;model:string}|null=null
  private config:{python:string;model:string}|null=null
+ private modelVerification:'full'|'installed'='full'
+ private modelCheckController:AbortController|null=null
+ private modelCheckTask:Promise<void>|null=null
+ private blockedModels=new Set<string>()
  private runtime:TtsRuntimeSupervisor|null=null
  private serial:Promise<unknown>=Promise.resolve()
  private operation=0
@@ -49,6 +54,7 @@ export class CharacterVoiceService {
  snapshot(){
   this.syncReplayScope()
   const s=structuredClone(this.state),selected=this.selectedProfile(),managed=isManagedVoice(selected)
+  if(process.platform==='win32')s.modelVerification=this.modelVerification
   s.availableEngines=this.qwenSupported()?['voxcpm2','qwen3-tts-06b']:['voxcpm2'];s.qwenConfigured=!!this.qwenConfig
   s.engineCapabilities={synthesisStreaming:isStreamingProfile(this.activeProfile()),cancellation:s.engine==='qwen3-tts-06b'?'owned-process-termination':'cooperative-with-process-fallback'}
   s.results=this.replay.infos()
@@ -74,7 +80,7 @@ export class CharacterVoiceService {
    if(this.disposed||epoch!==this.installEpoch)return
    await this.base!.install()
    if(this.disposed||epoch!==this.installEpoch||!this.base!.snapshot().installed)return
-   this.state.error=null;this.emit();await this.prepare()
+   this.blockedModels.delete(this.base!.path.toLowerCase());this.state.error=null;this.emit();await this.prepare()
   }).finally(()=>{if(this.installingBase===task)this.installingBase=null})
   this.installingBase=task;return task
  }
@@ -105,6 +111,7 @@ export class CharacterVoiceService {
     if(saved.qwenRuntime&&typeof saved.qwenRuntime.python==='string'&&typeof saved.qwenRuntime.model==='string')this.qwenConfig=saved.qwenRuntime
     if(saved.qwenExecutionProfile==='qwen-mlx-complete')this.qwenExecutionProfile=saved.qwenExecutionProfile
     if(saved.qwenClone){if(!this.validQwenClone(saved.qwenClone))throw Error('VOICE_SETTINGS');this.state.qwenClone=saved.qwenClone}
+    if(process.platform==='win32'&&saved.modelVerification==='installed')this.modelVerification='installed'
     this.state.enabled=saved.enabled;this.state.autoRead=saved.autoRead;this.state.volume=saved.volume
     const supported=this.state.availableProfiles||[], selected=saved.executionProfile||'baseline'
     if(supported.includes(selected))this.state.executionProfile=selected
@@ -131,10 +138,10 @@ export class CharacterVoiceService {
  }
  private async save(){
   await mkdir(this.root,{recursive:true});const temp=join(this.root,'settings-'+randomUUID()+'.tmp')
-  try{await writeFile(temp,JSON.stringify({version:1,engine:this.state.engine,qwenRuntime:this.qwenConfig,qwenExecutionProfile:this.qwenExecutionProfile,qwenClone:this.state.qwenClone,enabled:this.state.enabled,autoRead:this.state.autoRead,volume:this.state.volume,bindings:this.state.bindings,runtime:this.config,pendingRemoval:[...this.pendingRemoval],executionProfile:this.state.executionProfile||'baseline',baseExecutionProfile:this.baseExecutionProfile,seedSettings:this.state.seedError?{invalid:true}:this.state.seedSettings})+'\n',{flag:'wx'});await replaceFile(temp,join(this.root,'settings.json'))}
+  try{await writeFile(temp,JSON.stringify({version:1,...(process.platform==='win32'?{modelVerification:this.modelVerification}:{}),engine:this.state.engine,qwenRuntime:this.qwenConfig,qwenExecutionProfile:this.qwenExecutionProfile,qwenClone:this.state.qwenClone,enabled:this.state.enabled,autoRead:this.state.autoRead,volume:this.state.volume,bindings:this.state.bindings,runtime:this.config,pendingRemoval:[...this.pendingRemoval],executionProfile:this.state.executionProfile||'baseline',baseExecutionProfile:this.baseExecutionProfile,seedSettings:this.state.seedError?{invalid:true}:this.state.seedSettings})+'\n',{flag:'wx'});await replaceFile(temp,join(this.root,'settings.json'))}
   finally{await rm(temp,{force:true}).catch(()=>{})}
  }
- private mutate(work:()=>Promise<void>){const task=this.serial.then(async()=>{if(this.disposed)return;const previous=structuredClone(this.state),config=this.config,qwenConfig=this.qwenConfig,qwenMode=this.qwenExecutionProfile,baseMode=this.baseExecutionProfile,removals=new Set(this.pendingRemoval);try{await work();await this.save();this.emit()}catch(e){this.state={...previous,epoch:this.state.epoch};this.config=config;this.qwenConfig=qwenConfig;this.qwenExecutionProfile=qwenMode;this.baseExecutionProfile=baseMode;this.pendingRemoval=removals;this.error(e)}});this.serial=task.catch(()=>{});return task}
+ private mutate(work:()=>Promise<void>){const task=this.serial.then(async()=>{if(this.disposed)return;const previous=structuredClone(this.state),config=this.config,qwenConfig=this.qwenConfig,qwenMode=this.qwenExecutionProfile,baseMode=this.baseExecutionProfile,modelVerification=this.modelVerification,removals=new Set(this.pendingRemoval);try{await work();await this.save();this.emit()}catch(e){this.state={...previous,epoch:this.state.epoch};this.config=config;this.qwenConfig=qwenConfig;this.qwenExecutionProfile=qwenMode;this.baseExecutionProfile=baseMode;this.modelVerification=modelVerification;this.pendingRemoval=removals;this.error(e)}});this.serial=task.catch(()=>{});return task}
  error(e:unknown){this.state.error=e instanceof Error&&/^[A-Z_]{1,80}$/.test(e.message)?e.message:'VOICE_ERROR';this.state.status='error';this.emit()}
  async importPackage(path:string){return this.mutate(async()=>{const p=await importVoicePackage(path,join(this.root,'profiles'),process.platform==='darwin'?undefined:SELECTED_VOICE);if(!this.state.profiles.some(v=>profileKey(v)===profileKey(p.profile)))this.state.profiles.push(p.profile);this.pendingRemoval.delete(profileKey(p.profile));this.state.error=null})}
  importReference(path:string,name:string,current=()=>true):Promise<void>{
@@ -161,8 +168,24 @@ export class CharacterVoiceService {
  auto(value:boolean){return this.mutate(async()=>{this.state.autoRead=value})}
  volume(value:number){return this.mutate(async()=>{this.state.volume=value})}
  executionProfile(value:ExecutionProfile){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.engine==='qwen3-tts-06b'){if(!(process.platform==='darwin'?['qwen-mlx','qwen-mlx-complete']:['qwen-complete']).includes(value))throw Error('VOICE_PLATFORM_PROFILE');this.qwenExecutionProfile=value;}else if(isManagedVoice(this.selectedProfile())&&this.base&&!this.base.native)this.baseExecutionProfile=value;else this.state.executionProfile=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
- private getRuntime(){if(this.state.engine==='qwen3-tts-06b'){if(!this.qwenConfig)throw Error('QWEN_RUNTIME_MISSING');return this.runtime??=this.makeRuntime({...this.qwenConfig,engine:'qwen3-tts-06b',qwen:this.state.qwenClone,worker:join(dirname(this.worker),process.platform==='darwin'?'qwen_mlx_worker.py':'qwen_worker.py'),cacheRoot:join(this.root,'cache'),executionProfile:this.activeProfile()})}const config:{python:string;model:string;nativeBase?:boolean;windowsBase?:boolean}=isManagedVoice(this.selectedProfile())?{python:this.base!.executable,model:this.base!.path,nativeBase:this.base!.native,windowsBase:!this.base!.native}:this.config!;if(this.runtime&&this.runtime.config?.nativeBase!==config.nativeBase){void this.runtime.stop().catch(()=>{});this.runtime=null}return this.runtime??=this.makeRuntime({...config,worker:this.worker,cacheRoot:join(this.root,'cache'),compilerCache:join(this.root,'compiler-cache'),executionProfile:this.activeProfile()})}
+ modelVerificationPolicy(value:'full'|'installed',current=()=>true){if(process.platform!=='win32'||!['full','installed'].includes(value))throw Error('VOICE_ACTION');void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.modelVerification=value;this.runtime=null;this.verifiedBase=null}).then(()=>this.prepare())}
+ checkModel(current=()=>true){
+  if(process.platform!=='win32')throw Error('VOICE_ACTION')
+  if(this.modelCheckTask)return this.modelCheckTask
+  const controller=this.modelCheckController=new AbortController()
+  const task=this.serial.then(async()=>{
+   if(this.disposed||!current()||controller.signal.aborted)return
+   await this.stop(true,true,true,true);if(!current()||controller.signal.aborted)return;const runtime=this.getRuntime(),started=Date.now()
+   this.state.modelCheck={busy:true,error:null};this.emit()
+   try{await checkWindowsModel(runtime.config.python,runtime.config.model,this.worker,this.state.engine||'voxcpm2',controller.signal);if(!controller.signal.aborted&&!this.disposed){this.blockedModels.delete(runtime.config.model.toLowerCase());this.state.modelCheck={busy:false,error:null,completedAt:Date.now()};if(this.state.error==='VOICE_MODEL_CHECK_FAILED')this.state.error=null;}this.diagnose({type:'model-full-check',elapsedMs:Date.now()-started})}
+   catch(e){if(!controller.signal.aborted&&!this.disposed){this.blockedModels.add(runtime.config.model.toLowerCase());this.state.modelCheck={busy:false,error:'VOICE_MODEL_CHECK_FAILED'};this.state.error='VOICE_MODEL_CHECK_FAILED';this.state.status='error'}}
+   finally{if(this.modelCheckController===controller)this.modelCheckController=null;if(this.state.modelCheck)this.state.modelCheck.busy=false;this.emit()}
+  }).finally(()=>{if(this.modelCheckController===controller)this.modelCheckController=null;if(this.modelCheckTask===task)this.modelCheckTask=null});this.modelCheckTask=task;this.serial=task.catch(()=>{});return task
+ }
+ async cancelModelCheck(){this.modelCheckController?.abort();await this.modelCheckTask?.catch(()=>{})}
+ private getRuntime(){if(this.state.engine==='qwen3-tts-06b'){if(!this.qwenConfig)throw Error('QWEN_RUNTIME_MISSING');return this.runtime??=this.makeRuntime({...this.qwenConfig,modelVerification:this.modelVerification,engine:'qwen3-tts-06b',qwen:this.state.qwenClone,worker:join(dirname(this.worker),process.platform==='darwin'?'qwen_mlx_worker.py':'qwen_worker.py'),cacheRoot:join(this.root,'cache'),executionProfile:this.activeProfile()})}const config:{python:string;model:string;nativeBase?:boolean;windowsBase?:boolean}=isManagedVoice(this.selectedProfile())?{python:this.base!.executable,model:this.base!.path,nativeBase:this.base!.native,windowsBase:!this.base!.native}:this.config!;if(this.runtime&&this.runtime.config?.nativeBase!==config.nativeBase){void this.runtime.stop().catch(()=>{});this.runtime=null}return this.runtime??=this.makeRuntime({...config,modelVerification:this.modelVerification,worker:this.worker,cacheRoot:join(this.root,'cache'),compilerCache:join(this.root,'compiler-cache'),executionProfile:this.activeProfile()})}
  private async startRuntime(profile:VoiceSnapshot['profiles'][number],runtime:TtsRuntimeSupervisor,current:()=>boolean){
+  if(process.platform==='win32'&&this.blockedModels.has(runtime.config.model.toLowerCase()))throw Error('VOICE_MODEL_CHECK_FAILED')
   let key=profile.fingerprint+':'+this.activeProfile();const started=Date.now()
   if(this.state.engine==='qwen3-tts-06b'){
    if(!isReferenceProfile(profile))throw Error('QWEN_REFERENCE_REQUIRED')
@@ -188,7 +211,7 @@ export class CharacterVoiceService {
    this.verifiedBase=null
    if(runtime.running)await runtime.stop()
    if(!current())throw Error('VOICE_CANCELLED')
-   const verifying=Date.now();await this.base!.ready()
+   const verifying=Date.now();await this.base!.ready(this.base!.native?'full':this.modelVerification)
    const verifyMs=Date.now()-verifying
    if(!current())throw Error('VOICE_CANCELLED')
    if(identity&&identity!==await this.base!.identity())throw Error('VOICE_BASE_CHANGED')
@@ -204,7 +227,7 @@ export class CharacterVoiceService {
  prepare():Promise<void>{
   if(this.preparing)return this.preparing
   const profile=this.selectedProfile()
-  if(this.disposed||this.state.seedError||!this.outputReady||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.activeProfile())&&!this.activeProfile().endsWith('-complete'))||this.currentSpeech)return Promise.resolve()
+  if(this.disposed||this.state.seedError||!this.outputReady||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.activeProfile())&&!this.activeProfile().endsWith('-complete'))||this.currentSpeech||this.modelCheckTask)return Promise.resolve()
   const operation=this.operation,runtime=this.getRuntime()
   this.state.status='loading';this.emit()
   const task=this.startRuntime(profile,runtime,()=>operation===this.operation&&this.outputReady&&!this.disposed&&this.state.enabled).then(async()=>{
@@ -272,7 +295,7 @@ export class CharacterVoiceService {
  }
  private async read(message:ChatMessage,test=false,automatic=false,mode:'read'|'replay'|'reroll'|'reproduce'='read',permitted=()=>true){
   const requestedAt=Date.now()
-  if(this.disposed||!this.outputReady||!this.state.enabled)return
+  if(this.disposed||!this.outputReady||!this.state.enabled||this.modelCheckTask)return
   if(message.role!=='assistant'||message.status!=='complete'||!message.binding)throw Error('VOICE_MESSAGE')
   if(this.state.seedError&&mode!=='replay')throw Error('VOICE_SEED_SETTINGS')
   this.syncReplayScope()
@@ -396,10 +419,11 @@ export class CharacterVoiceService {
  }
  audio(id:string,epoch:number){const a=this.chunks.get(id)||(this.active?.id===id?this.active:null);if(!a||a.epoch!==epoch||epoch!==this.state.epoch||a.claimed||!this.currentSpeech?.())throw Error('VOICE_AUDIO_EXPIRED');a.claimed=true;const bytes=a.bytes;if(this.chunks.has(id))a.bytes=new Uint8Array();return bytes}
  played(id:string,epoch:number,error=false){const a=this.chunks.get(id)||(this.active?.id===id?this.active:null);if(!a||a.epoch!==epoch)return;this.chunks.delete(id);if(this.active?.id===id)this.active=null;clearTimeout(a.timer);this.lastPlaybackEndAt=Date.now();this.diagnose({type:error?'playback-error':'playback-ended',at:Date.now(),epoch,audioId:id,claimed:a.claimed});if(error)a.reject(Error('VOICE_PLAYBACK'));else if(a.claimed)a.resolve();else a.reject(Error('VOICE_PLAYBACK_UNCLAIMED'))}
- async stop(invalidate=true,unload=true,clearReplay=invalidate&&unload){
+ async stop(invalidate=true,unload=true,clearReplay=invalidate&&unload,preserveModelCheck=false){
   const stopStartedAt=Date.now()
   const hadSpeech=!!this.currentSpeech
   this.replay.discardPending()
+  if(!preserveModelCheck)this.modelCheckController?.abort()
   const verification=this.base?.cancelVerification()
   if(clearReplay){this.replay.clear();this.state.lastGeneration=undefined}
   if(invalidate)++this.operation

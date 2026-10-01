@@ -3,6 +3,7 @@ import {DOT_IPC} from '../../shared/dot-presentation'
 import {appText,appLanguage} from '../AppLanguage'
 import {settingsContext,VOICE_MANAGEMENT_ACTIONS,type VoiceManagementAction} from '../../shared/chat-settings-contract'
 import {join,dirname} from 'node:path'
+import {preparationMetrics} from './VoicePreparationMetrics'
 import {WindowsVoiceInstaller} from './WindowsVoiceInstaller'
 import {VoiceBaseInstaller} from './VoiceBaseInstaller'
 import {dialog,ipcMain,type BrowserWindow} from 'electron'
@@ -60,7 +61,8 @@ export class VoiceIpcController {
  private closing:Promise<void>|null=null
  private detach:Array<()=>unknown>=[]
  constructor(root:string,worker:string,private window:()=>BrowserWindow|null,private chat:CharacterChatService,private devServerUrl?:string,private petWindow:()=>BrowserWindow|null=()=>null){
-  this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>console.info('[voice]',JSON.stringify(value)),process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
+  const metrics=process.platform==='win32'?preparationMetrics(root):undefined
+  this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>{console.info('[voice]',JSON.stringify(value));metrics?.(value)},process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
   const mouth = (event:Electron.IpcMainEvent,value:unknown) => {
    if(!isTrustedSender(event,this.window(),'character-chat',this.devServerUrl)||!validVoiceMouth(value))return
    const state=this.service.snapshot()
@@ -130,6 +132,9 @@ export class VoiceIpcController {
    case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()
    case 'engine':return this.service.engine(v.value,contextCurrent)
    case 'qwenClone':return this.service.qwenClone(v.value,contextCurrent)
+   case 'modelVerification':return this.service.modelVerificationPolicy(v.value,contextCurrent)
+   case 'checkModel':return this.service.checkModel(contextCurrent)
+   case 'cancelModelCheck':return this.service.cancelModelCheck()
    case 'prepare':return this.service.prepare()
    case 'executionProfile':if(!this.service.snapshot().availableProfiles?.includes(v.value))throw Error('VOICE_ACTION');return this.service.executionProfile(v.value)
    case 'enabled':case 'auto':if(typeof v.value!=='boolean')throw Error('VOICE_ACTION');return v.type==='enabled'?this.service.enabled(v.value):this.service.auto(v.value)

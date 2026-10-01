@@ -111,8 +111,17 @@ class Worker:
         required = {"config.json", "audiovae.pth", "model.safetensors", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "tokenization_voxcpm2.py"}
         if not required.issubset(snapshot["files"]):
             raise ValueError("MODEL_MANIFEST")
+        if request.get('modelVerification', 'full') not in ('full', 'installed'):
+            raise ValueError('VOICE_MODEL_POLICY')
         for name, expected in snapshot["files"].items():
-            if sha(inside(base, name)) != expected:
+            path = inside(base, name)
+            # The Mac path and LoRA/reference/package checks remain unchanged.
+            if self.backend is CudaDevice and request.get('modelVerification') == 'installed' and path.suffix.lower() in {'.safetensors', '.pth', '.pt', '.bin'}:
+                pinned = read_json(Path(__file__).with_name('runtime-windows-base.json'))['model']['files'].get(name)
+                if not pinned or pinned['sha256'] != expected or not path.is_file() or path.stat().st_size != pinned['bytes']:
+                    raise ValueError("MODEL_CHANGED")
+                continue
+            if sha(path) != expected:
                 raise ValueError("MODEL_CHANGED")
         phases['fileValidationMs'] = (time.perf_counter()-phase)*1000
         phase = time.perf_counter()

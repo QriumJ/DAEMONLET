@@ -33,20 +33,9 @@ def ordinary(path):
         except OSError:raise ValueError('QWEN_ASSET_CHANGED') from None
         if p.is_symlink() or getattr(s,'st_file_attributes',0)&getattr(stat,'FILE_ATTRIBUTE_REPARSE_POINT',0x400):raise ValueError('QWEN_ASSET_CHANGED')
 
-def verify_model(root):
-    if not root.is_absolute():raise ValueError('VOICE_RUNTIME_CONFIG')
-    ordinary(root)
-    for name,f in POLICY['files'].items():
-        p=root/name;ordinary(p)
-        if not p.is_file() or p.stat().st_size!=f['bytes']:raise ValueError('QWEN_MODEL_CHANGED')
-        if 'sha256' in f:
-            if sha(p)!=f['sha256']:raise ValueError('QWEN_MODEL_CHANGED')
-        else:
-            data=p.read_bytes()
-            if hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()!=f['gitSha1']:raise ValueError('QWEN_MODEL_CHANGED')
-    # Do not allow custom code or weight substitutions beside the pinned snapshot.
-    files={str(p.relative_to(root)).replace('\\','/') for p in root.rglob('*') if p.is_file()}
-    if files!=set(POLICY['files']):raise ValueError('QWEN_MODEL_CHANGED')
+def verify_model(root,mode='full'):
+    from windows_model_check import check_model
+    return check_model(root,POLICY['files'],mode,exact=True,error='QWEN_MODEL_CHANGED')
 
 def verify_environment():
     if sys.platform!='win32' or sys.prefix==sys.base_prefix:raise ValueError('QWEN_RUNTIME_VERSION')
@@ -82,7 +71,11 @@ class QwenWorker:
         if self.mode=='x-vector':transcript=''
         self.promptKey=prompt_key(self.conditioning['sha256'],transcript,self.mode)
         self.raw=r.get('keepRaw') is True
-        root=Path(r['model']);verify_model(root);verify_environment()
+        root=Path(r['model'])
+        if r.get('modelVerification')=='installed':
+            receipt=json.loads((Path(sys.prefix)/'qwen-runtime.json').read_text(encoding='utf-8'))
+            if Path(receipt.get('model','')).resolve()!=root.resolve() or receipt.get('revision')!=REVISION:raise ValueError('QWEN_RUNTIME_RECEIPT')
+        model_audit=verify_model(root,r.get('modelVerification','full'));verified=time.perf_counter();verify_environment();environment_done=time.perf_counter()
         import torch
         if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():raise ValueError('QWEN_CUDA_REQUIRED')
         # Probe actual CUDA operation; availability flags alone do not establish support.
@@ -90,12 +83,13 @@ class QwenWorker:
         if y.float().sum().item()!=512:raise ValueError('QWEN_CUDA_PROBE')
         del x,y
         from qwen_tts import Qwen3TTSModel
+        imported=time.perf_counter()
         self.model=Qwen3TTSModel.from_pretrained(str(root),device_map='cuda',dtype=torch.bfloat16,attn_implementation='sdpa',local_files_only=True,trust_remote_code=False)
         torch.cuda.synchronize();loaded=time.perf_counter()
         self.prompt=self.model.create_voice_clone_prompt(ref_audio=str(self.conditioning['path']),ref_text=transcript or None,x_vector_only_mode=self.mode=='x-vector')
         torch.cuda.synchronize();self.warmed=False
         free,total=torch.cuda.mem_get_info()
-        return dict(seedContract=1,referenceContract=1,mode='wav-reference',referenceSha256=self.conditioning['sha256'],conditioningFingerprint=self.conditioning['fingerprint'],referenceCacheBuilds=1,adapterSha256=None,defaultVoice=None,modelRevision=REVISION,sourceCommit=None,runtimeFingerprint=self.promptKey,promptCacheKey=self.promptKey,loadMs=(loaded-started)*1000,promptMs=(time.perf_counter()-loaded)*1000,loaded=True,warmed=False,ready=True,workerPid=os.getpid(),capabilities=CAPABILITIES,attention='sdpa',dtype='bfloat16',cudaFreeBytes=free,cudaTotalBytes=total)
+        return dict(seedContract=1,referenceContract=1,mode='wav-reference',referenceSha256=self.conditioning['sha256'],conditioningFingerprint=self.conditioning['fingerprint'],referenceCacheBuilds=1,adapterSha256=None,defaultVoice=None,modelRevision=REVISION,sourceCommit=None,runtimeFingerprint=self.promptKey,promptCacheKey=self.promptKey,**model_audit,environmentCheckMs=(environment_done-verified)*1000,runtimeImportMs=(imported-environment_done)*1000,modelLoadMs=(loaded-imported)*1000,loadMs=(loaded-started)*1000,promptMs=(time.perf_counter()-loaded)*1000,loaded=True,warmed=False,ready=True,workerPid=os.getpid(),capabilities=CAPABILITIES,attention='sdpa',dtype='bfloat16',cudaFreeBytes=free,cudaTotalBytes=total)
 
     def generate(self,text,seed):
         import torch

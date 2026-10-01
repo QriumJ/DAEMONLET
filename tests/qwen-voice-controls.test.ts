@@ -12,3 +12,13 @@ it('Windows labels only complete waveform and requires exact transcript for ICL'
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,availableProfiles:['qwen-complete'],executionProfile:'qwen-complete',qwenClone:{mode:'icl',transcript:''}},act:()=>{},playbackReady:true,characterId:'test'}))
  expect(html).toContain('Qwen · 완성 후 재생');expect(html).toContain('각 구간의 합성이 끝난 뒤 재생');expect(html).toContain('기준 WAV의 정확한 문장');expect(html).not.toContain('Qwen MLX · 청크 재생')
 })
+
+it('Windows preparation policy explains skipped weights and offers an explicit full check',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,modelVerification:'installed',availableProfiles:['qwen-complete'],executionProfile:'qwen-complete'},act:()=>{},playbackReady:true}))
+ expect(html).toContain('설치 때 검사 · 빠른 준비');expect(html).toContain('설치 후 손상을 모두 발견하지 못합니다.');expect(html).toContain('모델 전체 검사')
+ const mac=renderToStaticMarkup(createElement(VoiceSettings,{state,act:()=>{},playbackReady:true}));expect(mac).not.toContain('모델 준비 검사')
+})
+it('a running full check shows cancellation and disables engine controls',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,modelVerification:'full',modelCheck:{busy:true,error:null}},act:()=>{},playbackReady:true}))
+ expect(html).toContain('모델 전체 검사 중');expect(html).toContain('검사 중단');expect(html).toContain('aria-label="음성 엔진" disabled')
+})

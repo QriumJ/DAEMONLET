@@ -22,7 +22,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   if(r.package.endsWith('crash')){process.exit(2);return}
   if(r.package.endsWith('contaminate')){process.stdout.write('upstream log\n');return}
   if(r.package.endsWith('partial')){process.stdout.write('{"protocolVersion":');return}
-  if(r.engine==='qwen3-tts-06b'){send(r,'ready',{capabilities:{engine:r.engine,synthesisStreaming:r.package.endsWith('bad-qwen-capabilities')?true:r.executionProfile.startsWith('qwen-mlx'),cancellation:'owned-process-termination',warmCancellationReuse:false},seedContract:1,referenceContract:1,mode:'wav-reference',referenceSha256:r.conditioning.sha256,conditioningFingerprint:r.conditioning.fingerprint,referenceCacheBuilds:1,adapterSha256:null,defaultVoice:null,loaded:true,warmed:false});return}
+  if(r.engine==='qwen3-tts-06b'){send(r,'ready',{capabilities:{engine:r.engine,synthesisStreaming:r.package.endsWith('bad-qwen-capabilities')?true:r.executionProfile.startsWith('qwen-mlx'),cancellation:'owned-process-termination',warmCancellationReuse:false},seedContract:1,referenceContract:1,mode:'wav-reference',referenceSha256:r.conditioning.sha256,conditioningFingerprint:r.conditioning.fingerprint,referenceCacheBuilds:1,adapterSha256:null,defaultVoice:null,loaded:true,warmed:false,modelVerification:r.modelVerification||'full'});return}
   send(r,'ready',r.package.endsWith('old-seed')?{}:{seedContract:1});return
  }
  if(r.type==='prewarm'){send(r,'warmed',{loaded:true,warmed:true,ready:true});return}
