@@ -44,3 +44,9 @@ it('retains flushed sub-percent remainder across native blur, but drops unsent m
  const f=fixture();for(let n=0;n<20;n++){f.wheel({deltaY:1});await vi.advanceTimersByTimeAsync(100);f.host.dispatchEvent(new Event('blur'))}
  expect(f.opacity()).toBe(.98);f.wheel({deltaY:100});f.host.dispatchEvent(new Event('blur'));await vi.advanceTimersByTimeAsync(100);expect(f.opacity()).toBe(.98);f.controller.dispose()
 })
+
+it('drops an unsent wheel target when Settings changes opacity before the flush',async()=>{
+ const f=fixture();f.wheel({deltaY:100});f.setOpacity(.5)
+ f.wheel({deltaY:100});await vi.advanceTimersByTimeAsync(80)
+ expect(f.update).toHaveBeenCalledOnce();expect(f.opacity()).toBe(.4);f.controller.dispose()
+})

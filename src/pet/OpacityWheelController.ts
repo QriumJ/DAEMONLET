@@ -38,7 +38,7 @@ export class OpacityWheelController {
     event.preventDefault(); event.stopImmediatePropagation()
     const observed = this.options.opacity()
     // Preserve sub-percent motion across flushes; external Settings changes reset the base.
-    if (observed !== this.lastObserved && observed !== this.lastSent) this.desired = observed
+    if (observed !== this.lastObserved && observed !== this.lastSent) { this.desired = observed; this.queued = null }
     this.lastObserved = observed
     this.desired = Math.max(0, Math.min(1, (this.queued ?? this.desired ?? this.inFlight ?? observed) - delta))
     this.queued = this.desired
