@@ -12,6 +12,8 @@ Speech needs genuinely closed artwork and its matching contour. Most poses use t
 
 A meter heartbeat grants a 250 ms mouth lease. Silence, mute and pause while output is still owned renew level zero at a bounded 100 ms heartbeat, without reading PCM when muted or paused. Stop, mute, pause, end, cancellation and loss of ownership emit zero immediately; without another heartbeat the lease expires and restores the authored expression. Changing pose clears the previous nonzero level without extending its lifetime. A fresh heartbeat can drive the new current pose. Model unload/change releases the lease immediately.
 
+The direct/dot runtime lease releases after 250 ms without a heartbeat. In the local-chat path, a lost final heartbeat first triggers the local watchdog after 250 ms, then its level-zero frame starts another runtime lease: authored expression recovery can take approximately 500 ms (plus event-loop delays). Explicit stop/ownership handoff sends zero promptly and revokes the old local watchdog. The direct-sink capture below does not exercise the IPC ownership route; separate local watchdog/lease and IPC regressions cover that boundary.
+
 ## Reproduce without touching an installed pack
 
 Use a reviewed existing pack directory, including visually confirmed closed strokes. The authoring tool writes a NEW output directory and verifies every input payload hash. It changes pose metadata and only derives speech contours where no morph exists; supplied PNG/PSD/persona payloads remain byte-identical.
