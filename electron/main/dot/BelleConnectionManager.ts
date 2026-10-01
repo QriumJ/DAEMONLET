@@ -51,7 +51,7 @@ export class BelleConnectionManager{
    let key=await this.options.store.get(controller.signal);if(!validRuntimeKey(key))throw Error('KEY_MISSING')
    try{
     const bridge=await this.options.bridge.start(controller.signal)
-    const running=await this.options.runtime.start(this.config!,key,bridge,controller.signal,()=>{if(generation===this.generation&&this.desired&&!this.closed){this.abort();void this.serial(()=>this.lost())}})
+    const running=await this.options.runtime.start(this.config!,key,bridge,controller.signal,()=>{if(generation===this.generation&&this.desired&&!this.closed){this.abort();void this.serial(()=>this.lost()).catch(()=>{})}})
     if(controller.signal.aborted||generation!==this.generation){await running.stop();return}
     this.running=running
    }finally{key=''}
@@ -65,12 +65,12 @@ export class BelleConnectionManager{
   // Locked/denied storage, invalid dependencies and auth readiness failures need user action.
   if(this.value.error!=='CONNECTION_FAILED'||this.value.retry>=3){this.desired=false;return}
   this.emit({state:'reconnecting',retry:this.value.retry+1});const generation=this.generation
-  this.timer=setTimeout(()=>{this.timer=null;if(generation===this.generation&&this.desired&&!this.closed)void this.serial(()=>this.launch())},this.options.retryDelay?.(this.value.retry)??1000*2**(this.value.retry-1));this.timer.unref?.()
+  this.timer=setTimeout(()=>{this.timer=null;if(generation===this.generation&&this.desired&&!this.closed)void this.serial(()=>this.launch()).catch(()=>{})},this.options.retryDelay?.(this.value.retry)??1000*2**(this.value.retry-1));this.timer.unref?.()
  }
  private async lost(){await this.cleanup();if(!this.desired||this.closed)return;this.emit({state:'error',error:'CONNECTION_FAILED'});this.scheduleRetry()}
  private abort(){this.generation++;this.attempt?.abort();this.attempt=null;if(this.timer)clearTimeout(this.timer);this.timer=null;if(this.monitor)clearInterval(this.monitor);this.monitor=null}
- private async cleanup(){const running=this.running;this.running=null;if(this.monitor)clearInterval(this.monitor);this.monitor=null;await running?.stop();await this.options.bridge.stop()}
- disconnect(){this.desired=false;this.abort();return this.serial(async()=>{await this.cleanup();if(this.config?.autoConnect){const next={...this.config,autoConnect:false};await this.options.metadata.save(next);this.config=next}this.emit({state:this.options.external?'external':this.config?'disconnected':'unconfigured',error:null,retry:0,muted:true});return this.snapshot()})}
+ private async cleanup(){const running=this.running;if(this.monitor)clearInterval(this.monitor);this.monitor=null;try{await running?.stop();if(this.running===running)this.running=null}catch{this.desired=false;this.emit({state:'error',error:'CONNECTION_FAILED',muted:true});throw Error('CONNECTION_FAILED')}finally{await this.options.bridge.stop()}}
+ disconnect(){this.desired=false;this.abort();return this.serial(async()=>{if(this.config?.autoConnect){const next={...this.config,autoConnect:false};await this.options.metadata.save(next);this.config=next}await this.cleanup();this.emit({state:this.options.external?'external':this.config?'disconnected':'unconfigured',error:null,retry:0,muted:true});return this.snapshot()})}
  forget(){this.desired=false;this.abort();return this.serial(async()=>{this.ensureOpen();if(this.options.external)throw Error('EXTERNAL_SESSION');await this.cleanup();await this.options.store.remove();await this.options.metadata.save(null);this.config=null;this.emit({state:'unconfigured',credentialStored:false,error:null,retry:0,muted:true});return this.snapshot()})}
  async close(){this.closed=true;this.desired=false;this.abort();await this.serial(()=>this.cleanup());this.listeners.clear()}
 }

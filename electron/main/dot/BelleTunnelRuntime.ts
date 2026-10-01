@@ -10,14 +10,23 @@ const exec=promisify(execFile)
 export function tunnelBaseEnv(source:NodeJS.ProcessEnv=process.env){const env:NodeJS.ProcessEnv={};for(const key of ['HOME','USER','LOGNAME','LANG','LC_ALL','TMPDIR','SystemRoot','WINDIR','TEMP','TMP','USERPROFILE','LOCALAPPDATA','APPDATA'])if(source[key])env[key]=source[key];return env}
 export function clientVersion(value:string){const match=value.trim().match(/^(\d+)\.(\d+)\.(\d+)(?:[+\s-]|$)/);if(!match)return null;const [,a,b,c]=match.map(Number);return a>0||b>0||c>=14?match[0].trim().replace(/[+-]$/,''):null}
 export function nodeVersion(value:string){const match=value.trim().match(/^v(\d+)\.(\d+)\.(\d+)$/);if(!match)return null;return +match[1]>22||+match[1]===22&&+match[2]>=13?value.trim():null}
+export function windowsPathEntries(value:string){return value.split(';').map(entry=>{
+ const trimmed=entry.trim();return trimmed.startsWith('"')&&trimmed.endsWith('"')?trimmed.slice(1,-1):trimmed
+}).filter(entry=>entry.length>0&&!/["\0]/.test(entry))}
 const abort=()=>Error('CONNECTION_FAILED')
 export async function stopOwnedTunnel(child:ChildProcess,platform=process.platform){
  if(platform==='win32'){
   // EOF asks the native supervisor to close its Job. Killing the supervisor also closes its only Job handle.
   child.stdin?.end();
-  const wait=()=>Promise.race([new Promise<void>(r=>child.once('exit',()=>r())),new Promise<void>(r=>setTimeout(r,3000))]);
-  if(child.exitCode===null&&child.signalCode===null)await wait();
-  if(child.exitCode===null&&child.signalCode===null){child.kill();await wait()}
+  const alive=()=>child.exitCode===null&&child.signalCode===null;
+  const wait=()=>new Promise<void>(resolve=>{
+   let timer:ReturnType<typeof setTimeout>;
+   const done=()=>{clearTimeout(timer);child.removeListener('exit',done);resolve()};
+   timer=setTimeout(done,3000);child.once('exit',done);if(!alive())done();
+  });
+  if(alive())await wait();
+  if(alive()){try{child.kill()}catch{}await wait()}
+  if(alive())throw abort();
   return
  }
  if(!child.pid)return
@@ -35,7 +44,7 @@ export class BelleTunnelRuntime implements TunnelRuntime{
  constructor(private adapter:string,private platform=process.platform,private base=tunnelBaseEnv(),private paths?:{client:string;node:string;supervisor?:string;host?:string}){}
  private async executable(candidates:string[],missing:string){for(const path of candidates){try{const s=await stat(path);if(s.isFile()){await access(path,this.platform==='win32'?0:1);return path}}catch{}}throw Error(missing)}
  private windowsHost(){return this.paths?.host??join(dirname(this.adapter),'../native/DaemonletBelleTunnelHost.exe')}
- private windowsCandidates(name:string){const local=process.env.LOCALAPPDATA??'',program=process.env.ProgramFiles??'C:\\Program Files';return [join(homedir(),'.local/bin',name),join(local,'Programs/tunnel-client',name),join(program,name==='node.exe'?'nodejs':'tunnel-client',name),...(process.env.PATH??'').split(';').filter(Boolean).map(p=>join(p,name))]}
+ private windowsCandidates(name:string){const local=process.env.LOCALAPPDATA??'',program=process.env.ProgramFiles??'C:\\Program Files';return [join(homedir(),'.local/bin',name),join(local,'Programs/tunnel-client',name),join(program,name==='node.exe'?'nodejs':'tunnel-client',name),...windowsPathEntries(process.env.PATH??'').map(p=>join(p,name))]}
  private supervisor(){return this.paths?.supervisor??join(dirname(this.adapter),'belle-tunnel-supervisor.mjs')}
  async probe(){
   if(this.platform!=='darwin'&&this.platform!=='win32')throw Error('STORE_UNAVAILABLE')
@@ -55,8 +64,8 @@ export class BelleTunnelRuntime implements TunnelRuntime{
   if(signal.aborted)throw abort()
   const work=await mkdtemp(join(tmpdir(),'daemonlet-belle-connection-')),profile=join(work,'client.yaml'),health=join(work,'health.url')
   let child:ChildProcess|null=null,stopped=false,settled=false,healthUrl='',stopPromise:Promise<void>|null=null
-  const stop=()=>stopPromise??=(async()=>{stopped=true;signal.removeEventListener('abort',onAbort);if(child)await stopOwnedTunnel(child,this.platform);await rm(work,{recursive:true,force:true})})()
-  const onAbort=()=>{void stop()}
+  const stop=()=>stopPromise??=(async()=>{stopped=true;signal.removeEventListener('abort',onAbort);if(child)await stopOwnedTunnel(child,this.platform);await rm(work,{recursive:true,force:true})})().catch(e=>{stopPromise=null;throw e})
+  const onAbort=()=>{void stop().catch(()=>{})}
   const quote=(v:string)=>"'"+v.replaceAll("'","'\\''")+"'"
   // The key never reaches the stdio adapter environment. Paths originate in Main, never the renderer.
   const windowsQuote=(v:string)=>{if(/[\0\r\n"%!&|<>^]/.test(v))throw abort();return '"'+v.replaceAll('\\','/')+'"'}
