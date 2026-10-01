@@ -46,3 +46,10 @@ it('a reply exposes one primary play button before its collapsed advanced voice 
  const html=renderToStaticMarkup(createElement(MessageVoiceControls,{messageId:'synthetic'})),before=html.slice(0,html.indexOf('<details>'))
  expect(before.match(/<button/g)).toHaveLength(1);expect(before).toContain('재생');expect(before).not.toContain('시드');expect(html).toContain('<details><summary>음성 옵션</summary>');expect(html).toContain('다른 시드로 다시 읽기')
 })
+
+it('settings can prepare a supported engine without a chat playback window and explains readiness blockers',()=>{
+ const render=(patch:any={})=>renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,status:'idle',baseInstall:{...voice.baseInstall,installed:true,phase:'idle'},...patch},characterId:'belle',act:()=>{},playbackReady:false}))
+ const html=render();expect(html).toContain('캐릭터챗을 열지 않고 엔진만 준비해요.');expect(html).not.toMatch(/<button[^>]*disabled[^>]*>음성 엔진 미리 준비<\/button>/);expect(html).toMatch(/<button[^>]*disabled[^>]*>시험 재생<\/button>/)
+ for(const patch of [{enabled:false},{runtimeConfigured:false},{seedError:true},{availableProfiles:[]}])expect(render(patch)).toMatch(/<button[^>]*disabled[^>]*>음성 엔진 미리 준비<\/button>/)
+ expect(render({volume:0})).not.toMatch(/<button[^>]*disabled[^>]*>음성 엔진 미리 준비<\/button>/)
+})

@@ -1,9 +1,10 @@
 import type {CharacterChatDefinition} from './character-chat-semantics'
 export const DOT_IPC={get:'dot-presentation.get',changed:'dot-presentation.changed',ready:'dot-presentation.ready',voiceAction:'dot-presentation.voice-action',audio:'dot-presentation.audio',voiceEvent:'dot-presentation.voice-event',volume:'dot-presentation.volume',volumeChanged:'dot-presentation.volume-changed'} as const
+export const DOT_VOICE_PREPARATION_TIMEOUT_MS=900_000
 export const DOT_STATES=['idle','thinking','speaking','done','error'] as const
 export const DOT_POSES=['neutral','listening','thinking','happy','sad','error'] as const
 export type DotCommand={type:'present';text?:string;pose:typeof DOT_POSES[number];state:typeof DOT_STATES[number];speak:boolean;durationMs:number;fallback:boolean}|{type:'cancel'}
-export type DotFrame={sequence:number;active:boolean;characterId:string|null;revision:string|null;text:string;pose:typeof DOT_POSES[number];state:typeof DOT_STATES[number];definition:CharacterChatDefinition;expiresAt:number;muted:boolean}
+export type DotFrame={sequence:number;active:boolean;characterId:string|null;revision:string|null;text:string;pose:typeof DOT_POSES[number];state:typeof DOT_STATES[number];definition:CharacterChatDefinition;expiresAt:number;muted:boolean;voicePhase?:'preparing'|'playing'|'error';voiceError?:'preparation-timeout'|'failed'}
 export interface DotPresentationApi{get():Promise<DotFrame|null>;subscribe(listener:(frame:DotFrame|null)=>void):()=>void;ready(value:boolean):Promise<void>}
 export function parseDotCommand(value:unknown):DotCommand{
  if(!value||typeof value!=='object'||Array.isArray(value))throw Error('DOT_ARGUMENTS')

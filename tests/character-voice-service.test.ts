@@ -254,3 +254,42 @@ it.each(['stop','hide','off','close'])('grouped large input %s cancels while gen
 
 // These service fixtures use synthetic paths and no installed model/runtime.
 seedBeforeEach(()=>{vi.spyOn(CharacterVoiceService.prototype as any,'replayAssets').mockResolvedValue('synthetic-asset-identity')})
+
+async function manualPreparationFixture(){
+ const f=await fixture();f.service.setOutputReady(false);await f.service.stop()
+ const base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/python',path:'/model',snapshot:()=>({supported:true,installed:true}),identity:vi.fn(async()=> 'stable'),ready:vi.fn(async()=>'/model'),cancelVerification:vi.fn(async()=>{}),cancel:async()=>{}}
+ ;(f.service as any).base=base;(f.service as any).state.profiles.push(base.profile);(f.service as any).state.bindings['actual-id']='voxcpm2_default@base';(f.service as any).baseExecutionProfile='cuda-compiled-complete'
+ Object.assign(f.runtime,{config:{python:'/python',model:'/model',nativeBase:false,windowsBase:true},busy:false})
+ f.runtime.start.mockClear();f.runtime.stop.mockClear();return {...f,base}
+}
+it('settings prewarm has no output lease, speech or history and Dots borrows the same prepared worker',async()=>{
+ const f=await manualPreparationFixture(),history=structuredClone(f.chat.conversation)
+ await f.service.volume(0);await Promise.all([f.service.prepare(true),f.service.prepare(true)])
+ expect(f.runtime.start).toHaveBeenCalledTimes(1);expect(f.runtime.synthesize).not.toHaveBeenCalled();expect((f.service as any).outputReady).toBe(false);expect(f.events.filter(e=>e.type==='audio')).toEqual([])
+ f.service.setOutputReady(true,false);const task=f.service.speakPresentation('짧은 문장',new AbortController().signal);await f.completeOne();await task
+ expect(f.runtime.start).toHaveBeenCalledTimes(1);expect(f.base.ready).toHaveBeenCalledTimes(1);expect(f.chat.conversation).toEqual(history)
+ await f.service.releasePresentationOutput('completed');expect(f.service.snapshot().status).toBe('idle');expect((f.service as any).outputReady).toBe(false)
+})
+it.each(['stop','off','close','character','reference','execution'] as const)('manual prewarm %s invalidation forbids late worker/audio',async action=>{
+ const f=await manualPreparationFixture();let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>release=r),begun=new Promise<void>(r=>entered=r)
+ f.base.ready.mockImplementationOnce(async()=>{entered();await gate;return '/model'});const task=f.service.prepare(true);await begun
+ if(action==='off')await f.service.enabled(false)
+ else if(action==='close')await f.service.close()
+ else if(action==='character'){f.chat.character!.revision='new';f.service.onChatChanged()}
+ else if(action==='reference'){(f.service as any).state.profiles.find((p:any)=>p.id==='voxcpm2_default').fingerprint='changed';f.service.onChatChanged()}
+ else if(action==='execution'){const change=f.service.executionProfile('cuda-compiled');release();await change}
+ else await f.service.stop()
+ release();await task;expect(f.runtime.start).not.toHaveBeenCalled();expect(f.runtime.synthesize).not.toHaveBeenCalled();expect(f.events.filter(e=>e.type==='audio')).toEqual([])
+})
+it('manual prepare rejects missing character or disabled engine, and retry clears stale error',async()=>{
+ const f=await manualPreparationFixture(),character=f.chat.character;f.chat.character=null
+ await expect(f.service.prepare(true)).rejects.toThrow('VOICE_PREPARATION_UNAVAILABLE');f.chat.character=character
+ await f.service.enabled(false);await expect(f.service.prepare(true)).rejects.toThrow('VOICE_PREPARATION_UNAVAILABLE');await f.service.enabled(true)
+ f.base.ready.mockRejectedValueOnce(Error('VOICE_BASE_CHANGED'));await f.service.prepare(true);expect(f.service.snapshot().error).toBe('VOICE_BASE_CHANGED')
+ await f.service.prepare(true);expect(f.service.snapshot().error).toBeNull();expect(f.service.snapshot().status).toBe('idle')
+})
+it('scheduled acknowledgement requires a claimed live epoch even when the waveform is fully ready',async()=>{
+ const f=await fixture();f.service.completed(f.message);await vi.waitFor(()=>expect(f.events.some(e=>e.type==='audio')).toBe(true));const e=f.events.find(e=>e.type==='audio')!;if(e.type!=='audio')throw Error('fixture')
+ expect(f.service.scheduled(e.audioId,e.epoch,0,0)).toBeUndefined();f.service.audio(e.audioId,e.epoch);expect(f.service.scheduled(e.audioId,e.epoch,0,0)).toBe(true)
+ await f.service.stop();expect(f.service.scheduled(e.audioId,e.epoch,0,0)).toBeUndefined()
+})

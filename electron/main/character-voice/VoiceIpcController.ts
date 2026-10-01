@@ -21,6 +21,7 @@ export class VoiceIpcController {
  private petReady=false
  private presentationOutput=false
  private presentationGeneration=0
+ private presentationPlayback:{generation:number;signal:AbortSignal;epoch:number|null;announced:Set<string>;claimed:Set<string>;started:boolean;scheduled:(delayMs:number)=>void}|null=null
  attachPresentationWindow(win:BrowserWindow){
   this.petOutput=win
   const reset=()=>{this.petReady=false;if(this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
@@ -28,21 +29,40 @@ export class VoiceIpcController {
   ipcMain.handle(DOT_IPC.volume,event=>{if(!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.service.snapshot().volume})
   ipcMain.handle(DOT_IPC.voiceAction,async(event,v:VoiceAction)=>{
    if(!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||!v||!['played','scheduled','outputStopped'].includes(v.type)||!this.presentationOutput)throw Error('UNTRUSTED_SENDER')
-   await this.action(v);return {epoch:this.service.snapshot().epoch} // no history/settings projection
+   const accepted=await this.action(v),run=this.presentationPlayback
+   if(v.type==='scheduled'&&accepted===true&&run&&!run.started&&!run.signal.aborted&&run.generation===this.presentationGeneration&&run.epoch===v.epoch&&v.epoch===this.service.snapshot().epoch&&run.claimed.has(v.audioId)&&this.presentationOutput&&this.petReady&&!!this.petOutput?.isVisible()&&!this.petOutput.webContents.isDestroyed()&&!this.playbackReady){run.started=true;run.scheduled(v.delayMs)}
+   return {epoch:this.service.snapshot().epoch} // no history/settings projection
   })
   ipcMain.handle(DOT_IPC.audio,(event,id:unknown,epoch:unknown)=>{
    if(!this.presentationOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||typeof id!=='string'||id.length!==36||!Number.isSafeInteger(epoch))throw Error('UNTRUSTED_AUDIO')
-   return this.service.audio(id,epoch as number)
+   const bytes=this.service.audio(id,epoch as number),run=this.presentationPlayback
+   if(run&&run.generation===this.presentationGeneration&&!run.signal.aborted&&run.epoch===epoch&&run.announced.has(id))run.claimed.add(id)
+   return bytes
   })
  }
  presentationReady(value:boolean){this.petReady=value;if(!value&&this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
  presentationVoiceIssue(){const s=this.service.snapshot();return !this.petReady||!s.enabled||!s.runtimeConfigured||s.seedError||!s.availableProfiles?.length||!!s.error}
- async speakPresentation(text:string,signal:AbortSignal){
+ async speakPresentation(text:string,signal:AbortSignal,scheduled:(delayMs:number)=>void=()=>{}){
   if(this.playbackReady||!this.petOutput||this.petOutput.isDestroyed()||!this.petOutput.isVisible()||this.presentationVoiceIssue())throw Error('VOICE_PRESENTATION_UNAVAILABLE')
-  const generation=++this.presentationGeneration;this.presentationOutput=true;this.service.setOutputReady(true)
-  try{await this.service.speakPresentation(text,signal)}finally{if(generation===this.presentationGeneration)await this.stopPresentation()}
+  const generation=++this.presentationGeneration;this.presentationOutput=true
+  this.presentationPlayback={generation,signal,epoch:null,announced:new Set(),claimed:new Set(),started:false,scheduled}
+  this.service.setOutputReady(true,false)
+  let outcome:'completed'|'cancelled'|'failed'='cancelled',failure:unknown
+  try{await this.service.speakPresentation(text,signal);outcome=signal.aborted?'cancelled':'completed'}
+  catch(e){failure=e;outcome=e instanceof Error&&e.message==='VOICE_CANCELLED'?'cancelled':'failed';throw e}
+  finally{
+   if(signal.aborted&&signal.reason instanceof Error&&signal.reason.message==='VOICE_PRESENTATION_PREPARATION_TIMEOUT'){outcome='failed';failure=signal.reason}
+   if(generation===this.presentationGeneration)await this.stopPresentation(outcome,failure)
+  }
  }
- async stopPresentation(){const generation=++this.presentationGeneration;if(this.presentationOutput){try{await this.service.stop(true,false)}finally{if(generation===this.presentationGeneration){this.presentationOutput=false;this.service.setOutputReady(false);this.updateOutput()}}}}
+ async stopPresentation(outcome:'completed'|'cancelled'|'failed'='cancelled',failure?:unknown){
+  const generation=++this.presentationGeneration
+  if(this.presentationOutput){
+   const pending=this.service.releasePresentationOutput(outcome,failure)
+   this.presentationOutput=false;this.presentationPlayback=null
+   try{await pending}finally{if(generation===this.presentationGeneration)this.updateOutput()}
+  }
+ }
 
  private managementListeners=new Set<()=>void>()
  subscribeManagement(listener:()=>void){this.managementListeners.add(listener);return()=>{this.managementListeners.delete(listener)}}
@@ -51,6 +71,7 @@ export class VoiceIpcController {
   if(!VOICE_MANAGEMENT_ACTIONS.includes(value?.type as any))throw Error('VOICE_ACTION')
   await this.initialize();if(!current())throw Error('CHAT_SETTINGS_EXPIRED')
   if(value.type==='test'&&!this.playbackReady)throw Error('VOICE_OUTPUT_NOT_READY')
+  if(value.type==='prepare')return this.service.prepare(true)
   return this.action(value,owner,current)
  }
  private referencePicker:{cancelled:boolean}|null=null
@@ -93,6 +114,8 @@ export class VoiceIpcController {
  }
  private publishManagement(){for(const listener of this.managementListeners){try{listener()}catch{}}}
  private send(channel:string,value:unknown){
+  const run=this.presentationPlayback,voice=value as {type?:string;epoch:number;audioId?:string}
+  if(this.presentationOutput&&channel===VOICE_IPC.event&&voice.type==='audio'&&voice.audioId&&run&&run.generation===this.presentationGeneration&&!run.signal.aborted){if(run.epoch===null)run.epoch=voice.epoch;if(run.epoch===voice.epoch)run.announced.add(voice.audioId)}
   if(channel===VOICE_IPC.changed){this.publishManagement();const state=value as {epoch:number;status:string;volume:number};if(state.epoch!==this.localAudioEpoch||['off','unavailable','stopped','error'].includes(state.status)){this.localAudioClaims.clear();this.publishMouth(null)}else if(state.volume===0)this.publishMouth(null)}
   if(channel===VOICE_IPC.event&&(value as {type:string}).type==='stop'){this.localAudioClaims.clear();this.publishMouth(null)}
   const win=this.presentationOutput?this.petOutput:this.window()
@@ -112,6 +135,7 @@ export class VoiceIpcController {
   win.webContents.on('destroyed',reset)
  }
  private updateOutput(){
+  if(this.presentationOutput&&this.playbackReady){void this.stopPresentation().catch(e=>this.service.error(e));return}
   const win=this.window()
   this.service.setOutputReady(!this.closing&&!!win&&win===this.attached&&!win.isDestroyed()&&!win.webContents.isDestroyed()&&win.isVisible()&&this.rendererReady)
   // Readiness can change without a service snapshot (baseline/off skips preparation).
@@ -126,7 +150,7 @@ export class VoiceIpcController {
   switch(v.type){
    case 'ready':this.rendererReady=true;this.updateOutput();return
    case 'snapshot':return
-   case 'stop':return this.service.stop(true,false)
+   case 'stop':return this.presentationOutput?this.stopPresentation():this.service.stop(true,false)
    case 'installBase':return this.service.installBase()
    case 'cancelInstallBase':return this.service.cancelInstallBase()
    case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()

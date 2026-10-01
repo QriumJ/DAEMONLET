@@ -44,3 +44,29 @@ it('next sentence synthesis does not reset the mouth while previous PCM still ha
  c.send(VOICE_IPC.event,{type:'stop',epoch:10});expect(send).toHaveBeenLastCalledWith('character-voice.mouth',null)
  send.mockClear();mouth({} as any,{epoch:9,level:2});expect(send).not.toHaveBeenCalled();c.window=()=>null
 })
+
+it('settings preparation needs current settings context but no chat playback lease',async()=>{
+ const f=await fixture();vi.spyOn(f.controller,'initialize').mockResolvedValue(undefined);const prepare=vi.spyOn(f.controller.service,'prepare').mockResolvedValue(undefined),output=vi.spyOn(f.controller.service,'setOutputReady')
+ await f.controller.manage({type:'prepare'},f.window,()=>true);expect(prepare).toHaveBeenCalledWith(true);expect(output).not.toHaveBeenCalled();expect((f.controller as any).presentationOutput).toBe(false)
+ await expect(f.controller.manage({type:'prepare'},f.window,()=>false)).rejects.toThrow('CHAT_SETTINGS_EXPIRED');await expect(f.controller.manage({type:'test'},f.window,()=>true)).rejects.toThrow('VOICE_OUTPUT_NOT_READY')
+})
+it('only announced and claimed trusted current pet audio starts the presentation clock once',async()=>{
+ const f=await fixture(),c=f.controller as any,started=vi.fn(),abort=new AbortController(),id='a'.repeat(36);let finish!:()=>void
+ vi.spyOn(c,'presentationVoiceIssue').mockReturnValue(false);vi.spyOn(c.service,'setOutputReady').mockImplementation(()=>{});vi.spyOn(c.service,'speakPresentation').mockImplementation(()=>new Promise<void>(r=>finish=r));vi.spyOn(c.service,'audio').mockReturnValue(new Uint8Array([1]));vi.spyOn(c.service,'scheduled').mockReturnValue(true)
+ c.petReady=true;c.service.state.epoch=10;const task=c.speakPresentation('synthetic',abort.signal,started)
+ const scheduled=(audioId=id,epoch=10,delayMs=0)=>f.handler(DOT_IPC.voiceAction)({} as any,{type:'scheduled',audioId,epoch,delayMs,gapMs:0})
+ await scheduled();expect(started).not.toHaveBeenCalled()
+ c.send(VOICE_IPC.event,{type:'audio',audioId:id,epoch:10});await scheduled();expect(started).not.toHaveBeenCalled()
+ f.handler(DOT_IPC.audio)({} as any,id,10)
+ await scheduled(id,9);await expect(scheduled(id,10,6001)).rejects.toThrow('VOICE_ACTION');expect(started).not.toHaveBeenCalled()
+ vi.mocked(isTrustedSender).mockReturnValue(false);await expect(scheduled()).rejects.toThrow('UNTRUSTED_SENDER');vi.mocked(isTrustedSender).mockReturnValue(true)
+ const visible=vi.spyOn(f.window,'isVisible').mockReturnValue(false);await scheduled();expect(started).not.toHaveBeenCalled();visible.mockReturnValue(true)
+ c.service.state.epoch=11;await scheduled();expect(started).not.toHaveBeenCalled();c.service.state.epoch=10
+ await scheduled(id,10,240);await scheduled(id,10,500);expect(started).toHaveBeenCalledExactlyOnceWith(240)
+ abort.abort();await scheduled();expect(started).toHaveBeenCalledTimes(1);finish();await task
+})
+it('cleanup preserves preparation failure instead of reporting a successful stopped voice',async()=>{
+ const f=await fixture();vi.spyOn(f.controller,'presentationVoiceIssue').mockReturnValue(false);vi.spyOn(f.controller.service,'setOutputReady').mockImplementation(()=>{});(f.controller as any).petReady=true
+ vi.spyOn(f.controller.service,'speakPresentation').mockRejectedValueOnce(Error('CUDA_OOM'))
+ await expect(f.controller.speakPresentation('synthetic',new AbortController().signal)).rejects.toThrow('CUDA_OOM');expect(f.controller.service.snapshot().error).toBe('CUDA_OOM');expect(f.controller.service.snapshot().status).toBe('error');expect((f.controller as any).presentationOutput).toBe(false)
+})

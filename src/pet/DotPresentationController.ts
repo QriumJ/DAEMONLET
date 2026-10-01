@@ -5,7 +5,7 @@ import type {DialogueSnapshot} from '../dialogue/types'
 /** Keep the bounded original text; the native bubble owns preview/expansion. */
 export function dotBubble(frame:DotFrame|null,now=Date.now(),t:(text:string)=>string=text=>text):DialogueSnapshot|null{
  if(!frame?.active||now>=frame.expiresAt)return null
- const text=frame.text||t(({idle:'준비됨',thinking:'생각 중…',speaking:'말하는 중…',done:'완료',error:'오류'} as const)[frame.state])
+ const text=frame.voiceError?t(frame.voiceError==='preparation-timeout'?'음성 준비 시간이 초과됐어요. 다시 연결하지 않고 재시도할 수 있어요.':'음성을 준비하거나 재생하지 못했어요. 음성 설정에서 오류를 확인해 주세요.'):frame.voicePhase==='preparing'?t('음성 준비 중… 첫 준비는 몇 분 걸릴 수 있어요. 언제든 취소할 수 있어요.'):frame.text||t(({idle:'준비됨',thinking:'생각 중…',speaking:'말하는 중…',done:'완료',error:'오류'} as const)[frame.state])
  return {enabled:true,characterId:frame.characterId,visible:true,phase:'shown',text,triggerId:null,priority:100,shownAt:now,hideAt:frame.expiresAt,fadeMs:0,queueLength:0,suppressedCount:0,lastDecision:null,history:[],warnings:[]}
 }
 export function dotPose(frame:DotFrame){

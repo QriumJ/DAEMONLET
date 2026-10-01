@@ -44,6 +44,7 @@ export class CharacterVoiceService {
  private disposed=false
  private currentSpeech:(()=>boolean)|null=null
  private preparing:Promise<void>|null=null
+ private preparationCurrent:(()=>boolean)|null=null
  private chunks=new Map<string,{epoch:number;bytes:Uint8Array;durationMs:number;claimed:boolean;resolve:()=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>;segmentIndex:number;chunkIndex:number}>()
  private speechStartedAt=0
  private requestTimes=new Map<string,number>()
@@ -91,11 +92,11 @@ export class CharacterVoiceService {
  private emit(){this.bestEffort(()=>this.changed(this.snapshot()))}
  private notify(event:VoiceEvent){this.bestEffort(()=>this.event(event))}
  private diagnose(value:Record<string,unknown>){this.bestEffort(()=>this.diagnostic(value))}
- setOutputReady(ready:boolean){
+ setOutputReady(ready:boolean,prepareOnReady=true){
   if(this.outputReady===(ready&&!this.disposed))return
   this.outputReady=ready&&!this.disposed
   if(!this.outputReady){this.allowedRequests.clear();void this.stop().catch(e=>this.error(e))}
-  else void this.prepare()
+  else if(prepareOnReady)void this.prepare()
  }
 
  async initialize(){
@@ -224,17 +225,19 @@ export class CharacterVoiceService {
    this.diagnose({type:'base-verification',reused:false,verifyMs,loadMs:Date.now()-loading,session:runtime.sessionId})
   }catch(e){this.verifiedBase=null;if(current())await runtime.stop();throw e}
  }
- prepare():Promise<void>{
+ prepare(manual=false):Promise<void>{
   if(this.preparing)return this.preparing
   const profile=this.selectedProfile()
-  if(this.disposed||this.state.seedError||!this.outputReady||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.activeProfile())&&!this.activeProfile().endsWith('-complete'))||this.currentSpeech||this.modelCheckTask)return Promise.resolve()
-  const operation=this.operation,runtime=this.getRuntime()
-  this.state.status='loading';this.emit()
-  const task=this.startRuntime(profile,runtime,()=>operation===this.operation&&this.outputReady&&!this.disposed&&this.state.enabled).then(async()=>{
-   if(operation!==this.operation||this.disposed||!this.outputReady)return
+  if(this.disposed||(manual&&!this.chat().character)||this.state.seedError||(!manual&&!this.outputReady)||!this.state.enabled||!this.configured()||!profile||(!isStreamingProfile(this.activeProfile())&&!this.activeProfile().endsWith('-complete'))||this.currentSpeech||this.modelCheckTask){if(manual)return Promise.reject(Error('VOICE_PREPARATION_UNAVAILABLE'));return Promise.resolve()}
+  const operation=this.operation,runtime=this.getRuntime(),character=this.chat().character,characterId=character?.id,revision=character?.revision,fingerprint=profile.fingerprint,engine=this.state.engine,execution=this.activeProfile()
+  const current=()=>operation===this.operation&&!this.disposed&&this.state.enabled&&(manual||this.outputReady)&&this.chat().character?.id===characterId&&this.chat().character?.revision===revision&&this.selectedProfile()?.fingerprint===fingerprint&&this.state.engine===engine&&this.activeProfile()===execution
+  this.preparationCurrent=current
+  this.state.status='loading';this.state.error=null;this.emit()
+  const task=this.startRuntime(profile,runtime,current).then(async()=>{
+   if(!current())return
    if(this.state.engine==='qwen3-tts-06b'&&!runtime.audit?.warmed)await runtime.prewarm()
-   if(operation===this.operation&&this.outputReady&&!this.disposed){this.state.status='idle';this.state.error=null;this.emit();this.diagnose({type:'preparation-ready',at:Date.now(),session:runtime.sessionId,audit:runtime.audit})}
-  }).catch(e=>{if(operation===this.operation&&!this.disposed&&this.outputReady)this.error(e)}).finally(()=>{if(this.preparing===task)this.preparing=null})
+   if(current()){this.state.status='idle';this.state.error=null;this.emit();this.diagnose({type:'preparation-ready',at:Date.now(),session:runtime.sessionId,audit:runtime.audit})}
+  }).catch(e=>{if(current())this.error(e)}).finally(()=>{if(this.preparing===task){this.preparing=null;this.preparationCurrent=null}})
   this.preparing=task;return task
  }
  bind(characterId:string,profile:string|null,current=()=>true){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.runtime=null;if((profile===this.baseKey()||profile===null||!!profile&&referenceKey(profile))&&this.base?.native&&this.base.snapshot().supported&&!this.state.executionProfile?.startsWith('gguf-metal-'))this.state.executionProfile='gguf-metal-f16';if(profile&&!this.state.profiles.some(p=>profileKey(p)===profile))throw Error('VOICE_PROFILE');if(profile)this.state.bindings[characterId]=profile;else delete this.state.bindings[characterId];this.state.error=null})}
@@ -270,7 +273,7 @@ export class CharacterVoiceService {
   if(this.observedRequests.size>1000){const old=this.observedRequests.values().next().value!;this.observedRequests.delete(old);this.allowedRequests.delete(old)}
  }
  private syncReplayScope(){const s=this.chat();if(this.replay.setScope(JSON.stringify([s.character?.id,s.character?.revision,s.conversation?.id,s.model,this.bindingKey(s.character?.id||''),this.state.engine,this.state.qwenClone,this.qwenConfig]))){this.state.lastGeneration=undefined}}
- onChatChanged(){this.syncReplayScope();if(this.currentSpeech&&!this.currentSpeech())this.cancel()}
+ onChatChanged(){this.syncReplayScope();if(this.currentSpeech&&!this.currentSpeech()||this.preparationCurrent&&!this.preparationCurrent())this.cancel()}
  completed(message:ChatMessage){
   const id=message.binding?.requestId
   const allowed=!!id&&this.allowedRequests.delete(id)
@@ -290,7 +293,7 @@ export class CharacterVoiceService {
   if(typeof text!=='string'||!text.trim()||[...text].length>600)throw Error('VOICE_MESSAGE')
   const id=randomUUID(),abort=()=>{void this.stop(true,false).catch(e=>this.error(e))}
   signal.addEventListener('abort',abort,{once:true})
-  try{await this.read({id,role:'assistant',status:'complete',text,createdAt:new Date().toISOString(),binding:{characterId:character.id,revision:character.revision,conversationId:chat.conversation?.id||'',personaHash:'presentation',semanticHash:'presentation',modelId:chat.model,requestId:id,epoch:chat.epoch}},true,false,'read',()=>!signal.aborted);if(!signal.aborted&&this.state.status==='error')throw Error(this.state.error||'VOICE_ERROR')}
+  try{await this.read({id,role:'assistant',status:'complete',text,createdAt:new Date().toISOString(),binding:{characterId:character.id,revision:character.revision,conversationId:chat.conversation?.id||'',personaHash:'presentation',semanticHash:'presentation',modelId:chat.model,requestId:id,epoch:chat.epoch}},true,false,'read',()=>!signal.aborted);if(!signal.aborted&&this.state.status==='error')throw Error(this.state.error||'VOICE_ERROR');if(!signal.aborted&&this.state.status!=='idle')throw Error('VOICE_CANCELLED')}
   finally{signal.removeEventListener('abort',abort)}
  }
  private async read(message:ChatMessage,test=false,automatic=false,mode:'read'|'replay'|'reroll'|'reproduce'='read',permitted=()=>true){
@@ -415,10 +418,19 @@ export class CharacterVoiceService {
   const chunk=this.chunks.get(id),active=chunk||(this.active?.id===id?this.active:null)
   if(!active?.claimed||active.epoch!==epoch||epoch!==this.state.epoch)return
   this.diagnose({type:'playback-scheduled',at:Date.now(),epoch,audioId:id,first:!this.firstPlayback,firstPlaybackMs:this.firstPlayback?undefined:Date.now()-this.speechStartedAt+delayMs,endToEndFirstAudioMs:this.firstPlayback||!this.spokenRequestAt?undefined:Date.now()-this.spokenRequestAt+delayMs,delayMs,gapMs:chunk?gapMs:this.lastPlaybackEndAt?Date.now()-this.lastPlaybackEndAt:0,index:chunk?.segmentIndex,chunkIndex:chunk?.chunkIndex})
-  this.firstPlayback=true
+  this.firstPlayback=true;return true
  }
  audio(id:string,epoch:number){const a=this.chunks.get(id)||(this.active?.id===id?this.active:null);if(!a||a.epoch!==epoch||epoch!==this.state.epoch||a.claimed||!this.currentSpeech?.())throw Error('VOICE_AUDIO_EXPIRED');a.claimed=true;const bytes=a.bytes;if(this.chunks.has(id))a.bytes=new Uint8Array();return bytes}
  played(id:string,epoch:number,error=false){const a=this.chunks.get(id)||(this.active?.id===id?this.active:null);if(!a||a.epoch!==epoch)return;this.chunks.delete(id);if(this.active?.id===id)this.active=null;clearTimeout(a.timer);this.lastPlaybackEndAt=Date.now();this.diagnose({type:error?'playback-error':'playback-ended',at:Date.now(),epoch,audioId:id,claimed:a.claimed});if(error)a.reject(Error('VOICE_PLAYBACK'));else if(a.claimed)a.resolve();else a.reject(Error('VOICE_PLAYBACK_UNCLAIMED'))}
+ /** Revoke the presentation lease before asynchronous owned cleanup, then restore its truthful outcome. */
+ async releasePresentationOutput(outcome:'completed'|'cancelled'|'failed'='cancelled',failure?:unknown){
+  this.outputReady=false;this.allowedRequests.clear()
+  const pending=this.stop(),epoch=this.state.epoch
+  await pending
+  if(this.disposed||this.outputReady||this.state.epoch!==epoch)return
+  if(outcome==='failed')this.error(failure)
+  else if(outcome==='completed'){this.state.status=this.state.enabled?'idle':'off';this.emit()}
+ }
  async stop(invalidate=true,unload=true,clearReplay=invalidate&&unload,preserveModelCheck=false){
   const stopStartedAt=Date.now()
   const hadSpeech=!!this.currentSpeech
