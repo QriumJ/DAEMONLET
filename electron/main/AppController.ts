@@ -323,6 +323,7 @@ export class AppController {
     if (!this.characters.isAvailable(this.settings.characterId)) { this.unavailableSelection = this.settings.characterId; this.settings.characterId = "gpichan"; this.warn("저장된 캐릭터를 사용할 수 없어 기본 캐릭터를 표시합니다. 원래 선택은 보존됩니다.") }
     if (loaded.warning) this.warn(loaded.warning)
     this.settings.bounds = this.recover(this.settings.bounds)
+    this.settings.scale = this.settings.bounds.width / DEFAULT_WINDOW_SIZE
     denyAllPermissions(session.defaultSession)
     this.registerIpc()
     this.settingsIpc.register()
@@ -678,7 +679,7 @@ export class AppController {
     if ((patch.language !== undefined || patch.sideChatEnabled === true) && this.lastReady) void this.refreshPersona(this.lastReady)
     if (patch.scale !== undefined && patch.scale !== previousScale) {
       const size = windowSizeForScale(patch.scale)
-      const current = this.pet.window?.getBounds() ?? this.settings.bounds
+      const current = this.pet.getLogicalBounds() ?? this.settings.bounds
       const centerX = current.x + current.width / 2
       const centerY = current.y + current.height / 2
       const next = this.recover({ ...current, x: Math.round(centerX - size / 2), y: Math.round(centerY - size / 2), width: size, height: size, displayId: this.settings.bounds.displayId })
@@ -717,7 +718,8 @@ export class AppController {
 
   private readonly onDisplaysChanged = () => {
     this.petDrag.cancel()
-    const recovered = this.recover(this.pet.window?.getBounds() ? { ...this.pet.window.getBounds(), displayId: this.settings.bounds.displayId } : this.settings.bounds)
+    const logical = this.pet.getLogicalBounds()
+    const recovered = this.recover(logical ? { ...logical, displayId: this.settings.bounds.displayId } : this.settings.bounds)
     this.settings.bounds = recovered
     this.settings.scale = recovered.width / DEFAULT_WINDOW_SIZE
     this.pet.setBounds(recovered)

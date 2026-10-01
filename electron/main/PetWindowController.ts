@@ -23,6 +23,10 @@ type PetWindowOptions = {
 export class PetWindowController {
   window: BrowserWindow | null = null
   private opacity = 1
+  private nativeOpacity: number | null = null
+  private alwaysOnTop = true
+  private allWorkspaces = true
+  private overFullScreen = false
   private modifierEditing = false
   private suspended = false
   private layoutBounds: Rectangle | null = null
@@ -48,6 +52,8 @@ export class PetWindowController {
     this.clickThrough = settings.clickThrough
     this.opacity = settings.opacity
     this.desiredVisible = settings.visible
+    this.alwaysOnTop = settings.alwaysOnTop; this.allWorkspaces = settings.showOnAllWorkspaces; this.overFullScreen = settings.showOverFullScreen
+    this.nativeOpacity = null
     const win = new BrowserWindow({
       ...settings.bounds,
       show: false,
@@ -216,14 +222,22 @@ export class PetWindowController {
     this.opacity = settings.opacity
     this.desiredVisible = settings.visible
     if (!settings.visible) for (const finish of [...this.revealWaiters]) finish(false)
-    win.setAlwaysOnTop(settings.alwaysOnTop, "floating")
-    if (process.platform === "darwin") win.setVisibleOnAllWorkspaces(settings.showOnAllWorkspaces, { visibleOnFullScreen: settings.showOverFullScreen })
+    if (this.alwaysOnTop !== settings.alwaysOnTop) { this.alwaysOnTop = settings.alwaysOnTop; win.setAlwaysOnTop(settings.alwaysOnTop, "floating") }
+    if (process.platform === "darwin" && (this.allWorkspaces !== settings.showOnAllWorkspaces || this.overFullScreen !== settings.showOverFullScreen)) {
+      this.allWorkspaces = settings.showOnAllWorkspaces; this.overFullScreen = settings.showOverFullScreen
+      win.setVisibleOnAllWorkspaces(settings.showOnAllWorkspaces, { visibleOnFullScreen: settings.showOverFullScreen })
+    }
     if (win.isVisible() !== settings.visible) settings.visible ? win.showInactive() : win.hide()
     this.syncModifierMonitor()
     this.applyMousePolicy()
     this.send(IPC.settingsChanged, settings)
   }
 
+  /** The selected character geometry, excluding the temporary minimum editor. */
+  getLogicalBounds(): Rectangle | undefined {
+    const win = this.window
+    return win && !win.isDestroyed() ? { ...(this.layoutBounds ?? win.getBounds()) } : undefined
+  }
   setBounds(bounds: Rectangle): void {
     if (this.layoutMode) {
       this.layoutBounds = { ...bounds }
@@ -266,16 +280,16 @@ export class PetWindowController {
     if (!win || win.isDestroyed()) return
     const lowOpacity = this.opacity <= OPACITY_CLICK_THROUGH_THRESHOLD
     const ignore = this.ready && (lowOpacity && !this.modifierEditing || this.clickThrough && this.requestedPassthrough) && !this.interactionLocked && !this.layoutMode && !this.dragging
-    win.setOpacity(!this.ready || this.layoutMode || this.modifierEditing ? 1 : this.opacity)
-    this.effectivePassthrough = ignore
-    win.setIgnoreMouseEvents(ignore, { forward: true })
+    const opacity = !this.ready || this.layoutMode || this.modifierEditing ? 1 : this.opacity
+    if (opacity !== this.nativeOpacity) { this.nativeOpacity = opacity; win.setOpacity(opacity) }
+    if (ignore !== this.effectivePassthrough) { this.effectivePassthrough = ignore; win.setIgnoreMouseEvents(ignore, { forward: true }) }
   }
 
   private failSafe(message: string): void {
     for (const finish of [...this.revealWaiters]) finish(false)
     this.ready = false
     this.modifierEditing = false; this.modifierMonitor?.stop()
-    this.window?.setOpacity(1)
+    this.nativeOpacity = 1; this.window?.setOpacity(1)
     this.requestedPassthrough = false
     this.effectivePassthrough = false
     this.window?.setIgnoreMouseEvents(false)

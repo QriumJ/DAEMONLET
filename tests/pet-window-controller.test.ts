@@ -191,3 +191,18 @@ describe("opacity and modifier recovery", () => {
     } finally {f.controller.destroy()}
   })
 })
+
+it("recovers logical 20% geometry across display changes while the native editor remains larger", async () => {
+ const {PetWindowController}=await import('../electron/main/PetWindowController')
+ const {recoverWindowBounds}=await import('../electron/shared/desktop-settings')
+ const controller=new PetWindowController({preloadPath:'/preload.cjs',onBoundsChanged:vi.fn(),onWarning:vi.fn(),onCloseRequested:vi.fn()})
+ const win=controller.create(defaultDesktopSettings()) as unknown as FakeBrowserWindow
+ try {
+  controller.reportReady();controller.setBounds({x:100,y:100,width:92,height:92});controller.setLayoutMode(true)
+  expect(win.getBounds().width).toBe(280);expect(controller.getLogicalBounds()).toEqual({x:100,y:100,width:92,height:92})
+  const display={id:1,workArea:{x:0,y:0,width:1440,height:900}}
+  const recovered=recoverWindowBounds({...controller.getLogicalBounds()!,displayId:null},[display],display)
+  controller.setBounds(recovered);expect(controller.getLogicalBounds()?.width).toBe(92);expect(win.getBounds().width).toBe(280)
+  controller.setLayoutMode(false);expect(win.getBounds().width).toBe(92)
+ } finally {controller.destroy()}
+})
