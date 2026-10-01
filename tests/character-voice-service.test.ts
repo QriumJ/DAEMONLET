@@ -270,13 +270,14 @@ it('settings prewarm has no output lease, speech or history and Dots borrows the
  expect(f.runtime.start).toHaveBeenCalledTimes(1);expect(f.base.ready).toHaveBeenCalledTimes(1);expect(f.chat.conversation).toEqual(history)
  await f.service.releasePresentationOutput('completed');expect(f.service.snapshot().status).toBe('idle');expect((f.service as any).outputReady).toBe(false)
 })
-it.each(['stop','off','close','character','reference','execution'] as const)('manual prewarm %s invalidation forbids late worker/audio',async action=>{
+it.each(['stop','off','close','character','reference','execution','engine'] as const)('manual prewarm %s invalidation forbids late worker/audio',async action=>{
  const f=await manualPreparationFixture();let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>release=r),begun=new Promise<void>(r=>entered=r)
  f.base.ready.mockImplementationOnce(async()=>{entered();await gate;return '/model'});const task=f.service.prepare(true);await begun
  if(action==='off')await f.service.enabled(false)
  else if(action==='close')await f.service.close()
  else if(action==='character'){f.chat.character!.revision='new';f.service.onChatChanged()}
  else if(action==='reference'){(f.service as any).state.profiles.find((p:any)=>p.id==='voxcpm2_default').fingerprint='changed';f.service.onChatChanged()}
+ else if(action==='engine'){(f.service as any).state.engine='qwen3-tts-06b';f.service.onChatChanged()}
  else if(action==='execution'){const change=f.service.executionProfile('cuda-compiled');release();await change}
  else await f.service.stop()
  release();await task;expect(f.runtime.start).not.toHaveBeenCalled();expect(f.runtime.synthesize).not.toHaveBeenCalled();expect(f.events.filter(e=>e.type==='audio')).toEqual([])
