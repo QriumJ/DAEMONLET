@@ -261,7 +261,7 @@ export class AppController {
     })
     this.updateIpc = new UpdateIpcController(this.updates, this.settingsWindow, this.devServerUrl)
     this.belleConnection=new BelleConnectionManager({
-      store:new BelleCredentialStore(join(app.isPackaged?process.resourcesPath:dirname,'native/DaemonletBelleCredential')),
+      store:new BelleCredentialStore(join(app.isPackaged?process.resourcesPath:dirname,process.platform==='win32'?'native/DaemonletBelleCredential.exe':'native/DaemonletBelleCredential')),
       metadata:new BelleConnectionMetadata(app.getPath('userData')),
       runtime:new BelleTunnelRuntime(join(app.isPackaged?process.resourcesPath:dirname,'dot/dot-presentation-mcp.mjs')),
       external:process.env.DAEMONLET_DOT_BRIDGE==='1',

@@ -79,6 +79,7 @@ await writeFile(resolve(outdir, "app-update.yml"), JSON.stringify({ provider: "g
 
 await import("./build-dictation.mjs")
 await import("./build-belle-credential.mjs")
+await import("./build-windows-belle.mjs")
 await import("./build-modifier-state.mjs")
 await mkdir(resolve(outdir,"dot"),{recursive:true})
 for(const file of ["dot-presentation-mcp.mjs","belle-tunnel-supervisor.mjs"])await copyFile(resolve(root,"scripts",file),resolve(outdir,"dot",file))

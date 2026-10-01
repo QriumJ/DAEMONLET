@@ -1,5 +1,5 @@
 import {connectionIds,restoredConnectionConfig,validRuntimeKey,type BelleConnectionConfig,type BelleConnectionSnapshot} from '../../shared/belle-connection'
-export interface RuntimeCredentialStore{available():Promise<boolean>;has():Promise<boolean>;put(key:string):Promise<void>;get(signal?:AbortSignal):Promise<string>;remove():Promise<void>}
+export interface RuntimeCredentialStore{readonly kind?:'macos-keychain'|'windows-credential-manager';available():Promise<boolean>;has():Promise<boolean>;put(key:string):Promise<void>;get(signal?:AbortSignal):Promise<string>;remove():Promise<void>}
 export interface RunningTunnel{stop():Promise<void>;ready():Promise<boolean>}
 export interface TunnelRuntime{probe():Promise<{clientVersion:string;nodeVersion:string}>;start(config:BelleConnectionConfig,key:string,bridge:{port:number;token:string},signal:AbortSignal,onExit:()=>void):Promise<RunningTunnel>}
 export interface ConnectionMetadata{load():Promise<unknown>;save(value:BelleConnectionConfig|null):Promise<void>}
@@ -19,13 +19,13 @@ export class BelleConnectionManager{
  private serial<T>(task:()=>Promise<T>):Promise<T>{const next=this.queue.then(task,task);this.queue=next.catch(()=>{});return next}
  async initialize(){
   if(this.options.external){this.emit({state:'external'});return this.snapshot()}
-  try{this.config=restoredConnectionConfig(await this.options.metadata.load());const available=await this.options.store.available();const stored=available&&await this.options.store.has();this.emit({secureStore:available?'macos-keychain':'unavailable',credentialStored:stored,state:this.options.external?'external':this.config?'disconnected':'unconfigured',error:null})}
+  try{this.config=restoredConnectionConfig(await this.options.metadata.load());const available=await this.options.store.available();const stored=available&&await this.options.store.has();this.emit({secureStore:available?(this.options.store.kind??'macos-keychain'):'unavailable',credentialStored:stored,state:this.options.external?'external':this.config?'disconnected':'unconfigured',error:null})}
   catch(e){this.emit({state:'error',error:connectionError(e)})}
-  if(!this.options.external&&this.value.secureStore==='macos-keychain'){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}
-  if(this.config?.autoConnect&&!this.options.external&&this.value.secureStore==='macos-keychain'&&this.value.credentialStored&&!this.value.error)void this.connect().catch(()=>{})
+  if(!this.options.external&&this.value.secureStore!=='unavailable'){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}
+  if(this.config?.autoConnect&&!this.options.external&&this.value.secureStore!=='unavailable'&&this.value.credentialStored&&!this.value.error)void this.connect().catch(()=>{})
   return this.snapshot()
  }
- refresh(){return this.serial(async()=>{this.ensureOpen();if(this.options.external)return this.snapshot();const available=await this.options.store.available();const stored=available&&await this.options.store.has();this.emit({secureStore:available?'macos-keychain':'unavailable',credentialStored:stored,error:available?null:'STORE_UNAVAILABLE'});if(available){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}return this.snapshot()})}
+ refresh(){return this.serial(async()=>{this.ensureOpen();if(this.options.external)return this.snapshot();const available=await this.options.store.available();const stored=available&&await this.options.store.has();this.emit({secureStore:available?(this.options.store.kind??'macos-keychain'):'unavailable',credentialStored:stored,error:available?null:'STORE_UNAVAILABLE'});if(available){try{this.emit(await this.options.runtime.probe())}catch(e){this.emit({error:connectionError(e)})}}return this.snapshot()})}
  configure(value:{tunnelId:string;organizationId:string;key:string}){
   const ids=connectionIds(value);if(!ids||Object.keys(value).some(k=>!['tunnelId','organizationId','key'].includes(k)))return Promise.reject(Error('INVALID_CONFIG'))
   if(!validRuntimeKey(value.key))return Promise.reject(Error('INVALID_KEY'))
@@ -36,7 +36,7 @@ export class BelleConnectionManager{
    const previous=this.config,next:BelleConnectionConfig={...ids,autoConnect:false,consentVersion:1}
    await this.options.metadata.save(next)
    try{await this.options.store.put(value.key)}catch(e){await this.options.metadata.save(previous).catch(()=>{});throw e}finally{value.key=''}
-   this.config=next;this.emit({state:'disconnected',secureStore:'macos-keychain',credentialStored:true,error:null,retry:0,muted:true});return this.snapshot()
+   this.config=next;this.emit({state:'disconnected',secureStore:this.options.store.kind??'macos-keychain',credentialStored:true,error:null,retry:0,muted:true});return this.snapshot()
   })
  }
  async setAutoConnect(enabled:boolean){return this.serial(async()=>{this.ensureOpen();if(typeof enabled!=='boolean'||!this.config)throw Error('INVALID_CONFIG');if(enabled&&(!await this.options.store.available()||!await this.options.store.has()))throw Error('STORE_UNAVAILABLE');const next={...this.config,autoConnect:enabled};await this.options.metadata.save(next);this.config=next;this.emit({error:null});return this.snapshot()})}

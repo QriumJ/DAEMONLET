@@ -28,13 +28,13 @@ export class BelleConnectionIpcController{
   this.bind(BELLE_CONNECTION_IPC.refresh,0,async()=>this.manager.refresh())
   this.bind(BELLE_CONNECTION_IPC.configure,1,async([value],owner)=>{
    const ids=connectionIds(value);if(!ids||!value||typeof value!=='object'||Object.keys(value).some(k=>!['tunnelId','organizationId','key'].includes(k))||!validRuntimeKey((value as {key?:unknown}).key))throw Error('INVALID_CONFIG')
-   if(!await this.confirm(owner,'이 키를 macOS Keychain에 저장할까요?',this.detail(ids)+'\n\n'+appText('키는 삭제할 때까지 이 앱의 Keychain 항목에 보관됩니다. JSON·파일·로그에는 저장하지 않으며 다시 표시하지 않습니다. 저장만으로 연결하거나 자동 연결을 켜지 않습니다.')))return this.manager.snapshot()
+   if(!await this.confirm(owner,'이 키를 OS 보안 저장소에 저장할까요?',this.detail(ids)+'\n\n'+appText('키는 삭제할 때까지 이 앱의 OS 보안 저장소 항목에 보관됩니다. JSON·파일·로그에는 저장하지 않으며 다시 표시하지 않습니다. 저장만으로 연결하거나 자동 연결을 켜지 않습니다.')))return this.manager.snapshot()
    return this.manager.configure(value as {tunnelId:string;organizationId:string;key:string})
   })
   this.bind(BELLE_CONNECTION_IPC.connect,0,async(_args,owner)=>{const config=this.manager.snapshot().config;if(!config)throw Error('INVALID_CONFIG');if(!await this.confirm(owner,'저장한 키로 벨을 연결할까요?',this.detail(config)))return this.manager.snapshot();return this.manager.connect()})
   this.bind(BELLE_CONNECTION_IPC.disconnect,0,async()=>this.manager.disconnect())
   this.bind(BELLE_CONNECTION_IPC.auto,1,async([enabled],owner)=>{if(typeof enabled!=='boolean')throw Error('INVALID_CONFIG');const config=this.manager.snapshot().config;if(!config)throw Error('INVALID_CONFIG');if(enabled&&!await this.confirm(owner,'앱을 시작할 때 자동 연결을 허용할까요?',this.detail(config)+'\n\n'+appText('이 옵션을 끌 때까지 앱을 직접 열 때마다 저장한 키로 연결합니다. OS 로그인 서비스는 만들지 않습니다.')))return this.manager.snapshot();return this.manager.setAutoConnect(enabled)})
-  this.bind(BELLE_CONNECTION_IPC.forget,0,async(_args,owner)=>{const config=this.manager.snapshot().config;if(!config&&!this.manager.snapshot().credentialStored)return this.manager.snapshot();if(!await this.confirm(owner,'연결을 끊고 이 앱의 저장한 키를 삭제할까요?',(config?this.detail(config):appText('연결 대상 설정이 없습니다. 이 앱의 Keychain 항목만 삭제합니다.'))+'\n\n'+appText('이 앱의 Keychain 항목과 연결 설정만 삭제합니다. Platform의 키나 터널 권한은 취소하지 않으므로 필요하면 직접 해제하세요.')))return this.manager.snapshot();return this.manager.forget()})
+  this.bind(BELLE_CONNECTION_IPC.forget,0,async(_args,owner)=>{const config=this.manager.snapshot().config;if(!config&&!this.manager.snapshot().credentialStored)return this.manager.snapshot();if(!await this.confirm(owner,'연결을 끊고 이 앱의 저장한 키를 삭제할까요?',(config?this.detail(config):appText('연결 대상 설정이 없습니다. 이 앱의 OS 보안 저장소 항목만 삭제합니다.'))+'\n\n'+appText('이 앱의 OS 보안 저장소 항목과 연결 설정만 삭제합니다. Platform의 키나 터널 권한은 취소하지 않으므로 필요하면 직접 해제하세요.')))return this.manager.snapshot();return this.manager.forget()})
   this.off=this.manager.subscribe(value=>this.settings.send(BELLE_CONNECTION_IPC.changed,value))
  }
  dispose(){this.off?.();this.off=null;for(const channel of this.channels.splice(0))ipcMain.removeHandler(channel)}
