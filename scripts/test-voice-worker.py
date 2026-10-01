@@ -519,6 +519,20 @@ class WindowsReceiptTests(unittest.TestCase):
                     self.run_installer(current)
                     self.assertEqual(self.receipt.read_bytes(), before)
 
+    def test_worker_verifies_raw_pinned_vox_sources_without_distribution_or_import(self):
+        import windows_base_worker as runtime
+        self.saved(self.lock)
+        with patch('sys.prefix', str(self.root)), patch('sys.platform', 'win32'), \
+             patch.object(runtime.platform, 'python_version', return_value=self.policy['python']), \
+             patch.object(runtime, 'SOURCE', self.policy['sourceCommit']), \
+             patch.object(runtime.metadata, 'version', return_value='1.0'), \
+             patch.object(runtime.metadata, 'distribution', side_effect=AssertionError('no Vox dist-info')), \
+             patch.object(runtime.importlib.util, 'find_spec', return_value=SimpleNamespace(origin=str(self.target.parent/'__init__.py'))):
+            runtime.verify_environment(self.policy)
+            self.target.write_bytes(b'TAMPERED = True\n')
+            with self.assertRaisesRegex(ValueError, 'RUNTIME_SOURCE_CHANGED'):
+                runtime.verify_environment(self.policy)
+
     def test_new_receipt_uses_lf_digest_even_from_crlf_checkout(self):
         import hashlib
         self.run_installer(self.lock.replace(b'\n', b'\r\n'), verify=False)

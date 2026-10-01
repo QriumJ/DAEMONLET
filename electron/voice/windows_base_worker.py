@@ -3,6 +3,7 @@ No LoRA, GGUF conversion or training; optional validated WAV conditioning.
 """
 import hashlib
 import importlib.metadata as metadata
+import importlib.util
 import os
 from pathlib import Path
 import platform
@@ -26,7 +27,11 @@ def verify_environment(expected):
     if receipt.get('source_commit')!=SOURCE:raise ValueError('RUNTIME_RECEIPT')
     for name,version in expected['dependencies'].items():
         if metadata.version(name)!=version:raise ValueError('RUNTIME_VERSION')
-    root=Path(metadata.distribution('voxcpm').locate_file('voxcpm'))
+    # The portable installer copies pinned Vox sources without a distribution
+    # receipt. Locate the import target without executing its heavy imports.
+    spec=importlib.util.find_spec('voxcpm')
+    if spec is None or spec.origin is None:raise ImportError('VOX_SOURCE_MISSING')
+    root=Path(spec.origin).parent
     for name,digest in expected['sourceFiles'].items():
         if hashlib.sha256(inside(root,name).read_bytes().replace(b'\r\n',b'\n')).hexdigest()!=digest:raise ValueError('RUNTIME_SOURCE_CHANGED')
 
