@@ -232,3 +232,7 @@ The terms for the referenced community character designs, images and sheets are 
 External code, upstream assets, models and other character packs remain subject to [their own terms](THIRD_PARTY_NOTICES.md). Packaging files as `.petchar` does not place the entire pack under a single artwork license.
 
 The links above point to files in the source repository. In an installed app, notices are available in `resources/licenses/` on Windows/Linux and `Contents/Resources/licenses/` inside the macOS app bundle; you do not need to open the ASAR archive to read them. The existing MIT credit to `Momo Motion Lab contributors` is retained because there is no basis for changing the copyright holder.
+
+## v0.8.3 local candidate
+
+The local v0.8.3 candidate includes opt-in Qwen voice engines, Dots connection guidance and windowless voice preparation. See [candidate notes](docs/releases/0.8.3.md). Public download links above remain the existing published release; local build, notarization and installation evidence is recorded separately.
