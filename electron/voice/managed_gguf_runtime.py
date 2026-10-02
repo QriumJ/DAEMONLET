@@ -137,6 +137,68 @@ def records(value):
     return result
 
 
+def hash_files(jobs):
+    """Managed-only rolling full hashes; drain started reads before any return."""
+    # Manual admission returns before this import. The preceding app full-SHA
+    # check still admits the bundled stdlib before this helper can execute it.
+    executor = None
+    pending = set()
+    try:
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+        try:
+            executor = ThreadPoolExecutor(max_workers=4)
+            iterator = iter(jobs)
+            exhausted = False
+            while pending or not exhausted:
+                while not exhausted and len(pending) < 4:
+                    try:
+                        path, record = next(iterator)
+                    except StopIteration:
+                        exhausted = True
+                        break
+                    pending.add(executor.submit(full_hash, path, record))
+                if pending:
+                    completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+                    error = None
+                    # Inspect the entire completed batch before any refill.
+                    for future in completed:
+                        try:
+                            future.result()
+                        except BaseException as caught:
+                            if error is None:
+                                error = caught
+                    if error is not None:
+                        raise error
+                    pending.difference_update(completed)
+        finally:
+            if executor is not None:
+                try:
+                    executor.shutdown(wait=True, cancel_futures=True)
+                except BaseException:
+                    for future in pending:
+                        try:
+                            future.result()
+                        except BaseException:
+                            pass
+                    # Preserve the first shutdown error, but also let a
+                    # transient scheduler failure finish its thread cleanup.
+                    try:
+                        executor.shutdown(wait=True, cancel_futures=True)
+                    except BaseException:
+                        pass
+                    raise
+                finally:
+                    # A scheduler/shutdown error must not bypass real reads
+                    # already represented by futures. result waits for close.
+                    for future in pending:
+                        try:
+                            future.result()
+                        except BaseException:
+                            pass
+    except Exception:
+        fail()
+
+
 def verify_component(root, component, layout=None):
     identity = component['id']
     if identity not in COMPONENTS:
@@ -162,18 +224,21 @@ def verify_component(root, component, layout=None):
         folded.add(name.casefold())
         allowed_dirs.update(parent.as_posix() for parent in part.parents if parent != Path('.'))
     observed = set()
-    for entry in path.rglob('*'):
-        name = entry.relative_to(path).as_posix()
-        ordinary(entry, entry.is_dir())
-        if entry.is_dir():
-            if name not in allowed_dirs:
+    def jobs():
+        for entry in path.rglob('*'):
+            name = entry.relative_to(path).as_posix()
+            ordinary(entry, entry.is_dir())
+            if entry.is_dir():
+                if name not in allowed_dirs:
+                    fail()
+            elif entry.is_file():
+                if name not in files:
+                    fail()
+                yield entry, files[name]
+                observed.add(name)
+            else:
                 fail()
-        elif entry.is_file():
-            if name not in files:
-                fail()
-            full_hash(entry, files[name]); observed.add(name)
-        else:
-            fail()
+    hash_files(jobs())
     if observed != set(files):
         fail()
     return path
