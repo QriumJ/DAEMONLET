@@ -93,10 +93,24 @@ export class WindowsGgufRuntimeInstaller {
  private async payload(id:string,path=this.target(id),full=true,signal?:AbortSignal,complete=true){
   await directory(path);const files=this.component(id).files,parents=new Set<string>()
   for(const name of Object.keys(files)){const parts=name.split('/');for(let i=1;i<parts.length;i++)parents.add(parts.slice(0,i).join('/'))}
-  const found=new Set<string>();async function walk(current:string,prefix=''){
-   for(const name of await readdir(current)){signal?.throwIfAborted();const rel=prefix+name,p=join(current,name),s=await lstat(p,{bigint:true});if(s.isSymbolicLink())throw invalid();if(s.isDirectory()){if(!parents.has(rel))throw invalid();await directory(p);await walk(p,rel+'/')}else{if(!ordinary(s)||!Object.hasOwn(files,rel))throw invalid();found.add(rel);if(complete&&s.size!==BigInt(files[rel].bytes))throw invalid();if(full){const result=await fileHash(p,signal);if(result.sha256!==files[rel].sha256||result.bytes!==files[rel].bytes)throw invalid()}}}
+  // Keep every file check, overlap at most four, and retire all handles before
+  // returning an error or allowing verification/publish/rollback to continue.
+  const pending=new Set<Promise<void>>();let failed=false,failure:unknown
+  const check=()=>{if(failed)throw failure;signal?.throwIfAborted()}
+  const hashFile=async(p:string,record:{sha256:string;bytes:number})=>{
+   check()
+   const task=(async()=>{const result=await fileHash(p,signal);if(result.sha256!==record.sha256||result.bytes!==record.bytes)throw invalid()})()
+    .catch(error=>{if(!failed){failed=true;failure=error}}).finally(()=>{pending.delete(task)})
+   pending.add(task)
+   if(pending.size>=4)await Promise.race(pending)
+   check()
   }
-  await walk(path);if(complete&&found.size!==Object.keys(files).length)throw invalid()
+  const found=new Set<string>();async function walk(current:string,prefix=''){
+   for(const name of await readdir(current)){check();const rel=prefix+name,p=join(current,name),s=await lstat(p,{bigint:true});if(s.isSymbolicLink())throw invalid();if(s.isDirectory()){if(!parents.has(rel))throw invalid();await directory(p);await walk(p,rel+'/')}else{if(!ordinary(s)||!Object.hasOwn(files,rel))throw invalid();found.add(rel);if(complete&&s.size!==BigInt(files[rel].bytes))throw invalid();if(full)await hashFile(p,files[rel])}}
+  }
+  try{await walk(path)}catch(error){if(!failed){failed=true;failure=error}}
+  finally{await Promise.allSettled([...pending])}
+  check();if(complete&&found.size!==Object.keys(files).length)throw invalid()
  }
  private async validate(id:GgufRuntimeId,signal?:AbortSignal,full=true){
   if(!this.pathsFit(id))throw Error('GGUF_RUNTIME_PATH_TOO_LONG')
