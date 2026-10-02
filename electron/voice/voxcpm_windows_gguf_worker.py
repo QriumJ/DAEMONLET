@@ -16,10 +16,14 @@ import threading
 import time
 import uuid
 import wave
+# Managed Python starts with -I; only this app-owned sibling directory is
+# added for bundled imports. User site packages and PYTHONPATH remain excluded.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from control import Inbox, StreamControl, StreamCancelled, stream_target, read_request
 from seed_contract import request_seed
 from reference_condition import verify_reference_condition
 from voxcpm_windows_gguf_runtime import validate, ordinary
+from managed_gguf_runtime import managed_path, audit as managed_audit, verify_gpu_support
 from worker import REVISION, SOURCE
 
 PROTOCOL = sys.stdout
@@ -68,6 +72,7 @@ class WindowsGgufWorker:
     def initialize(self, request):
         started = time.perf_counter()
         assets = validate(request)
+        managed_gpu = verify_gpu_support(assets.get('managedRuntime'))
         validated = time.perf_counter()
         self.cache = Path(request['cache'])
         self.cache.mkdir(parents=True, exist_ok=True)
@@ -91,13 +96,19 @@ class WindowsGgufWorker:
                        if not k.startswith(('GGML_', 'LLAMA_', 'DYLD_', 'LD_'))}
         # Only existing toolkit files; no registry or global PATH modifications.
         cuda = Path(os.environ.get('CUDA_PATH', 'C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0'))
-        if assets['backend'] == 'CUDA':
+        managed = assets.get('managedRuntime')
+        if managed:
+            # Every PATH entry was independently catalog-admitted. The native
+            # folder still contains only the existing seven pinned files.
+            environment.pop('CUDA_PATH', None)
+            environment['PATH'] = managed_path(managed)
+        elif assets['backend'] == 'CUDA':
             directories = [p for p in [cuda / 'bin/x64', cuda / 'bin'] if p.is_dir()]
             if not directories:
                 raise ValueError('RUNTIME_DEPENDENCY')
             environment['PATH'] = os.pathsep.join([str(assets['runtime']), *(str(p) for p in directories),
                                                   os.environ.get('PATH', '')])
-        else:
+        if assets['backend'] == 'Vulkan':
             # Use the installed vendor Vulkan driver, without inherited custom
             # ICDs, optional developer layers or user ggml device-index overrides.
             for key in ('GGML_VK_VISIBLE_DEVICES', 'VK_ICD_FILENAMES', 'VK_DRIVER_FILES', 'VK_ADD_DRIVER_FILES',
@@ -179,7 +190,9 @@ class WindowsGgufWorker:
                           originalModelVerification=assets['originalModelVerification'], ggufVerification='full-sha256',
                           capabilities=dict(engine='voxcpm2', synthesisStreaming=True,
                                             cancellation='cooperative-stream-with-owned-process-fallback',
-                                            warmCancellationReuse=True))
+                                            warmCancellationReuse=True),
+                          **managed_audit(managed))
+        self.audit.update(managed_gpu)
         if self.model_kind == 'public-base':
             self.audit.update(ggufModelKind='public-base', mode=assets['mode'], referenceMode=assets['mode'],
                               modelRepository=assets['modelRepository'], modelRevision=assets['modelRevision'],

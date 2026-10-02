@@ -4,6 +4,18 @@ import {lstat,mkdir,open,rm} from 'node:fs/promises'
 import {dirname} from 'node:path'
 import {streamChunks} from '../character-chat/stream'
 export type PinnedVoiceFile={url:string;bytes:number;sha256:string}
+const networkErrors=new Set(['UND_ERR_SOCKET','UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT','ECONNRESET','ETIMEDOUT','EAI_AGAIN','ENOTFOUND','ECONNREFUSED'])
+function downloadError(error:unknown,signal:AbortSignal):never{
+ signal.throwIfAborted()
+ let cause=error
+ for(let depth=0;cause instanceof Error&&depth<5;depth++,cause=cause.cause){
+  if(networkErrors.has((cause as NodeJS.ErrnoException).code??'')||cause instanceof TypeError&&cause.message==='fetch failed')throw Error('VOICE_DOWNLOAD_FAILED',{cause:error})
+ }
+ throw error
+}
+async function* downloadChunks(stream:ReadableStream<Uint8Array>,signal:AbortSignal){
+ try{yield* streamChunks(stream)}catch(error){downloadError(error,signal)}
+}
 export async function downloadVoiceFile(path:string,file:PinnedVoiceFile,signal:AbortSignal,progress:(bytes:number)=>void,fetcher:typeof fetch=fetch){
  const invalid=()=>Error('VOICE_BASE_CHANGED')
  // Windows file indices can exceed Number's exact integer range. Preserve the
@@ -33,13 +45,13 @@ export async function downloadVoiceFile(path:string,file:PinnedVoiceFile,signal:
   progress(offset)
   if(offset<file.bytes){
    signal.throwIfAborted()
-   response=await fetcher(file.url,{signal,headers:offset?{Range:`bytes=${offset}-`}:{}})
+   response=await fetcher(file.url,{signal,headers:offset?{Range:`bytes=${offset}-`}:{}}).catch(error=>downloadError(error,signal))
    if(response.status===401||response.status===403)throw Error('VOICE_DOWNLOAD_ACCESS')
    if(!response.ok||!response.body||![200,206].includes(response.status))throw Error('VOICE_DOWNLOAD_FAILED')
    if(response.status===206){const m=/^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get('content-range')||'');if(!m||Number(m[1])!==offset||Number(m[2])!==file.bytes-1||Number(m[3])!==file.bytes)throw Error('VOICE_DOWNLOAD_RANGE')}
    else{await owned();await out.truncate(0);expected=await out.stat({bigint:true});offset=0}
    await owned()
-   for await(const chunk of streamChunks(response.body)){
+   for await(const chunk of downloadChunks(response.body,signal)){
     signal.throwIfAborted();if(offset+chunk.length>file.bytes)throw Error('VOICE_DOWNLOAD_SIZE')
     // Explicit positions preserve the existing prefix for a 206 resume. Writes
     // remain bound to this descriptor even if the path changes concurrently.

@@ -6,6 +6,7 @@ import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {randomUUID} from 'node:crypto'
 import type {SpeechBinding} from '../electron/shared/character-voice-contract'
+import policy from '../electron/voice/runtime-qwen-gguf-windows.json'
 
 // No Python, native library, inference or actual taskkill is executed here.
 const treeKill=vi.hoisted(()=>vi.fn())
@@ -16,20 +17,21 @@ const clean:Array<()=>Promise<unknown>>=[]
 afterEach(async()=>{for(const fn of clean.splice(0))await fn();vi.unstubAllGlobals();treeKill.mockReset()})
 const capabilities={engine:'qwen3-tts-06b-gguf',synthesisStreaming:true,cancellation:'cooperative-with-process-fallback',warmCancellationReuse:true,backend:'cuda:0',backendDevice:'CUDA0',abiVersion:5}
 const wav=()=>{const bytes=Buffer.alloc(9644);bytes.write('RIFF');bytes.writeUInt32LE(bytes.length-8,4);bytes.write('WAVEfmt ',8);bytes.writeUInt32LE(16,16);bytes.writeUInt16LE(1,20);bytes.writeUInt16LE(1,22);bytes.writeUInt32LE(48000,24);bytes.writeUInt32LE(96000,28);bytes.writeUInt16LE(2,32);bytes.writeUInt16LE(16,34);bytes.write('data',36);bytes.writeUInt32LE(9600,40);return bytes}
-async function fixture(options:{capabilities?:Record<string,unknown>;shutdown?:'hang';cancel?:'hang'|'wrong-target';badChunk?:boolean;initialChunkBarrier?:Promise<void>;config?:Partial<TtsConfig>}={}){
+async function fixture(options:{capabilities?:Record<string,unknown>;audit?:Record<string,unknown>;shutdown?:'hang';cancel?:'hang'|'wrong-target';badChunk?:boolean;initialChunkBarrier?:Promise<void>;config?:Partial<TtsConfig>}={}){
  vi.stubGlobal('process',{...process,platform:'win32',arch:'x64'})
- const root=await mkdtemp(join(tmpdir(),'qwen-gguf-supervisor-')),requests:any[]=[],children:any[]=[]
+ const root=await mkdtemp(join(tmpdir(),'qwen-gguf-supervisor-')),requests:any[]=[],children:any[]=[],spawnArgs:string[][]=[]
  const condition={kind:'wav-reference' as const,path:join(root,'reference.wav'),sha256:'a'.repeat(64),fingerprint:'b'.repeat(64),preprocessingVersion:'mono-pcm16-round-v1',sampleRate:24000,samples:48000}
  let active:any,cache=''
  const config:TtsConfig={engine:'qwen3-tts-06b-gguf',qwen:{mode:'x-vector',transcript:''},ggufRuntime:join(root,'dll'),python:process.execPath,model:root,worker:join(root,'worker.py'),cacheRoot:join(root,'cache'),executionProfile:'qwen-gguf',...options.config}
- const runtime=new TtsRuntimeSupervisor(config,2000,()=>{
+ const runtime=new TtsRuntimeSupervisor(config,2000,(_command,args)=>{
+  spawnArgs.push([...(args??[])])
   const child:any=new EventEmitter();child.stdin=new PassThrough();child.stdout=new PassThrough();child.stderr=new PassThrough();child.pid=24680+children.length;child.exitCode=null;child.signalCode=null
   child.close=()=>{if(child.exitCode!==null)return;child.exitCode=0;queueMicrotask(()=>child.emit('close',0))};child.kill=vi.fn(()=>{child.close();return true});children.push(child)
   const send=(r:any,type:string,extra:object={})=>child.stdout.write(JSON.stringify({protocolVersion:1,requestId:r.requestId,type,...(r.seed===undefined?{}:{effectiveSeed:r.seed}),...extra})+'\n')
   const chunk=async(r:any,index:number)=>{const audioId=randomUUID();await writeFile(join(cache,audioId+'.wav'),wav());send(r,'audio-chunk',{synthesisId:r.synthesisId,audioId,binding:r.binding,segmentIndex:r.segmentIndex,chunkIndex:options.badChunk?999:index,sampleOffset:index*4800,sampleCount:4800,sampleRate:48000,firstChunkReadyMs:1})}
   child.stdin.on('data',(bytes:Buffer)=>{for(const line of bytes.toString().trim().split('\n')){
    const r=JSON.parse(line);requests.push(r)
-   if(r.type==='init'){cache=r.cache;queueMicrotask(()=>send(r,'ready',{seedContract:1,capabilities:{...capabilities,...options.capabilities},mode:'wav-reference',referenceContract:1,referenceSha256:condition.sha256,conditioningFingerprint:condition.fingerprint,referenceCacheBuilds:1,adapterSha256:null,defaultVoice:null,loaded:true,warmed:false,modelVerification:r.modelVerification}))}
+   if(r.type==='init'){cache=r.cache;queueMicrotask(()=>send(r,'ready',{seedContract:1,capabilities:{...capabilities,...options.capabilities},mode:'wav-reference',referenceContract:1,referenceSha256:condition.sha256,conditioningFingerprint:condition.fingerprint,referenceCacheBuilds:1,adapterSha256:null,defaultVoice:null,loaded:true,warmed:false,modelVerification:r.modelVerification,...options.audit}))}
    if(r.type==='prewarm')queueMicrotask(()=>send(r,'warmed',{loaded:true,warmed:true,ready:true}))
    if(r.type==='synthesize'&&r.text!=='hang')void writeFile(join(cache,r.audioId+'.wav'),wav()).then(()=>send(r,'audio-ready',{audioId:r.audioId,binding:r.binding,segmentIndex:r.segmentIndex,generationMs:1,rtf:.01}))
    if(r.type==='stream'){
@@ -51,8 +53,33 @@ async function fixture(options:{capabilities?:Record<string,unknown>;shutdown?:'
  clean.push(async()=>{await runtime.stop();await rm(root,{recursive:true,force:true})})
  const start=()=>runtime.start('', 'gguf-fingerprint',condition)
  const binding=(epoch=1)=>({engine:config.engine,executionProfile:config.executionProfile,runtimeSessionId:runtime.sessionId,conditioningFingerprint:condition.fingerprint,effectiveSeed:42,speechEpoch:epoch}) as SpeechBinding
- return{runtime,root,condition,config,requests,children,start,binding}
+ return{runtime,root,condition,config,requests,children,spawnArgs,start,binding}
 }
+
+const managedRuntime={root:'/fixture/runtime',receipt:'/fixture/runtime/active/qwen-cuda.json',runtimeId:'qwen-cuda' as const}
+const managedAudit={managedRuntimeVerified:true,managedRuntimeId:'qwen-cuda',managedRuntimeCatalogSha256:policy.managedRuntimeCatalog.sha256}
+it('stop during managed interpreter admission prevents a late spawn and removes its session cache',async()=>{
+ let release!:()=>void,entered!:()=>void
+ const gate=new Promise<void>(resolve=>release=resolve),admitting=new Promise<void>(resolve=>entered=resolve)
+ const beforeManagedSpawn=vi.fn(async()=>{entered();await gate})
+ const f=await fixture({config:{managedRuntime,beforeManagedSpawn}}),pending=f.start().catch(error=>error.message)
+ await admitting;const stopped=f.runtime.stop();release()
+ expect(await pending).toBe('VOICE_CANCELLED');await stopped;expect(f.children).toHaveLength(0);expect(await readdir(join(f.root,'cache'))).toEqual([])
+})
+it('managed launches isolate Python startup and forward only the admitted runtime marker',async()=>{
+ const beforeManagedSpawn=vi.fn(async()=>{}),f=await fixture({config:{managedRuntime,beforeManagedSpawn},audit:managedAudit})
+ await f.start();expect(beforeManagedSpawn).toHaveBeenCalledOnce();expect(f.spawnArgs[0]).toEqual(['-I','-B','-u','-X','utf8',f.config.worker]);expect(f.requests[0].managedRuntime).toEqual(managedRuntime)
+ await f.start();expect(beforeManagedSpawn).toHaveBeenCalledOnce()
+ await f.runtime.stop();await f.start();expect(beforeManagedSpawn).toHaveBeenCalledTimes(2)
+})
+it.each([{beforeManagedSpawn:undefined},{beforeManagedSpawn:async()=>{throw Error('GGUF_RUNTIME_CHANGED')}},{managedRuntime:{...managedRuntime,runtimeId:'qwen-vulkan' as const},beforeManagedSpawn:async()=>{}}])('refuses missing, rejected or mismatched managed admission before Python runs (%j)',async config=>{
+ const f=await fixture({config:{managedRuntime,...config}})
+ await expect(f.start()).rejects.toThrow(/^GGUF_RUNTIME_(?:ADMISSION|CHANGED)$/);expect(f.children).toHaveLength(0)
+})
+it.each([{managedRuntimeVerified:false},{managedRuntimeId:'qwen-vulkan'},{managedRuntimeCatalogSha256:'0'.repeat(64)}])('does not accept worker ready without the selected pinned managed audit (%j)',async changed=>{
+ const f=await fixture({config:{managedRuntime,beforeManagedSpawn:async()=>{}},audit:{...managedAudit,...changed}})
+ await expect(f.start()).rejects.toThrow('GGUF_RUNTIME_ADMISSION');expect(f.runtime.ready).toBe(false);expect(f.runtime.running).toBe(false)
+})
 
 it('admits pinned GGUF capabilities, forces full model checks and retains a prewarmed session',async()=>{
  const f=await fixture({config:{modelVerification:'installed'}});await f.start();const session=f.runtime.sessionId

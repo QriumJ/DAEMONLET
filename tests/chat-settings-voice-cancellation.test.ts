@@ -64,3 +64,16 @@ it('keeps the original operation busy when cancellation IPC fails so a retry can
  expect(cancels).toBe(2)
  complete({...initial,revision:3});await task;await flush();expect(voiceControls().busy).toBe(false)
 })
+
+it.each(['installGgufRuntime','repairGgufRuntime','verifyGgufRuntime'] as const)('dispatches runtime cancellation while full-settings %s is pending, without unlocking other mutations',async type=>{
+ let complete!:(s:ChatSettingsSnapshot)=>void
+ const pending=new Promise<ChatSettingsSnapshot>(resolve=>complete=resolve)
+ action.mockImplementation(request=>request.type==='voice'&&request.action.type===type?pending:Promise.resolve({...initial,revision:3}))
+ const task=voiceControls().act({type,id:'qwen-cuda'});await flush()
+ publish({...initial,revision:2,voice:{...initial.voice,ggufRuntimeSetup:{busy:true,id:'qwen-cuda',error:null},ggufRuntimeInstall:[{id:'qwen-cuda',supported:true,available:true,installed:false,verified:false,phase:type==='verifyGgufRuntime'?'verifying':'downloading',bytes:10,total:100,error:null}]}});await flush()
+ expect(voiceControls().busy).toBe(true);expect(await voiceControls().act({type:'cancelInstallGgufRuntime'})).toBe(true)
+ expect(action).toHaveBeenCalledWith({type:'voice',action:{type:'cancelInstallGgufRuntime'},context})
+ await flush();expect(voiceControls().busy).toBe(true);expect(await voiceControls().act({type:'engine',value:'voxcpm2'})).toBe(false)
+ expect(action.mock.calls.map(([request])=>request.type==='voice'?request.action.type:request.type)).toEqual([type,'cancelInstallGgufRuntime'])
+ complete({...initial,revision:2});await task;await flush();expect(voiceControls().busy).toBe(false)
+})

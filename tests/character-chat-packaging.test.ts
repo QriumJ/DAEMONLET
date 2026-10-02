@@ -30,3 +30,9 @@ it('does not embed the separately verified native runtime in ASAR',()=>{expect(c
 it('rejects the Windows shared-library/static-CRT combination that fails at model IO',async()=>{const f=await fixture();(f.entry as any).build={sharedLibraries:true,msvcRuntime:'MultiThreaded'};await writeFile(join(f.root,'runtime-lock.json'),JSON.stringify(f.entry));await expect(f.verify()).rejects.toThrow('shared-library/static-CRT')})
 
 it('keeps the separately verified default voice engine outside ASAR',()=>{expect(config.packagerConfig.ignore('/dist-electron/voice/base-native')).toBe(true);expect(config.packagerConfig.ignore('/dist-electron/voice/base-native/daemonlet-voice-engine')).toBe(true);expect(config.packagerConfig.ignore('/dist-electron/voice/worker.py')).toBe(false)})
+it('keeps fixed Windows GGUF runtime archives outside ASAR while retaining the admission helper and catalog',()=>{
+ expect(config.packagerConfig.ignore('/dist-electron/voice/managed-gguf-runtime-archives')).toBe(true)
+ expect(config.packagerConfig.ignore('/dist-electron/voice/managed-gguf-runtime-archives/shared-win32-x64.zip')).toBe(true)
+ expect(config.packagerConfig.ignore('/dist-electron/voice/managed_gguf_runtime.py')).toBe(false)
+ expect(config.packagerConfig.ignore('/dist-electron/voice/managed-gguf-runtime-catalog.json')).toBe(false)
+})

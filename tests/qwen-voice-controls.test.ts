@@ -59,7 +59,7 @@ it('Vox default can install Qwen without changing engine, and keeps failure/canc
 const gguf:VoiceSnapshot={...state,engine:'qwen3-tts-06b-gguf',availableEngines:['voxcpm2','qwen3-tts-06b','qwen3-tts-06b-gguf'],qwenGgufConfigured:false,qwenInstall:managed,modelVerification:'installed',availableProfiles:['qwen-gguf','qwen-gguf-complete'],executionProfile:'qwen-gguf'}
 it('GGUF is separately selectable with manual setup and no PyTorch installation action',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:gguf,act:()=>{},playbackReady:true,characterId:'test'}))
- for(const text of ['value="qwen3-tts-06b-gguf" selected','Base Q8 · GGUF CUDA','Qwen GGUF Python·DLL·모델 연결','자동 다운로드나 설치는 하지 않습니다.','커뮤니티 MIT','Apache-2.0','Vulkan과 AMD·Intel','Qwen GGUF CUDA · 청크 재생','Qwen GGUF CUDA · 완성 후 재생'])expect(html).toContain(text)
+ for(const text of ['value="qwen3-tts-06b-gguf" selected','Base Q8 · GGUF CUDA','Qwen GGUF Python·DLL·모델 연결','보유한 GGUF 실행 환경 수동 연결','CUDA SDK나 새 GPU 드라이버를 설치하지 않습니다.','compute capability 8.9와 R580 이상','커뮤니티 MIT','Apache-2.0','Qwen GGUF CUDA · 청크 재생','Qwen GGUF CUDA · 완성 후 재생'])expect(html).toContain(text)
  expect(html).not.toContain('Qwen 다운로드 및 설치');expect(html).not.toContain('Qwen 다운로드·설치 후 적용');expect(html).not.toContain('Qwen MLX · 청크 재생')
  expect(html).not.toContain('Qwen GGUF 런타임 다시 연결') // An existing PyTorch connection does not configure GGUF.
  const connected=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,qwenGgufConfigured:true},act:()=>{},playbackReady:true}));expect(connected).toContain('Qwen GGUF 런타임 다시 연결')

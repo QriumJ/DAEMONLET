@@ -79,6 +79,27 @@ it('retains interrupted bytes and resumes the exact pinned range on explicit ret
  const removal=await f.installer.modelRemoval(id);expect(removal?.directories).toHaveLength(1);expect(removal!.directories[0].files.some(file=>file.relativePath===f.entry.files[0].name&&file.bytes===7)).toBe(true)
  const result=await f.installer.install(id);expect(await readFile(join(result!.model,f.entry.files[0].name))).toEqual(bytes);expect(request).toBe(2)
 })
+it('a closed download socket reports a network failure, retains its prefix and resumes only on explicit retry',async()=>{
+ let requests=0,close!:()=>void
+ const fetcher=vi.fn(async(_url:string,options:any)=>{
+  if(++requests===1)return new Response(new ReadableStream({start(controller){controller.enqueue(bytes.subarray(0,7));close=()=>controller.error(new TypeError('terminated',{cause:Object.assign(new Error('other side closed'),{code:'UND_ERR_SOCKET'})}))}}))
+  expect(options.headers.Range).toBe('bytes=7-')
+  return new Response(bytes.subarray(7),{status:206,headers:{'content-range':`bytes 7-${bytes.length-1}/${bytes.length}`}})
+ }) as unknown as typeof fetch
+ const f=await fixture(fetcher),pending=f.installer.install(id)
+ await vi.waitFor(()=>expect(f.installer.snapshot()[0].bytes).toBe(7));close()
+ await expect(pending).rejects.toThrow('VOICE_DOWNLOAD_FAILED')
+ expect(f.installer.snapshot()[0]).toMatchObject({installed:false,verified:false,phase:'idle',bytes:7,error:'VOICE_DOWNLOAD_FAILED'})
+ expect(await readFile(join((f.installer as any).stage(f.entry),f.entry.files[0].name))).toEqual(bytes.subarray(0,7))
+ expect(requests).toBe(1)
+ const result=await f.installer.install(id);expect(await readFile(join(result!.model,f.entry.files[0].name))).toEqual(bytes)
+ expect(f.installer.snapshot()[0]).toMatchObject({installed:true,verified:true,error:null});expect(requests).toBe(2)
+})
+it.each(['UND_ERR_CONNECT_TIMEOUT','ENOTFOUND'])('a fetch %s failure is classified as a network error without publishing or retrying',async code=>{
+ const fetcher=vi.fn(async()=>{throw new TypeError('fetch failed',{cause:Object.assign(new Error('network failed'),{code})})}) as unknown as typeof fetch
+ const f=await fixture(fetcher);await expect(f.installer.install(id)).rejects.toThrow('VOICE_DOWNLOAD_FAILED')
+ expect(f.installer.snapshot()[0]).toMatchObject({installed:false,verified:false,phase:'idle',error:'VOICE_DOWNLOAD_FAILED'});expect(fetcher).toHaveBeenCalledOnce()
+})
 it('a server that ignores Range restarts the file rather than appending duplicate bytes',async()=>{
  const f=await fixture();const owner=f.installer as any;await owner.ensureBundle(f.entry);const stage=owner.stage(f.entry);await mkdir(stage);await writeFile(join(stage,'model-receipt.json'),JSON.stringify(owner.receipt(f.entry))+'\n');await writeFile(join(stage,f.entry.files[0].name),bytes.subarray(0,7))
  const result=await f.installer.install(id);expect(await readFile(join(result!.model,f.entry.files[0].name))).toEqual(bytes)

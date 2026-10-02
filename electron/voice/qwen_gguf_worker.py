@@ -21,11 +21,15 @@ import time
 import uuid
 import wave
 
+# Managed Python starts with -I, which excludes the script directory. This
+# app-owned sibling directory supplies the bundled protocol/admission modules.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from control import read_request, Inbox, StreamControl, StreamCancelled, stream_target
 from qwen_audio import pcm48, IncrementalPcm
 from qwen_memory import process_memory
 from reference_condition import verify_reference_condition
 from windows_model_check import check_gguf_model
+from managed_gguf_runtime import admit as admit_managed_runtime, audit as managed_audit, verify_gpu_support
 from qwen_gguf_abi import ABI_VERSION, Init, Audio, Ref, Params, CancelCB, ChunkCB, LogCB, bind, bind_devices, verify_layout
 
 POLICY = json.loads(Path(__file__).with_name('runtime-qwen-gguf-windows.json').read_text(encoding='utf-8'))
@@ -143,10 +147,12 @@ def verify_native(root, profile='qwen-gguf'):
             raise ValueError('QWEN_GGUF_RUNTIME_CHANGED')
 
 
-def verify_environment():
+def verify_environment(managed=None):
     if sys.platform != 'win32' or platform.machine().lower() not in ('amd64', 'x86_64') or C.sizeof(C.c_void_p) != 8:
         raise ValueError('QWEN_GGUF_PLATFORM_REQUIRED')
-    if platform.python_version() != POLICY['python'] or sys.prefix == sys.base_prefix:
+    if (platform.python_version() != POLICY['python']
+            or (sys.prefix == sys.base_prefix and (not managed or managed.get('verified') is not True
+                or Path(sys.executable).resolve() != managed['python']))):
         raise ValueError('QWEN_GGUF_RUNTIME_VERSION')
     for name, expected in POLICY['dependencies'].items():
         try:
@@ -201,7 +207,10 @@ class GgufWorker:
         # Manual pairs and exact managed public receipts are eligible. Neither
         # can skip full weight hashes when another engine prefers fast checks.
         audit = check_gguf_model(model, POLICY)
-        model_verified = time.perf_counter(); verify_environment(); verify_native(native, self.profile)
+        self.managed = admit_managed_runtime(request.get('managedRuntime'), POLICY,
+                                            'qwen-' + PROFILE_BACKENDS[self.profile], native)
+        model_verified = time.perf_counter(); verify_environment(self.managed); verify_native(native, self.profile)
+        managed_gpu = verify_gpu_support(self.managed)
         verify_layout(POLICY['abiLayout'])
         # The pinned ggml scans the process executable directory and cwd. Both
         # are outside the DLL folder; no extra backend there may be executed.
@@ -211,7 +220,10 @@ class GgufWorker:
                 raise ValueError('QWEN_GGUF_RUNTIME_CHANGED')
         configure_backend_environment(self.backend)
         self.dll_dirs.append(os.add_dll_directory(str(native)))
-        if PROFILE_BACKENDS[self.profile] == 'cuda':
+        if self.managed:
+            for directory in self.managed['dependencyDirs']:
+                self.dll_dirs.append(os.add_dll_directory(str(directory)))
+        elif PROFILE_BACKENDS[self.profile] == 'cuda':
             cuda = Path(r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA') / ('v' + POLICY['cudaVersion']) / 'bin'
             for directory in (cuda, cuda / 'x64'):
                 if directory.is_dir():
@@ -279,6 +291,8 @@ class GgufWorker:
                     runtimeImportMs=(imported-environment_done)*1000, modelLoadMs=(loaded-imported)*1000,
                     loadMs=(loaded-begin)*1000, promptMs=(time.perf_counter()-loaded)*1000,
                     loaded=True, warmed=False, ready=True, workerPid=os.getpid(), capabilities=capabilities_for(self.profile),
+                    **managed_audit(self.managed),
+                    **managed_gpu,
                     **device_audit,
                     dtype='Q8_0', attention='flash', **process_memory())
 

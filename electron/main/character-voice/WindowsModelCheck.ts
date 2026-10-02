@@ -5,16 +5,19 @@ import type {VoxGgufConfig} from './TtsRuntimeSupervisor'
 import voxWindowsPolicy from '../../voice/runtime-gguf-windows-voxcpm2.json'
 import defaultVoice from '../../voice/base-voice-defaults.json'
 import type {ReferenceCondition} from './ReferenceProfileStore'
+import type {GgufRuntimeConnection} from '../../shared/windows-gguf-runtime-catalog'
 
 // The pinned checker does not fork or close its standard pipes. A Windows venv
 // redirector's bootstrap child inherits them: close drains that child as well.
 // Cancellation waits for both the owned tree termination and drained close.
-export function checkWindowsModel(python:string,model:string,worker:string,engine:VoiceEngine,signal:AbortSignal,options:{timeoutMs?:number;gguf?:VoxGgufConfig&{package:string;executionProfile:ExecutionProfile};ggufModelKind?:'public-base';conditioning?:ReferenceCondition}={}):Promise<void>{
+export async function checkWindowsModel(python:string,model:string,worker:string,engine:VoiceEngine,signal:AbortSignal,options:{managedRuntime?:GgufRuntimeConnection['managedRuntime'];beforeManagedSpawn?:()=>Promise<void>;timeoutMs?:number;gguf?:VoxGgufConfig&{package:string;executionProfile:ExecutionProfile};ggufModelKind?:'public-base';conditioning?:ReferenceCondition}={}):Promise<void>{
  if(![python,model,worker].every(isAbsolute))return Promise.reject(Error('VOICE_RUNTIME_CONFIG'))
  const publicVox=options.ggufModelKind==='public-base'
  if(options.ggufModelKind!==undefined&&(!options.gguf||!publicVox))return Promise.reject(Error('VOICE_RUNTIME_CONFIG'))
  if(options.gguf&&(engine!=='voxcpm2'||!['gguf-cuda-f16','gguf-cuda-f16-complete','gguf-vulkan-f16','gguf-vulkan-f16-complete'].includes(options.gguf.executionProfile)||![options.gguf.runtimeDir,options.gguf.derivativeDir,options.gguf.receipt].every(p=>typeof p==='string'&&isAbsolute(p))||(publicVox?options.gguf.package!==''||model!==options.gguf.derivativeDir:!isAbsolute(options.gguf.package))))return Promise.reject(Error('VOICE_RUNTIME_CONFIG'))
  if(options.conditioning&&(!publicVox||options.conditioning.kind!=='wav-reference'||!isAbsolute(options.conditioning.path)||Buffer.byteLength(JSON.stringify(options.conditioning),'utf8')>8192))return Promise.reject(Error('VOICE_RUNTIME_CONFIG'))
+ if(signal.aborted)return Promise.reject(Error('VOICE_MODEL_CHECK_CANCELLED'))
+ if(options.managedRuntime){if(!options.beforeManagedSpawn||![options.managedRuntime.root,options.managedRuntime.receipt].every(isAbsolute))throw Error('GGUF_RUNTIME_ADMISSION');await options.beforeManagedSpawn()}
  if(signal.aborted)return Promise.reject(Error('VOICE_MODEL_CHECK_CANCELLED'))
  return new Promise((resolve,reject)=>{
   let closed=false,stopping=false,expired=false,result:{error:Error|null;stdout:string}|undefined,force:ReturnType<typeof setTimeout>|undefined
@@ -26,6 +29,7 @@ export function checkWindowsModel(python:string,model:string,worker:string,engin
     const checked=JSON.parse(result.stdout)
     if(expired||result.error||checked.status!=='PASS')throw Error()
     if(options.gguf){
+     if(options.managedRuntime){const pin=(voxWindowsPolicy as unknown as {managedRuntimeCatalog?:{sha256:string}}).managedRuntimeCatalog;if(!pin||checked.managedRuntimeVerified!==true||checked.managedRuntimeId!==options.managedRuntime.runtimeId||checked.managedRuntimeCatalogSha256!==pin.sha256)throw Error()}
      if(checked.engine!=='voxcpm2'||checked.executionProfile!==options.gguf.executionProfile.replace(/-complete$/,'')||checked.sourceCommit!==voxWindowsPolicy.sourceCommit||checked.nativeExecuted!==false||checked.ggufVerification!=='full-sha256')throw Error()
      if(publicVox){
       const files=checked.modelFiles as Record<string,{bytes:number;sha256:string}>|undefined,pinned=voxWindowsPolicy.publicModel
@@ -43,6 +47,7 @@ export function checkWindowsModel(python:string,model:string,worker:string,engin
   // Node's signal/timeout would terminate only the launcher. Own the deadline
   // and tree instead; never allow cleanup/replacement while its pipes are live.
   const args=options.gguf?['-I','-B',join(dirname(worker),'voxcpm_windows_gguf_runtime.py'),'--verify','--package',options.gguf.package,'--model',model,'--runtime-dir',options.gguf.runtimeDir,'--derivative-dir',options.gguf.derivativeDir,'--receipt',options.gguf.receipt,'--execution-profile',options.gguf.executionProfile.replace(/-complete$/,'')]:['-I','-B',join(dirname(worker),'windows_model_check.py'),'--engine',engine,'--model',model]
+  if(options.gguf&&options.managedRuntime)args.push('--managed-runtime-json',JSON.stringify(options.managedRuntime))
   if(publicVox)args.push('--model-kind','public-base')
   if(options.conditioning)args.push('--conditioning-json',JSON.stringify(options.conditioning))
   const child=execFile(python,args,{windowsHide:true,maxBuffer:16*1024,env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1'}},(error,stdout)=>{result={error,stdout};finish()})

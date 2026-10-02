@@ -6,15 +6,17 @@ import {mkdir,mkdtemp,readFile,lstat,rm} from 'node:fs/promises'
 import type {SpeechBinding,ExecutionProfile} from '../../shared/character-voice-contract'
 
 import type {ReferenceCondition} from './ReferenceProfileStore'
+import type {GgufRuntimeConnection} from '../../shared/windows-gguf-runtime-catalog'
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
 import {ENGINE} from './VoicePackage'
 import voxWindowsPolicy from '../../voice/runtime-gguf-windows-voxcpm2.json'
+import qwenWindowsPolicy from '../../voice/runtime-qwen-gguf-windows.json'
 import defaultVoice from '../../voice/base-voice-defaults.json'
 
 export type VoxGgufConfig={runtimeDir:string;derivativeDir:string;receipt:string}
 const voxWindowsProfiles=new Set(['gguf-cuda-f16','gguf-cuda-f16-complete','gguf-vulkan-f16','gguf-vulkan-f16-complete'])
 const voxWindowsProfile=(profile:ExecutionProfile|undefined)=>voxWindowsProfiles.has(profile||'')
-export type TtsConfig={modelVerification?:'full'|'installed';diagnosticPrewarm?:boolean;keepRaw?:boolean;engine?:import('../../shared/character-voice-contract').VoiceEngine;qwen?:import('../../shared/character-voice-contract').QwenCloneSettings;ggufRuntime?:string;gguf?:VoxGgufConfig;ggufModelKind?:'public-base';python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean;windowsBase?:boolean}
+export type TtsConfig={managedRuntime?:GgufRuntimeConnection['managedRuntime'];dependencyDirs?:string[];beforeManagedSpawn?:()=>Promise<void>;modelVerification?:'full'|'installed';diagnosticPrewarm?:boolean;keepRaw?:boolean;engine?:import('../../shared/character-voice-contract').VoiceEngine;qwen?:import('../../shared/character-voice-contract').QwenCloneSettings;ggufRuntime?:string;gguf?:VoxGgufConfig;ggufModelKind?:'public-base';python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean;windowsBase?:boolean}
 export type SpawnWorker=(command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams
 export type AudioResult={audioId:string;bytes:Uint8Array;durationMs:number;generationMs:number;rtf:number;peakAllocatedBytes?:number;peakReservedBytes?:number;rawSampleRate?:number;rawDurationMs?:number;firstAudioReadyMs?:number;ramWorkingSetBytes?:number;ramPeakWorkingSetBytes?:number;ramCommitBytes?:number}
 export type AudioChunk=AudioResult & {synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number;firstChunkReadyMs:number}
@@ -111,11 +113,18 @@ export class TtsRuntimeSupervisor {
   if(conditioning&&(!this.config.nativeBase&&!this.config.windowsBase&&this.config.engine!=='qwen3-tts-06b'&&!qwenGguf&&!publicVox||conditioning.kind!=='wav-reference'||!isAbsolute(conditioning.path)))throw Error('VOICE_REFERENCE_RUNTIME')
   this.conditioning=conditioning
   for(const p of [this.config.python,this.config.model,this.config.worker,this.config.cacheRoot])if(!isAbsolute(p))throw Error('VOICE_RUNTIME_CONFIG')
+  if(this.config.managedRuntime){
+   const m=this.config.managedRuntime,id=(qwenGguf?'qwen-':voxGguf?'vox-':'')+(this.config.executionProfile?.includes('vulkan')?'vulkan':'cuda')
+   if(!this.windowsGguf||m.runtimeId!==id||![m.root,m.receipt].every(isAbsolute)||!this.config.beforeManagedSpawn)throw Error('GGUF_RUNTIME_ADMISSION')
+   // Verify the interpreter and PYDs before running any managed Python code.
+   // Keep this await before the final revision check so stop cannot late-spawn.
+   await this.config.beforeManagedSpawn()
+  }
   if(!this.config.nativeBase&&(this.config.executionProfile?.startsWith('mps-')||this.config.executionProfile?.startsWith('gguf-metal-')))await verifyMacInterpreter(this.config.python,this.config.executionProfile)
   await mkdir(this.config.cacheRoot,{recursive:true});const cache=await mkdtemp(join(this.config.cacheRoot,'session-'))
   if(revision!==this.revision){await rm(cache,{recursive:true,force:true});throw Error('VOICE_CANCELLED')}
   this.cache=cache;this.sessionId=randomUUID()
-  const child=this.child=this.spawnProcess(this.config.python,this.config.nativeBase?[]:['-B','-u',this.config.worker],{cwd:this.config.nativeBase?dirname(this.config.python):this.cache,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HOME:join(this.cache,'hf'),TORCH_HOME:join(this.cache,'torch'),NUMBA_CACHE_DIR:join(this.cache,'numba'),TEMP:this.cache,TMP:this.cache,TMPDIR:this.cache,MLX_AUDIO_CACHE_DIR:join(this.cache,'mlx')}})
+  const child=this.child=this.spawnProcess(this.config.python,this.config.nativeBase?[]:this.config.managedRuntime?['-I','-B','-u','-X','utf8',this.config.worker]:['-B','-u',this.config.worker],{cwd:this.config.nativeBase?dirname(this.config.python):this.cache,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HOME:join(this.cache,'hf'),TORCH_HOME:join(this.cache,'torch'),NUMBA_CACHE_DIR:join(this.cache,'numba'),TEMP:this.cache,TMP:this.cache,TMPDIR:this.cache,MLX_AUDIO_CACHE_DIR:join(this.cache,'mlx')}})
   this.exit=new Promise(resolve=>{child.once('close',()=>{if(this.child===child){this.child=null;this.key='';this.ggufActive=false;this.fail(Error('VOICE_WORKER_EXIT'))}resolve()});child.once('error',()=>{this.fail(Error('VOICE_WORKER_START'))})})
   child.stdin.on('error',()=>this.fail(Error('VOICE_WORKER_IO')))
   let buffer=''
@@ -145,8 +154,9 @@ export class TtsRuntimeSupervisor {
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
   try {
-   this.audit=await this.call('init','ready',{modelVerification:qwenGguf?'full':this.config.modelVerification,keepRaw:this.config.keepRaw,engine:this.config.engine||'voxcpm2',qwen:this.config.qwen,ggufRuntime:this.config.ggufRuntime,gguf:this.config.gguf,ggufModelKind:this.config.ggufModelKind,runtimeSessionId:this.sessionId,package:packagePath,model:this.config.model,cache:this.cache,executionProfile:voxGguf?this.config.executionProfile!.replace(/-complete$/,''):this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:publicVox||this.config.windowsBase===true||this.config.nativeBase===true,...(conditioning?{conditioning}:{}),compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')})
+   this.audit=await this.call('init','ready',{managedRuntime:this.config.managedRuntime,modelVerification:qwenGguf?'full':this.config.modelVerification,keepRaw:this.config.keepRaw,engine:this.config.engine||'voxcpm2',qwen:this.config.qwen,ggufRuntime:this.config.ggufRuntime,gguf:this.config.gguf,ggufModelKind:this.config.ggufModelKind,runtimeSessionId:this.sessionId,package:packagePath,model:this.config.model,cache:this.cache,executionProfile:voxGguf?this.config.executionProfile!.replace(/-complete$/,''):this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:publicVox||this.config.windowsBase===true||this.config.nativeBase===true,...(conditioning?{conditioning}:{}),compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')})
    if(this.child!==child)throw Error('VOICE_CANCELLED')
+   if(this.config.managedRuntime){const pin=((qwenGguf?qwenWindowsPolicy:voxWindowsPolicy) as unknown as {managedRuntimeCatalog?:{sha256:string}}).managedRuntimeCatalog;if(!pin||this.audit?.managedRuntimeVerified!==true||this.audit.managedRuntimeId!==this.config.managedRuntime.runtimeId||this.audit.managedRuntimeCatalogSha256!==pin.sha256)throw Error('GGUF_RUNTIME_ADMISSION')}
    if(this.audit?.seedContract!==1)throw Error('VOICE_SEED_UNSUPPORTED')
    const capabilities=this.audit?.capabilities as Record<string,unknown>|undefined
    if(this.config.engine==='qwen3-tts-06b'&&(!capabilities||capabilities.engine!==this.config.engine||capabilities.synthesisStreaming!==!!this.config.executionProfile?.startsWith('qwen-mlx')||capabilities.cancellation!=='owned-process-termination'||capabilities.warmCancellationReuse!==false))throw Error('QWEN_CAPABILITIES')

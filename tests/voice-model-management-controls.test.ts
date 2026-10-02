@@ -10,7 +10,7 @@ it('catalog identifies two public community conversions with hashes, size and se
  const html=render();expect(GGUF_MODEL_CATALOG.sourcePolicy).toBe('explicitly-approved-community-conversions');expect(GGUF_MODEL_CATALOG.models).toHaveLength(2)
  for(const model of GGUF_MODEL_CATALOG.models){expect(html).toContain(model.repository);expect(html).toContain(model.revision);expect(html).toContain(model.license);expect(html).toContain(model.runtimeCommit);for(const file of model.files){expect(html).toContain(file.name);expect(html).toContain(file.sha256)}}
  expect(html).toContain('커뮤니티 변환 모델');expect(html).toContain('직접 배포한 공식 GGUF가 아닙니다.');expect(html).toContain('모델 파일만 내려받습니다.');expect(html).toContain('다운로드만으로 엔진이나 캐릭터 음성을 바꾸지 않습니다.');expect(html).toContain('GGUF 모델 다운로드·설치');expect(html).not.toContain('belle_candidates_6000')
- expect(html).toContain('Qwen GGUF Vulkan · 청크 재생');expect(html).toContain('Qwen GGUF Vulkan · 완성 후 재생');expect(html).toContain('검증된 GGUF Vulkan DLL 폴더')
+ expect(html).toContain('Qwen GGUF Vulkan · 청크 재생');expect(html).toContain('Qwen GGUF Vulkan · 완성 후 재생');expect(html).toContain('보유한 GGUF 실행 환경 수동 연결');expect(html).toContain('Vulkan 경로는 RTX 4090에서 검증했습니다.')
 })
 it.each(['preparing','downloading','verifying','publishing'] as const)('GGUF %s shows cancellation and locks competing installation actions',phase=>{
  const html=render({...state,ggufInstall:state.ggufInstall!.map((model,index)=>index?model:{...model,phase,bytes:model.total/2})});expect(html).toContain('<button>GGUF 모델 작업 중단</button>');expect(html).toContain('disabled="">GGUF 모델 다운로드·설치');expect(html).toContain('GGUF 모델 다운로드 진행률')

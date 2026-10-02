@@ -7,6 +7,7 @@ import {assertSameSource} from './validation.mjs'
 import { runtimeAssetPaths } from './runtime-assets.mjs'
 import { requiredNotices } from './licenses.mjs'
 import { verifyArtwork, digest } from './artwork.mjs'
+import { managedRuntimeArchivePins, managedRuntimeArchivesName, managedRuntimeCatalogName } from './managed-runtime-assets.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 export async function checkCandidate(asar) {
@@ -25,6 +26,16 @@ export async function checkCandidate(asar) {
   const graph = json('dist-electron/bundle-inputs.json')
   if (graph.production !== true || !Array.isArray(graph.inputs) || !graph.inputs.includes('electron/main/side-chat/SideChatBackend.ts')
     || graph.inputs.some(path => typeof path !== 'string' || /(?:Smoke|fixture|tests\/|scripts\/side-chat|runtime-patches)/i.test(path))) throw new Error('Unverified production input graph')
+  for (const name of ['managed_gguf_runtime.py', managedRuntimeCatalogName]) {
+    if (!extract('dist-electron/voice/' + name).equals(await readFile(resolve(root, 'electron/voice', name)))) throw Error('Managed GGUF runtime resource differs from source: ' + name)
+  }
+  const managedRuntimeBuild = json('dist-electron/managed-gguf-runtime-build.json')
+  if (managedRuntimeBuild.target === 'win32-x64') {
+    const pins = managedRuntimeArchivePins(json('dist-electron/voice/' + managedRuntimeCatalogName))
+    if (managedRuntimeBuild.status !== 'bundled' || managedRuntimeBuild.archives !== pins.length ||
+        managedRuntimeBuild.bytes !== pins.reduce((total, pin) => total + pin.bytes, 0) ||
+        managedRuntimeBuild.catalogSha256 !== digest(extract('dist-electron/voice/' + managedRuntimeCatalogName))) throw Error('GGUF_RUNTIME_PACKAGE_NOT_READY: source-only build cannot become a Windows installer candidate')
+  } else if (managedRuntimeBuild.target?.startsWith('win32-')) throw Error('Unsupported managed GGUF Windows runtime target')
   const update = json('dist-electron/app-update.yml')
   if (JSON.stringify(update) !== JSON.stringify({ provider: 'github', owner: 'ddol2ya', repo: 'DAEMONLET', private: false, updaterCacheDirName: 'daemonlet-for-codex-updater' }) || !graph.inputs.includes('electron/main/updates/OfficialUpdater.ts')) throw Error('Unverified updater configuration')
   const main = extract('dist-electron/main.cjs').toString('utf8')
@@ -42,6 +53,7 @@ export async function checkCandidate(asar) {
   }))
   for (const path of files) {
     if (!/^(package\.json|dist(?:\/|$)|dist-electron(?:\/|$))/.test(path)) throw new Error(`Unexpected app content: ${path}`)
+    if (path === 'dist-electron/voice/' + managedRuntimeArchivesName || path.startsWith('dist-electron/voice/' + managedRuntimeArchivesName + '/')) throw Error('Managed GGUF runtime archives must remain outside ASAR')
     if (/\.(map|pyc|safetensors|ckpt|pt|pth|onnx|gguf)$|(^|\/)(node_modules|outputs|__pycache__)(\/|$)/i.test(path)) throw new Error(`Development artifact shipped: ${path}`)
     if (path.startsWith('dist/characters/') && !allowedAssets.has(path)) throw new Error(`Unreferenced artwork shipped: ${path}`)
   }

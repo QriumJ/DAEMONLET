@@ -1,5 +1,10 @@
 import {QwenVoiceInstaller} from './QwenVoiceInstaller'
 import {WindowsGgufModelInstaller} from './WindowsGgufModelInstaller'
+import {WindowsGgufRuntimeInstaller} from './WindowsGgufRuntimeInstaller'
+import type {GgufRuntimeCatalog} from '../../shared/windows-gguf-runtime-catalog'
+import qwenWindowsPolicy from '../../voice/runtime-qwen-gguf-windows.json'
+import {readFileSync} from 'node:fs'
+import {createHash} from 'node:crypto'
 import {VOICE_MOUTH_IPC,validVoiceMouth,type VoiceMouthInput} from '../../shared/voice-mouth'
 import {DOT_IPC} from '../../shared/dot-presentation'
 import {appText,appLanguage} from '../AppLanguage'
@@ -90,6 +95,17 @@ export class VoiceIpcController {
   this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>{console.info('[voice]',JSON.stringify(value));metrics?.(value)},process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
   this.service.attachQwenInstaller(new QwenVoiceInstaller(join(root,'qwen-managed'),dirname(worker),()=>this.service.refreshBase()))
   this.service.attachGgufInstaller(new WindowsGgufModelInstaller(join(root,'gguf-models'),()=>this.service.refreshBase()))
+  if(process.platform==='win32'&&process.arch==='x64'){
+   try{
+    const pin=(qwenWindowsPolicy as unknown as {managedRuntimeCatalog?:{filename:string;bytes:number;sha256:string}}).managedRuntimeCatalog
+    if(!pin)throw Error('GGUF_RUNTIME_ARTIFACT_PENDING')
+    if(pin.filename!=='managed-gguf-runtime-catalog.json'||!Number.isSafeInteger(pin.bytes)||pin.bytes<=0||!/^[a-f0-9]{64}$/.test(pin.sha256))throw Error('GGUF_RUNTIME_CHANGED')
+    const bytes=readFileSync(join(dirname(worker),pin.filename))
+    if(bytes.length!==pin.bytes||createHash('sha256').update(bytes).digest('hex')!==pin.sha256)throw Error('GGUF_RUNTIME_CHANGED')
+    const catalog=JSON.parse(bytes.toString('utf8')) as GgufRuntimeCatalog
+    this.service.attachGgufRuntimeInstaller(new WindowsGgufRuntimeInstaller(join(root,'gguf-runtimes',pin.sha256),()=>this.service.refreshBase(),{catalog,catalogSha256:pin.sha256,bundledRoot:join(dirname(worker),'managed-gguf-runtime-archives')}),catalog)
+   }catch(error){this.service.runtimeSetupUnavailable(error instanceof Error&&error.message==='GGUF_RUNTIME_ARTIFACT_PENDING'?'GGUF_RUNTIME_ARTIFACT_PENDING':'GGUF_RUNTIME_CHANGED')}
+  }
   this.service.attachModelTrash(path=>shell.trashItem(path))
   ipcMain.handle(DOT_IPC.volume,event=>{if(this.closing||!this.petOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.service.snapshot().volume})
   ipcMain.handle(DOT_IPC.voiceAction,async(event,v:VoiceAction)=>{
@@ -173,6 +189,11 @@ export class VoiceIpcController {
    case 'stop':return this.presentationOutput?this.stopPresentation():this.service.stop(true,false)
    case 'installQwen':return this.service.installQwen(contextCurrent)
    case 'cancelInstallQwen':return this.service.cancelInstallQwen()
+   case 'installGgufRuntime':case 'repairGgufRuntime':case 'verifyGgufRuntime':{
+    if(!['qwen-cuda','qwen-vulkan','vox-cuda','vox-vulkan'].includes(v.id))throw Error('VOICE_ACTION')
+    return this.service.setupGgufRuntime(v.id,v.type==='installGgufRuntime'?'install':v.type==='repairGgufRuntime'?'repair':'verify',contextCurrent)
+   }
+   case 'cancelInstallGgufRuntime':return this.service.cancelInstallGgufRuntime()
    case 'installBase':return this.service.installBase()
    case 'cancelInstallBase':return this.service.cancelInstallBase()
    case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()

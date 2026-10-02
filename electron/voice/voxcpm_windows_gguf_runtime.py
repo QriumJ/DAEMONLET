@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from voice_package import verify_package
 from reference_condition import verify_reference_condition
 from windows_model_check import check_model
+from managed_gguf_runtime import admit as admit_managed_runtime, audit as managed_audit
 from worker import inside, read_json, sha, MODEL, REVISION, SOURCE
 
 
@@ -63,6 +64,8 @@ def validate(request):
     runtime = ordinary(configured['runtimeDir'], True)
     receipt_path = ordinary(configured['receipt'])
     receipt = read_json(receipt_path)
+    managed = admit_managed_runtime(request.get('managedRuntime'), policy,
+                                   'vox-' + PROFILES[profile].lower(), runtime, receipt_path)
     for key in ['sourceCommit', 'originalRuntimeSha256', 'cachedRuntimeSha256', 'nativeSourceSha256',
                 'buildDriverSha256', 'cmakeSourceSha256', 'seedContractSha256']:
         if receipt.get(key) != policy.get(key):
@@ -80,7 +83,8 @@ def validate(request):
             raise ValueError('RUNTIME_SOURCE_CHANGED')
     executable = ordinary(inside(runtime, 'daemonlet-voxcpm2-engine.exe'))
     if public:
-        return validate_public(request, configured, policy, expected, executable, runtime, profile)
+        return dict(validate_public(request, configured, policy, expected, executable, runtime, profile),
+                    managedRuntime=managed)
     selected = verify_package(ordinary(request['package'], True))
     derivative_policy = policy.get('derivatives', {}).get(selected['packageSha256'])
     if not derivative_policy or derivative_policy.get('adapterSha256') != selected['adapterSha256']:
@@ -131,6 +135,7 @@ def validate(request):
                 derivativeManifestSha256=sha(conversion_path),
                 modelKind='trained', mode='reference', referenceCacheBuilds=1,
                 conditioningFingerprint=None, defaultVoice=None,
+                managedRuntime=managed,
                 originalModelVerification='provenance-and-presence', ggufVerification='full-sha256')
 
 
@@ -191,6 +196,7 @@ def main():
     parser.add_argument('--package', default='')
     parser.add_argument('--model-kind', choices=['trained', 'public-base'], default='trained')
     parser.add_argument('--conditioning-json')
+    parser.add_argument('--managed-runtime-json')
     parser.add_argument('--model', required=True, type=Path)
     parser.add_argument('--runtime-dir', required=True, type=Path)
     parser.add_argument('--derivative-dir', required=True, type=Path)
@@ -204,6 +210,10 @@ def main():
                                          receipt=str(args.receipt)))
         if args.model_kind == 'public-base':
             request.update(ggufModelKind='public-base', baseModel=True)
+        if args.managed_runtime_json is not None:
+            if len(args.managed_runtime_json.encode('utf-8')) > 8192:
+                raise ValueError('GGUF_MANAGED_RUNTIME_CHANGED')
+            request['managedRuntime'] = json.loads(args.managed_runtime_json)
         if args.conditioning_json is not None:
             if len(args.conditioning_json.encode('utf-8')) > 8192:
                 raise ValueError('VOICE_REFERENCE_CHANGED')
@@ -220,7 +230,8 @@ def main():
                               conditioningFingerprint=assets['conditioningFingerprint'], defaultVoice=assets['defaultVoice'],
                               modelRepository=assets.get('modelRepository'), modelRevision=assets.get('modelRevision', REVISION),
                               modelFiles=assets.get('modelFiles'), publisher=assets.get('publisher'),
-                              managedModelReceiptVerified=assets.get('managedModelReceiptVerified', False), nativeExecuted=False)))
+                              managedModelReceiptVerified=assets.get('managedModelReceiptVerified', False),
+                              **managed_audit(assets.get('managedRuntime')), nativeExecuted=False)))
         return 0
     except Exception as error:
         code = str(error) if isinstance(error, ValueError) and re.fullmatch('[A-Z_]{1,60}', str(error)) else 'VOX_GGUF_VERIFY_FAILED'
