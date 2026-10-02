@@ -7,11 +7,12 @@ export class DotPresentationService{
  muted=true;quiet=false
  private sequence=0
  private request=0
+ private muteSequence=0
  private frame:DotFrame|null=null
  private controller:AbortController|null=null
  private timer:ReturnType<typeof setTimeout>|null=null
  private closed=false
- constructor(private context:()=>DotContext|null,private publish:(frame:DotFrame|null)=>void,private speak:(text:string,signal:AbortSignal,onPlaybackScheduled:(delayMs:number)=>void)=>Promise<void>,private stop:(failure?:'preparation-timeout'|'failed')=>Promise<void>,private changed:()=>void=()=>{},private voiceIssue:()=>boolean=()=>false){}
+ constructor(private context:()=>DotContext|null,private publish:(frame:DotFrame|null)=>void,private speak:(text:string,signal:AbortSignal,onPlaybackScheduled:(delayMs:number)=>void)=>Promise<void>,private stop:(failure?:'preparation-timeout'|'failed')=>Promise<void>,private changed:()=>void=()=>{},private voiceIssue:()=>boolean=()=>false,private muteVoice:(value:boolean)=>Promise<void>=async()=>{}){}
  snapshot(){return this.frame?structuredClone(this.frame):null}
  private arm(sequence:number,ms:number,expired:()=>void){if(this.timer)clearTimeout(this.timer);this.timer=setTimeout(()=>{this.timer=null;if(sequence===this.sequence)expired()},ms)}
  async present(value:unknown):Promise<DotResult>{
@@ -59,6 +60,10 @@ export class DotPresentationService{
   if(owned){try{await this.stop()}catch{this.quiet=true}}this.changed()
  }
  async setQuiet(value:boolean){this.quiet=value;if(value)await this.cancel();this.changed()}
- async setMuted(value:boolean){this.muted=value;if(value)await this.cancel();this.changed()}
- async close(){this.closed=true;await this.cancel()}
+ async setMuted(value:boolean){
+  const sequence=++this.muteSequence;this.muted=value
+  const cleanup=this.muteVoice(value);void cleanup.catch(()=>{})
+  try{if(value)await this.cancel();await cleanup}catch(e){if(sequence===this.muteSequence)this.quiet=true;throw e}finally{this.changed()}
+ }
+ async close(){this.closed=true;await this.setMuted(true)}
 }

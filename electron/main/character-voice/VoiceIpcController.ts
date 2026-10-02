@@ -50,12 +50,18 @@ export class VoiceIpcController {
  }
 
  presentationReady(value:boolean){this.petReady=value;if(!value&&this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
- presentationVoiceIssue(){const s=this.service.snapshot();return !this.petReady||!s.enabled||!s.runtimeConfigured||s.seedError||!s.availableProfiles?.length||!!s.error}
+ presentationVoiceIssue(){const s=this.service.snapshot();return this.service.presentationVoiceMuted||!this.petReady||!s.enabled||!s.runtimeConfigured||s.seedError||!s.availableProfiles?.length||!!s.error}
+ async setPresentationMuted(value:boolean){
+  if(!value&&!this.service.presentationVoiceMuted)return
+  const generation=++this.presentationGeneration,pending=this.service.setPresentationMuted(value)
+  if(value){this.presentationOutput=false;this.presentationPlayback=null}
+  try{await pending}finally{if(value&&generation===this.presentationGeneration)this.updateOutput()}
+ }
  async speakPresentation(text:string,signal:AbortSignal,scheduled:(delayMs:number)=>void=()=>{}){
   if(this.playbackReady||!this.petOutput||this.petOutput.isDestroyed()||!this.petOutput.isVisible()||this.presentationVoiceIssue())throw Error('VOICE_PRESENTATION_UNAVAILABLE')
   const generation=++this.presentationGeneration;this.presentationOutput=true
   this.presentationPlayback={generation,signal,epoch:null,announced:new Set(),claimed:new Set(),started:false,scheduled}
-  this.service.setOutputReady(true,false)
+  this.service.setOutputReady(true,false,'presentation')
   let outcome:'completed'|'cancelled'|'failed'='cancelled',failure:unknown
   try{await this.service.speakPresentation(text,signal);outcome=signal.aborted?'cancelled':'completed'}
   catch(e){failure=e;outcome=e instanceof Error&&e.message==='VOICE_CANCELLED'?'cancelled':'failed';throw e}

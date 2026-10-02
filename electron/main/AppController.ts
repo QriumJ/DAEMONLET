@@ -873,7 +873,8 @@ export class AppController {
       const selected=this.characters.get(this.settings.characterId),chat=this.characterChat.service.snapshot()
       if(this.quitting||this.updatePreparing||!this.dotReady||!selected||selected.status!=='ready'||!this.settings.visible||!this.settings.speechBubblesEnabled||this.characterChat.window||this.sideChat.snapshot().mode!=="hidden"||this.lab.window||this.pet.getMousePolicy().layoutMode||this.transitions.busy||!pet.isVisible()||chat.character?.id!==selected.id||chat.character.revision!==selected.revision)return null
       return {characterId:selected.id,revision:selected.revision,definition:this.characterChat.service.definition}
-    },frame=>this.pet.send(DOT_IPC.changed,frame),(text,signal,scheduled)=>this.characterChat.voice.speakPresentation(text,signal,scheduled),failure=>this.characterChat.voice.stopPresentation(failure?'failed':'cancelled',failure?Error(failure==='preparation-timeout'?'VOICE_PRESENTATION_PREPARATION_TIMEOUT':'VOICE_PRESENTATION_FAILED'):undefined),()=>this.rebuildTray(),()=>this.characterChat.voice.presentationVoiceIssue())
+    },frame=>this.pet.send(DOT_IPC.changed,frame),(text,signal,scheduled)=>this.characterChat.voice.speakPresentation(text,signal,scheduled),failure=>this.characterChat.voice.stopPresentation(failure?'failed':'cancelled',failure?Error(failure==='preparation-timeout'?'VOICE_PRESENTATION_PREPARATION_TIMEOUT':'VOICE_PRESENTATION_FAILED'):undefined),()=>this.rebuildTray(),()=>this.characterChat.voice.presentationVoiceIssue(),value=>this.characterChat.voice.setPresentationMuted(value))
+    await this.characterChat.voice.setPresentationMuted(this.dot.muted)
     const cancel=()=>{void this.dot?.cancel()};pet.on('hide',cancel)
     this.dotSubscriptions.push(()=>pet.removeListener('hide',cancel),this.sideChat.subscribe(()=>{if(this.sideChat.snapshot().mode!=="hidden")cancel()}),this.characters.subscribe(cancel),this.characterChat.service.subscribe(()=>{const frame=this.dot?.snapshot(),s=this.characterChat.service.snapshot();if(frame&&(frame.characterId!==s.character?.id||frame.revision!==s.character?.revision))cancel()}))
     this.dotServer=new DotBridgeServer(this.dot)
@@ -900,7 +901,7 @@ export class AppController {
 
   private trayActions(): TrayActions {
     return {
-      ...(this.dot?{dot:()=>({quiet:this.dot!.quiet,muted:this.dot!.muted}),dotQuiet:(value:boolean)=>{void this.dot!.setQuiet(value)},dotMuted:(value:boolean)=>{void this.dot!.setMuted(value)},dotCancel:()=>{void this.dot!.cancel()}}:{}),
+      ...(this.dot?{dot:()=>({quiet:this.dot!.quiet,muted:this.dot!.muted}),dotQuiet:(value:boolean)=>{void this.dot!.setQuiet(value)},dotMuted:(value:boolean)=>{void this.dot!.setMuted(value).catch(()=>{})},dotCancel:()=>{void this.dot!.cancel()}}:{}),
       inputLocked: () => this.updatePreparing || this.quitting || this.packUpdates.applying(),
       checkUpdates: () => { this.updateIpc.open(); void this.updates.act({ action: "check" }) },
       activity: () => this.activity.snapshot(),

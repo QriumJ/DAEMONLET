@@ -9,7 +9,8 @@ import {canonicalReferenceWav} from '../electron/main/character-voice/ReferenceW
 import {referenceWav} from './helpers/reference-wav'
 const cleanup:Array<()=>Promise<unknown>>=[]
 const hostPlatform=Object.getOwnPropertyDescriptor(process,'platform')!
-afterEach(async()=>{try{for(const fn of cleanup.splice(0))await fn()}finally{Object.defineProperty(process,'platform',hostPlatform);vi.restoreAllMocks()}})
+const hostArch=Object.getOwnPropertyDescriptor(process,'arch')!
+afterEach(async()=>{try{for(const fn of cleanup.splice(0))await fn()}finally{Object.defineProperty(process,'platform',hostPlatform);Object.defineProperty(process,'arch',hostArch);vi.restoreAllMocks()}})
 async function fixture(native=true,setupRuntime:(runtime:any)=>void=()=>{}){
  const root=await realpath(await mkdtemp(join(tmpdir(),'reference-service-'))),source=join(root,'input.wav');await writeFile(source,referenceWav())
  const store=new ReferenceProfileStore(join(root,'reference-profiles'),async(path,stage,signal)=>{if(signal.aborted)throw Error('VOICE_REFERENCE_CANCELLED');const bytes=await readFile(path),{wav,audio}=canonicalReferenceWav(bytes);await writeFile(join(stage,'reference.wav'),wav);return{sourceSha256:createHash('sha256').update(bytes).digest('hex'),referenceSha256:createHash('sha256').update(wav).digest('hex'),audio}})
@@ -138,4 +139,41 @@ it('only the latest read survives two requests arriving during Qwen prewarm',asy
  f.service.readMessage('message');f.service.readMessage('newest')
  await vi.waitFor(()=>expect(f.inference).toHaveBeenCalledTimes(1));await vi.waitFor(()=>expect(f.service.snapshot().status).toBe('idle'))
  expect(f.inference.mock.calls[0][0]).toBe(next.text);expect(f.service.snapshot().error).toBeNull();expect(f.events.filter(e=>e.type==='audio')).toHaveLength(1)
+})
+async function qwenGgufLifecycleFixture(setupRuntime:(runtime:any)=>void=()=>{}){
+ Object.defineProperty(process,'platform',{...hostPlatform,value:'win32'});Object.defineProperty(process,'arch',{...hostArch,value:'x64'})
+ const f=await fixture(true,setupRuntime);await f.service.importReference(f.source,'Reference');const ref=f.store.list()[0];await f.service.bind('test',ref.id+'@'+ref.version)
+ // Control metadata completion and runtime ownership without running an
+ // interpreter, model, native library or full admission implementation.
+ const assets=vi.spyOn(f.service as any,'qwenAssets').mockResolvedValue('stable')
+ await f.service.configureQwenGguf(join(f.root,'python.exe'),join(f.root,'model'),join(f.root,'native'));await f.service.engine('qwen3-tts-06b-gguf');await f.service.enabled(true)
+ return{...f,assets}
+}
+it('a stale post-load asset check drains before a new speech can adopt that session',async()=>{
+ const f=await qwenGgufLifecycleFixture();let release!:()=>void;const gate=new Promise<void>(r=>release=r)
+ f.assets.mockResolvedValueOnce('stable').mockImplementationOnce(async()=>{await gate;return 'stable'})
+ const preparing=f.service.prepare(true);await vi.waitFor(()=>expect(f.assets).toHaveBeenCalledTimes(2));const r=f.runtimes[0]
+ f.service.setOutputReady(true,false);f.service.readMessage('message');await vi.waitFor(()=>expect(f.assets.mock.calls.length).toBeGreaterThanOrEqual(3))
+ expect(r.start).toHaveBeenCalledTimes(1);expect(r.stream).not.toHaveBeenCalled()
+ release();await preparing;await vi.waitFor(()=>expect(r.stream).toHaveBeenCalledOnce());await vi.waitFor(()=>expect(f.service.snapshot().status).toBe('idle'))
+ expect(r.stop).toHaveBeenCalledOnce();expect(r.running).toBe(true);expect(f.service.snapshot().error).toBeNull()
+})
+it('GGUF read during non-streaming prewarm waits for owned cancellation before inference',async()=>{
+ let warming=false,rejectWarm!:(e:Error)=>void
+ const f=await qwenGgufLifecycleFixture(r=>{
+  r.prewarm.mockImplementationOnce(()=>new Promise<void>((_resolve,reject)=>{warming=true;rejectWarm=reject}));Object.defineProperty(r,'busy',{get:()=>warming})
+  r.stop.mockImplementation(async()=>{r.running=false;if(warming){warming=false;rejectWarm(Error('VOICE_CANCELLED'))}})
+  r.cancelSpeech.mockImplementation(async()=>{await r.stop();return{keptWarm:false,elapsedMs:0,fallback:'non-streaming'}})
+  const original=r.stream.getMockImplementation();r.stream.mockImplementation(async(...args:any[])=>{if(warming)throw Error('VOICE_WORKER_BUSY');return original(...args)})
+ })
+ const preparing=f.service.prepare(true);await vi.waitFor(()=>expect(warming).toBe(true));const r=f.runtimes[0]
+ f.service.setOutputReady(true,false);f.service.readMessage('message');await preparing
+ await vi.waitFor(()=>expect(r.stream).toHaveBeenCalledOnce());await vi.waitFor(()=>expect(f.service.snapshot().status).toBe('idle'))
+ expect(r.cancelSpeech).toHaveBeenCalledOnce();expect(r.stop).toHaveBeenCalledOnce();expect(f.service.snapshot().error).toBeNull()
+})
+it('Dots mute does not cancel a pending local settings preparation',async()=>{
+ let release!:()=>void;const f=await qwenGgufLifecycleFixture(r=>r.prewarm.mockImplementationOnce(()=>new Promise<void>(resolve=>release=resolve)))
+ const preparing=f.service.prepare(true);await vi.waitFor(()=>expect(release).toBeTypeOf('function'));const r=f.runtimes[0];r.stop.mockClear()
+ await f.service.setPresentationMuted(true);expect(r.stop).not.toHaveBeenCalled();release();await preparing
+ expect(r.running).toBe(true);expect(f.service.snapshot().status).toBe('idle');expect(f.events.filter(e=>e.type==='audio')).toEqual([])
 })

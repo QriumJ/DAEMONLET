@@ -57,6 +57,70 @@ it('worker failure affects voice state without changing completed text',async()=
 it('OFF cancels pending speech and bindings persist separately per actual character ID',async()=>{const f=await fixture();await f.service.bind('other-id','voice@1');await f.service.auto(false);f.service.completed(f.message);expect(f.runtime.synthesize).not.toHaveBeenCalled();await f.service.enabled(false);const settings=JSON.parse(await readFile(join(f.root,'settings.json'),'utf8'));expect(settings.bindings).toEqual({'actual-id':'voice@1','other-id':'voice@1'});expect(settings.enabled).toBe(false)})
 it('warm worker remains available after playback and a completed text invalidation',async()=>{const f=await fixture();f.service.completed(f.message);await f.complete();f.runtime.stop.mockClear();f.service.cancel();await new Promise(r=>setTimeout(r,0));expect(f.runtime.stop).not.toHaveBeenCalled();await f.service.enabled(false);expect(f.runtime.stop).toHaveBeenCalled()})
 
+it('successive Dots completions revoke output capabilities and keep the selected worker warm',async()=>{
+ const f=await fixture();f.runtime.stop.mockClear()
+ for(let i=0;i<2;i++){
+  f.events.splice(0);f.service.setOutputReady(true,false,'presentation')
+  const speech=f.service.speakPresentation('응. 다음 문장!',new AbortController().signal)
+  await f.complete();await speech
+  const audio=f.events.find(e=>e.type==='audio')!
+  await f.service.releasePresentationOutput('completed');f.service.setOutputReady(false)
+  expect(f.runtime.running).toBe(true);expect(f.service.snapshot().status).toBe('idle');expect(f.service.snapshot().lastGeneration).toBeUndefined();expect(f.service.snapshot().results).toEqual({})
+  if(audio.type==='audio')expect(()=>f.service.audio(audio.audioId,audio.epoch)).toThrow('VOICE_AUDIO_EXPIRED')
+ }
+ expect(f.runtime.stop).not.toHaveBeenCalled();expect(f.runtime.synthesize).toHaveBeenCalledTimes(4)
+ await f.service.enabled(false);expect(f.runtime.running).toBe(false)
+})
+it('losing idle output keeps its worker; failed Dots preparation unloads it and preserves the error',async()=>{
+ const f=await fixture();f.service.completed(f.message);await f.complete();f.runtime.stop.mockClear()
+ f.service.setOutputReady(false);await Promise.resolve();expect(f.runtime.running).toBe(true);expect(f.runtime.stop).not.toHaveBeenCalled()
+ f.service.setOutputReady(true,false);await f.service.releasePresentationOutput('failed',Error('CUDA_OOM'))
+ expect(f.runtime.running).toBe(false);expect(f.service.snapshot()).toMatchObject({status:'error',error:'CUDA_OOM'})
+})
+async function completeDot(f:Awaited<ReturnType<typeof fixture>>){
+ f.events.splice(0);f.service.setOutputReady(true,false,'presentation')
+ const task=f.service.speakPresentation('응. 다음 문장!',new AbortController().signal)
+ await f.complete();await task;await f.service.releasePresentationOutput('completed')
+}
+it('idle Dots mute unloads its own model; unmute loads only on the next actual speech',async()=>{
+ const f=await fixture();await completeDot(f);f.runtime.stop.mockClear();f.runtime.start.mockClear()
+ await f.service.setPresentationMuted(true);expect(f.runtime.running).toBe(false);expect(f.runtime.stop).toHaveBeenCalledOnce()
+ f.service.setOutputReady(true,false,'presentation');await expect(f.service.speakPresentation('차단됨',new AbortController().signal)).rejects.toThrow('VOICE_PRESENTATION_UNAVAILABLE')
+ await f.service.setPresentationMuted(false);expect(f.runtime.start).not.toHaveBeenCalled();await completeDot(f);expect(f.runtime.running).toBe(true)
+})
+it('Dots mute keeps a shared local-chat model and replay, and local voice works while Dots remain muted',async()=>{
+ const f=await fixture();f.service.completed(f.message);await f.complete();const localResult=f.service.snapshot().results?.message
+ await completeDot(f);f.runtime.stop.mockClear();await f.service.setPresentationMuted(true)
+ expect(f.runtime.running).toBe(true);expect(f.runtime.stop).not.toHaveBeenCalled();expect(f.service.snapshot().enabled).toBe(true);expect(f.service.snapshot().results?.message).toEqual(localResult)
+ f.events.splice(0);f.service.setOutputReady(true,false);f.service.readMessage(f.message.id);await f.complete();expect(f.runtime.running).toBe(true)
+})
+it('a late Dots abort cannot stop a newer local-chat speech',async()=>{
+ const f=await fixture();let finish!:(v:any)=>void;f.runtime.synthesize.mockImplementationOnce(()=>new Promise(r=>finish=r))
+ f.service.setOutputReady(true,false,'presentation');const abort=new AbortController(),old=f.service.speakPresentation('예전 발화',abort.signal).catch(e=>e.message)
+ await vi.waitFor(()=>expect(finish).toBeTypeOf('function'));f.service.setOutputReady(true,false);f.service.readMessage(f.message.id)
+ await vi.waitFor(()=>expect(f.events.some(e=>e.type==='audio')).toBe(true));const epoch=f.service.snapshot().epoch;f.runtime.stop.mockClear();abort.abort();await f.service.setPresentationMuted(true)
+ expect(f.service.snapshot().epoch).toBe(epoch);expect(f.runtime.stop).not.toHaveBeenCalled()
+ finish({audioId:'stale',bytes:new Uint8Array(2),durationMs:1});await old;await f.complete();expect(f.events.some(e=>e.type==='audio'&&e.audioId==='stale')).toBe(false)
+})
+it('a replaced worker session never inherits a former local-chat ownership claim',async()=>{
+ const f=await fixture();f.service.completed(f.message);await f.complete()
+ await f.runtime.stop();f.runtime.sessionId='replacement-session';await completeDot(f);f.runtime.stop.mockClear()
+ await f.service.setPresentationMuted(true);expect(f.runtime.stop).toHaveBeenCalledOnce();expect(f.runtime.running).toBe(false)
+})
+it.each(['loading','synthesizing'] as const)('Dots mute during %s rejects late output and unmute recovers lazily',async stage=>{
+ const f=await fixture();let release!:(v?:any)=>void,retired=false
+ if(stage==='loading'){
+  f.runtime.start.mockImplementationOnce(async()=>{await new Promise<void>(r=>release=r);if(!retired)f.runtime.running=true})
+  f.runtime.stop.mockImplementationOnce(async()=>{retired=true;f.runtime.running=false})
+ }else f.runtime.synthesize.mockImplementationOnce(()=>new Promise(r=>release=r))
+ f.service.setOutputReady(true,false,'presentation');const old=f.service.speakPresentation('예전 발화',new AbortController().signal).catch(e=>e.message)
+ await vi.waitFor(()=>expect(release).toBeTypeOf('function'));await f.service.setPresentationMuted(true)
+ release({audioId:'late-muted',bytes:new Uint8Array(2),durationMs:1});await old
+ expect(f.runtime.running).toBe(false);expect(f.events.some(e=>e.type==='audio')).toBe(false);expect(f.service.snapshot().status).not.toBe('idle')
+ const starts=f.runtime.start.mock.calls.length;await f.service.setPresentationMuted(false);expect(f.runtime.start).toHaveBeenCalledTimes(starts)
+ await completeDot(f);expect(f.runtime.running).toBe(true);expect(f.service.snapshot().error).toBeNull()
+})
+
 it.each(['loading','synthesizing','playing'])('F2 hide during %s discards pending audio and explicit reread recovers',async stage=>{
  const f=await fixture();let release!:(v:any)=>void
  if(stage==='loading')f.runtime.start.mockImplementationOnce(()=>new Promise(r=>{release=r}))
@@ -118,9 +182,9 @@ it('streaming overlaps only the immediate next sentence and keeps separate audio
  const consume=(id:string)=>{const epoch=f.service.snapshot().epoch;f.service.audio(id,epoch);f.service.played(id,epoch)}
  consume('chunk-1');await vi.waitFor(()=>expect(stream).toHaveBeenCalledTimes(3));consume('chunk-2');consume('chunk-3');await vi.waitFor(()=>expect(f.service.snapshot().status).toBe('idle'))
 })
-it('warm idle GPU survives voice-only stop, but hide still unloads it',async()=>{
+it('warm idle GPU survives voice-only stop and output loss; OFF unloads it',async()=>{
  const f=await fixture();Object.assign(f.runtime,{busy:false});f.service.completed(f.message);await vi.waitFor(()=>expect(f.events.some(e=>e.type==='audio')).toBe(true))
- f.runtime.stop.mockClear();await f.service.stop(true,false);expect(f.runtime.stop).not.toHaveBeenCalled();f.service.setOutputReady(false);await vi.waitFor(()=>expect(f.runtime.stop).toHaveBeenCalled())
+ f.runtime.stop.mockClear();await f.service.stop(true,false);expect(f.runtime.stop).not.toHaveBeenCalled();f.service.setOutputReady(false);await Promise.resolve();expect(f.runtime.stop).not.toHaveBeenCalled();await f.service.enabled(false);expect(f.runtime.stop).toHaveBeenCalled()
 })
 it('hide revokes current and prefetched stream capabilities and prevents a third sentence',async()=>{
  const f=await fixture();(f.service as any).state.executionProfile='cached';f.message.text='첫 문장. 다음 문장. 마지막 문장.'
@@ -132,7 +196,7 @@ it('hide revokes current and prefetched stream capabilities and prevents a third
  f.service.completed(f.message);await vi.waitFor(()=>expect(stream).toHaveBeenCalledTimes(2))
  const epoch=f.service.snapshot().epoch;f.service.setOutputReady(false)
  for(const id of ['hidden-1','hidden-2']){expect(()=>f.service.audio(id,epoch)).toThrow('VOICE_AUDIO_EXPIRED');f.service.played(id,epoch)}
- await vi.waitFor(()=>expect(f.runtime.stop).toHaveBeenCalled());await new Promise(r=>setTimeout(r,0))
+ await new Promise(r=>setTimeout(r,0));expect(f.runtime.stop).not.toHaveBeenCalled()
  expect(stream).toHaveBeenCalledTimes(2);expect(f.message.status).toBe('complete')
 })
 it('voice-only stop cancels an explicit preparation even before speech exists',async()=>{
