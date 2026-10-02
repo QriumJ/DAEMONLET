@@ -103,7 +103,7 @@ export class VoiceIpcController {
     const bytes=readFileSync(join(dirname(worker),pin.filename))
     if(bytes.length!==pin.bytes||createHash('sha256').update(bytes).digest('hex')!==pin.sha256)throw Error('GGUF_RUNTIME_CHANGED')
     const catalog=JSON.parse(bytes.toString('utf8')) as GgufRuntimeCatalog
-    this.service.attachGgufRuntimeInstaller(new WindowsGgufRuntimeInstaller(join(root,'gguf-runtimes',pin.sha256),()=>this.service.refreshBase(),{catalog,catalogSha256:pin.sha256,bundledRoot:join(dirname(worker),'managed-gguf-runtime-archives')}),catalog)
+    this.service.attachGgufRuntimeInstaller(new WindowsGgufRuntimeInstaller(join(root,'rt',pin.sha256.slice(0,16)),()=>this.service.refreshBase(),{catalog,catalogSha256:pin.sha256,layout:'compact-v1',bundledRoot:join(dirname(worker),'managed-gguf-runtime-archives')}),catalog)
    }catch(error){this.service.runtimeSetupUnavailable(error instanceof Error&&error.message==='GGUF_RUNTIME_ARTIFACT_PENDING'?'GGUF_RUNTIME_ARTIFACT_PENDING':'GGUF_RUNTIME_CHANGED')}
   }
   this.service.attachModelTrash(path=>shell.trashItem(path))

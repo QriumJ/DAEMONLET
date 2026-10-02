@@ -4,12 +4,13 @@ import {lstat,mkdir,open,readFile,readdir,realpath,rename,rm,statfs,writeFile} f
 import {dirname,isAbsolute,join,resolve} from 'node:path'
 import * as yauzl from 'yauzl'
 import {isDeepStrictEqual} from 'node:util'
+import {parseUniqueJson} from '../../../adapter/codex/hooks/HookJson'
 import {downloadVoiceFile} from './PinnedVoiceDownload'
 import {replaceFile} from '../character-chat/replaceFile'
 import type {GgufRuntimeCatalog,GgufRuntimeComponent,GgufRuntimeConnection,GgufRuntimeId,GgufRuntimeInstallState} from '../../shared/windows-gguf-runtime-catalog'
 export type {GgufRuntimeCatalog,GgufRuntimeConnection,GgufRuntimeId,GgufRuntimeInstallState} from '../../shared/windows-gguf-runtime-catalog'
 
-type Options={catalog:GgufRuntimeCatalog;catalogSha256:string;bundledRoot?:string;platform?:string;fetch?:typeof fetch;freeBytes?:()=>Promise<number>}
+type Options={catalog:GgufRuntimeCatalog;catalogSha256:string;layout?:'compact-v1';bundledRoot?:string;platform?:string;fetch?:typeof fetch;freeBytes?:()=>Promise<number>}
 export interface WindowsGgufRuntimeInstallation {initialize():Promise<void>;snapshot():GgufRuntimeInstallState[];install(id:GgufRuntimeId):Promise<GgufRuntimeConnection|null>;repair(id:GgufRuntimeId):Promise<GgufRuntimeConnection|null>;verify(id:GgufRuntimeId):Promise<GgufRuntimeConnection>;cancel(id?:GgufRuntimeId):Promise<void>}
 type Published={id:string;target:string;previous?:string;identity:BigIntStats;previousIdentity?:BigIntStats;recordPublished?:boolean;recordBefore?:string}
 const ids:GgufRuntimeId[]=['qwen-cuda','qwen-vulkan','vox-cuda','vox-vulkan']
@@ -21,7 +22,7 @@ const ordinary=(s:BigIntStats)=>s.isFile()&&!s.isSymbolicLink()&&s.nlink===1n
 function installationError(error:unknown){
  const message=error instanceof Error?error.message:'',code=(error as NodeJS.ErrnoException|undefined)?.code
  const download:Record<string,string>={VOICE_DOWNLOAD_FAILED:'GGUF_RUNTIME_DOWNLOAD_FAILED',VOICE_DOWNLOAD_ACCESS:'GGUF_RUNTIME_DOWNLOAD_ACCESS',VOICE_DOWNLOAD_RANGE:'GGUF_RUNTIME_DOWNLOAD_RANGE',VOICE_DOWNLOAD_SIZE:'GGUF_RUNTIME_DOWNLOAD_SIZE',VOICE_BASE_CHANGED:'GGUF_RUNTIME_CHANGED'}
- const known=['GGUF_RUNTIME_ARTIFACT_PENDING','GGUF_RUNTIME_UNSUPPORTED','GGUF_RUNTIME_BUSY','GGUF_RUNTIME_CHANGED','GGUF_RUNTIME_DISK_SPACE','GGUF_RUNTIME_INSTALL_FAILED','GGUF_RUNTIME_RECOVERY','GGUF_RUNTIME_UNKNOWN','GGUF_RUNTIME_DOWNLOAD_FAILED','GGUF_RUNTIME_DOWNLOAD_ACCESS','GGUF_RUNTIME_DOWNLOAD_RANGE','GGUF_RUNTIME_DOWNLOAD_SIZE','GGUF_RUNTIME_FILESYSTEM_FAILED']
+ const known=['GGUF_RUNTIME_ARTIFACT_PENDING','GGUF_RUNTIME_UNSUPPORTED','GGUF_RUNTIME_BUSY','GGUF_RUNTIME_CHANGED','GGUF_RUNTIME_DISK_SPACE','GGUF_RUNTIME_PATH_TOO_LONG','GGUF_RUNTIME_INSTALL_FAILED','GGUF_RUNTIME_RECOVERY','GGUF_RUNTIME_UNKNOWN','GGUF_RUNTIME_DOWNLOAD_FAILED','GGUF_RUNTIME_DOWNLOAD_ACCESS','GGUF_RUNTIME_DOWNLOAD_RANGE','GGUF_RUNTIME_DOWNLOAD_SIZE','GGUF_RUNTIME_FILESYSTEM_FAILED']
  const name=Object.hasOwn(download,message)?download[message]:known.includes(message)?message:code==='ENOSPC'?'GGUF_RUNTIME_DISK_SPACE':code==='ELOOP'?'GGUF_RUNTIME_CHANGED':code&&['EACCES','EPERM','EIO','EBUSY','EMFILE','ENFILE','ENOTDIR','EROFS','EEXIST','ENOENT'].includes(code)?'GGUF_RUNTIME_FILESYSTEM_FAILED':'GGUF_RUNTIME_INSTALL_FAILED'
  return error instanceof Error&&message===name?error:Error(name,{cause:error})
 }
@@ -44,7 +45,7 @@ async function fileHash(path:string,signal?:AbortSignal){
   return {sha256:hash.digest('hex'),bytes:offset,identity:first}
  }finally{await handle.close()}
 }
-async function json(path:string){await directory(dirname(path));const before=await lstat(path,{bigint:true});if(!ordinary(before)||before.size>1024n*1024n)throw invalid();const text=await readFile(path,'utf8');if(!isDeepStrictEqual(stamp(before),stamp(await lstat(path,{bigint:true}))))throw invalid();return {value:JSON.parse(text),text}}
+async function json(path:string){await directory(dirname(path));const before=await lstat(path,{bigint:true});if(!ordinary(before)||before.size>1024n*1024n)throw invalid();const text=await readFile(path,'utf8');if(!isDeepStrictEqual(stamp(before),stamp(await lstat(path,{bigint:true}))))throw invalid();let value;try{value=parseUniqueJson(text)}catch{throw invalid()}return {value,text,identity:before}}
 
 // Archives and installed payloads are data here. No executable, interpreter,
 // driver, SDK, shell, service or GPU is launched by this installer.
@@ -57,7 +58,7 @@ export class WindowsGgufRuntimeInstaller {
  private lastUpdate=0
  constructor(readonly root:string,private changed:()=>void,private options:Options){
   this.catalog=structuredClone(options.catalog)
-  if(!isAbsolute(root)||resolve(root)!==root||this.catalog.schemaVersion!==1||!hash64(options.catalogSha256))throw invalid()
+  if(!isAbsolute(root)||resolve(root)!==root||this.catalog.schemaVersion!==1||!hash64(options.catalogSha256)||options.layout!==undefined&&options.layout!=='compact-v1')throw invalid()
   for(const [id,c] of Object.entries(this.catalog.components)){
    if(c.id!==id||!/^[a-z][a-z0-9-]{0,63}$/.test(id)||c.archive.format!=='zip'||!hash64(c.archive.sha256)||!Number.isSafeInteger(c.archive.bytes)||c.archive.bytes<22||c.archive.bytes>4*1024**3||!c.provenance||!Object.keys(c.provenance).length||!Object.keys(c.files).length||Object.keys(c.files).length>100000)throw invalid()
    safe(c.archive.name);if(c.archive.bundledPath)safe(c.archive.bundledPath)
@@ -78,13 +79,17 @@ export class WindowsGgufRuntimeInstaller {
  private admit(id:GgufRuntimeId){const r=this.runtime(id);if(!this.states.get(id)!.supported)throw Error('GGUF_RUNTIME_UNSUPPORTED');if(!r.available)throw Error('GGUF_RUNTIME_ARTIFACT_PENDING');return r}
  private update(id:GgufRuntimeId,value:Partial<GgufRuntimeInstallState>){Object.assign(this.states.get(id)!,value);if(value.phase!==undefined||value.error!==undefined||value.installed!==undefined||value.verified!==undefined||Date.now()-this.lastUpdate>150){this.lastUpdate=Date.now();this.changed()}}
  private component(id:string){return this.catalog.components[id]}
- private target(id:string){return join(this.root,'components',id,this.component(id).archive.sha256)}
+ private target(id:string){return this.options.layout==='compact-v1'?join(this.root,'c',id,this.component(id).archive.sha256.slice(0,12)):join(this.root,'components',id,this.component(id).archive.sha256)}
+ private pathsFit(id:GgufRuntimeId){return this.options.layout!=='compact-v1'||this.runtime(id).components.every(c=>Object.keys(this.component(c).files).every(name=>join(this.target(c),name).length<=259))}
+ private catalogIdentity(){return {schemaVersion:1,owner:'daemonlet-managed-gguf-runtime-catalog',catalogSha256:this.options.catalogSha256,layout:'compact-v1'}}
+ private async verifyCatalogIdentity(){if(this.options.layout==='compact-v1'){const saved=await json(join(this.root,'.catalog.json'));if(!isDeepStrictEqual(saved.value,this.catalogIdentity()))throw invalid();return saved}}
+ private async claimCatalog(){if(this.options.layout!=='compact-v1')return;try{await this.verifyCatalogIdentity()}catch(e){if(!missing(e))throw e;if((await readdir(this.root)).length)throw invalid();await this.atomicJson(join(this.root,'.catalog.json'),this.catalogIdentity())}}
  private recordPath(id:string){return join(this.root,'component-receipts',id+'-'+this.component(id).archive.sha256+'.json')}
  private record(id:string){return {schemaVersion:1,owner:'daemonlet-managed-gguf-runtime-component',id,fingerprint:this.component(id).archive.sha256,provenance:this.component(id).provenance}}
  private activePath(id:GgufRuntimeId){return join(this.root,'active',id+'.json')}
- private active(id:GgufRuntimeId){return {schemaVersion:1,owner:'daemonlet-managed-gguf-runtime',id,catalogSha256:this.options.catalogSha256,components:this.runtime(id).components.map(c=>({id:c,fingerprint:this.component(c).archive.sha256}))}}
+ private active(id:GgufRuntimeId){return {schemaVersion:this.options.layout==='compact-v1'?2:1,...(this.options.layout==='compact-v1'?{layout:'compact-v1'}:{}),owner:'daemonlet-managed-gguf-runtime',id,catalogSha256:this.options.catalogSha256,components:this.runtime(id).components.map(c=>({id:c,fingerprint:this.component(c).archive.sha256}))}}
  private connection(id:GgufRuntimeId):GgufRuntimeConnection{const r=this.runtime(id),location=(v:{component:string;path:string})=>join(this.target(v.component),v.path);return {id,python:location(r.python),runtimeDir:location(r.native),...(r.receipt?{receipt:location(r.receipt)}:{}),dependencyDirs:r.dependencyDirs.map(location),managedRuntime:{root:this.root,receipt:this.activePath(id),runtimeId:id}}}
- private async ownedRecord(id:string){if(!isDeepStrictEqual((await json(this.recordPath(id))).value,this.record(id)))throw invalid()}
+ private async ownedRecord(id:string){const saved=await json(this.recordPath(id));if(!isDeepStrictEqual(saved.value,this.record(id)))throw invalid();return saved}
  private async payload(id:string,path=this.target(id),full=true,signal?:AbortSignal,complete=true){
   await directory(path);const files=this.component(id).files,parents=new Set<string>()
   for(const name of Object.keys(files)){const parts=name.split('/');for(let i=1;i<parts.length;i++)parents.add(parts.slice(0,i).join('/'))}
@@ -94,13 +99,18 @@ export class WindowsGgufRuntimeInstaller {
   await walk(path);if(complete&&found.size!==Object.keys(files).length)throw invalid()
  }
  private async validate(id:GgufRuntimeId,signal?:AbortSignal,full=true){
-  if(!isDeepStrictEqual((await json(this.activePath(id))).value,this.active(id)))throw invalid()
-  for(const c of this.runtime(id).components){signal?.throwIfAborted();await this.ownedRecord(c);await this.payload(c,undefined,full,signal)}
+  if(!this.pathsFit(id))throw Error('GGUF_RUNTIME_PATH_TOO_LONG')
+  const marker=await this.verifyCatalogIdentity(),active=await json(this.activePath(id))
+  if(!isDeepStrictEqual(active.value,this.active(id)))throw invalid()
+  const metadata:Array<{path:string;saved:Awaited<ReturnType<typeof json>>}>=[{path:this.activePath(id),saved:active},...(marker?[{path:join(this.root,'.catalog.json'),saved:marker}]:[])]
+  for(const c of this.runtime(id).components){signal?.throwIfAborted();metadata.push({path:this.recordPath(c),saved:await this.ownedRecord(c)});await this.payload(c,undefined,full,signal)}
   for(const dir of [this.runtime(id).native,...this.runtime(id).dependencyDirs])await directory(join(this.target(dir.component),dir.path))
+  for(const {path,saved} of metadata){signal?.throwIfAborted();const after=await json(path);if(after.text!==saved.text||!isDeepStrictEqual(stamp(after.identity),stamp(saved.identity)))throw invalid()}
   return this.connection(id)
  }
  private async archivePresent(component:string){const c=this.component(component);if(c.archive.url)return true;const paths=[join(this.root,'downloads',c.archive.sha256+'.zip'),...(this.options.bundledRoot?[join(this.options.bundledRoot,c.archive.bundledPath||c.archive.name)]:[])];for(const path of paths)try{await directory(dirname(path));const s=await lstat(path,{bigint:true});if(ordinary(s)&&s.size===BigInt(c.archive.bytes))return true}catch{}return false}
  private async discover(id:GgufRuntimeId){const s=this.states.get(id)!,r=this.runtime(id);Object.assign(s,{available:false,repairAvailable:false,blockedReason:r.blockedReason||'GGUF_RUNTIME_ARTIFACT_PENDING',installed:false,verified:false,python:undefined,runtimeDir:undefined,receipt:undefined,dependencyDirs:undefined,managedRuntime:undefined,phase:'idle',bytes:0,error:null});if(!s.supported||!r.available)return
+  if(!this.pathsFit(id)){s.blockedReason=s.error='GGUF_RUNTIME_PATH_TOO_LONG';return}
   try{Object.assign(s,await this.validate(id,undefined,false),{installed:true})}catch(e){if(!missing(e))s.error='GGUF_RUNTIME_CHANGED'}
   s.repairAvailable=(await Promise.all(r.components.map(c=>this.archivePresent(c)))).every(Boolean)
   const existing=await Promise.all(r.components.map(async c=>{try{await this.ownedRecord(c);await this.payload(c,undefined,false);return true}catch{return false}}))
@@ -111,7 +121,7 @@ export class WindowsGgufRuntimeInstaller {
   try{this.admit(id)}catch(e){return Promise.reject(e)}
   if(this.operation||this.removing)return Promise.reject(Error('GGUF_RUNTIME_BUSY'))
   if(this.checking)return this.checking.id===id?this.checking.task:Promise.reject(Error('GGUF_RUNTIME_BUSY'))
-  const controller=new AbortController(),task=Promise.resolve().then(async()=>{this.update(id,{phase:'verifying',error:null});const connection=await this.validate(id,controller.signal);controller.signal.throwIfAborted();this.update(id,{...connection,installed:true,verified:true,available:true,blockedReason:undefined,phase:'idle'});return connection}).catch(async e=>{await this.discover(id);this.update(id,{error:controller.signal.aborted?null:'GGUF_RUNTIME_CHANGED'});throw e}).finally(()=>{if(this.checking?.task===task)this.checking=null})
+  const controller=new AbortController(),task=Promise.resolve().then(async()=>{this.update(id,{phase:'verifying',error:null});const connection=await this.validate(id,controller.signal);controller.signal.throwIfAborted();this.update(id,{...connection,installed:true,verified:true,available:true,blockedReason:undefined,phase:'idle'});return connection}).catch(async e=>{await this.discover(id);this.update(id,{error:controller.signal.aborted?null:e instanceof Error&&e.message==='GGUF_RUNTIME_PATH_TOO_LONG'?e.message:'GGUF_RUNTIME_CHANGED'});throw e}).finally(()=>{if(this.checking?.task===task)this.checking=null})
   this.checking={id,controller,task};return task
  }
  install(id:GgufRuntimeId){return this.begin(id,false)}
@@ -160,7 +170,8 @@ export class WindowsGgufRuntimeInstaller {
  }
  private async cleanup(id:string,path:string){await this.payload(id,path,false,undefined,false);await rm(path,{recursive:true})}
  private async setup(id:GgufRuntimeId,signal:AbortSignal,repair:boolean){
-  this.update(id,{phase:'preparing',error:null});signal.throwIfAborted();await directory(this.root,true)
+  if(!this.pathsFit(id))throw Error('GGUF_RUNTIME_PATH_TOO_LONG')
+  this.update(id,{phase:'preparing',error:null});signal.throwIfAborted();await directory(this.root,true);await this.claimCatalog()
   const r=this.runtime(id),published:Published[]=[],stages:Array<{id:string;path:string}>=[];let oldActive:string|undefined,activePublished=false,committed=false
   try{oldActive=(await json(this.activePath(id))).text;if(!isDeepStrictEqual(JSON.parse(oldActive),this.active(id)))throw invalid()}catch(e){if(!missing(e))throw e}
   let completed=0

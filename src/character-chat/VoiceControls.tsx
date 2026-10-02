@@ -148,6 +148,7 @@ Object.assign(errors,{
  GGUF_RUNTIME_DOWNLOAD_RANGE:'실행 환경 다운로드를 이어 받지 못했습니다. 다시 준비해 주세요.',
  GGUF_RUNTIME_DOWNLOAD_SIZE:'실행 환경 설치 파일의 크기가 맞지 않습니다. 다시 준비해 주세요.',
  GGUF_RUNTIME_FILESYSTEM_FAILED:'실행 환경 파일을 저장하지 못했습니다. 저장 폴더와 여유 공간을 확인해 주세요.',
+ GGUF_RUNTIME_PATH_TOO_LONG:'앱 데이터 폴더 경로가 너무 길어 실행 환경을 준비할 수 없습니다. 더 짧은 앱 데이터 위치를 사용해 주세요.',
  GGUF_RUNTIME_UNKNOWN:'선택한 GGUF 실행 환경을 찾지 못했습니다. 지원되는 엔진과 재생 방식을 선택해 주세요.',
  GGUF_RUNTIME_INSTALL_FAILED:'실행 환경을 준비하지 못했습니다. 설치 파일과 저장 공간을 확인하고 다시 시도해 주세요.',
  GGUF_RUNTIME_RECOVERY:'실행 환경 정리가 남아 있습니다. 앱을 다시 시작한 뒤 복구를 눌러 주세요.',

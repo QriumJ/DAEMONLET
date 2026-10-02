@@ -18,6 +18,9 @@ import sys
 
 CATALOG_NAME = 'managed-gguf-runtime-catalog.json'
 OWNER = 'daemonlet-managed-gguf-runtime'
+CATALOG_OWNER = 'daemonlet-managed-gguf-runtime-catalog'
+COMPONENT_OWNER = 'daemonlet-managed-gguf-runtime-component'
+COMPACT_LAYOUT = 'compact-v1'
 RUNTIMES = {'qwen-cuda': ('qwen3-tts-06b-gguf', 'cuda'), 'qwen-vulkan': ('qwen3-tts-06b-gguf', 'vulkan'),
             'vox-cuda': ('voxcpm2', 'cuda'), 'vox-vulkan': ('voxcpm2', 'vulkan')}
 COMPONENTS = {'shared', 'cuda-redist', *RUNTIMES}
@@ -134,7 +137,7 @@ def records(value):
     return result
 
 
-def verify_component(root, component):
+def verify_component(root, component, layout=None):
     identity = component['id']
     if identity not in COMPONENTS:
         fail()
@@ -142,7 +145,12 @@ def verify_component(root, component):
     check_record(archive)
     if archive.get('format') != 'zip' or archive['bytes'] <= 0:
         fail()
-    path = ordinary(root / 'components' / identity / archive['sha256'], True)
+    if layout == COMPACT_LAYOUT:
+        path = ordinary(root / 'c' / identity / archive['sha256'][:12], True)
+    elif layout is None:
+        path = ordinary(root / 'components' / identity / archive['sha256'], True)
+    else:
+        fail()
     files = component.get('files')
     if not isinstance(files, dict) or not files or len(files) > 20000:
         fail()
@@ -207,12 +215,45 @@ def admit(configuration, policy, runtime_id, native_dir, native_receipt=None):
         receipt_path = ordinary(configuration['receipt'])
         if not receipt_path.is_relative_to(root) or receipt_path.is_relative_to(root / 'components'):
             fail()
+        receipt_raw = read(receipt_path, maximum=65536)
+        active = parse(receipt_raw)
+        if not isinstance(active, dict) or type(active.get('schemaVersion')) is not int:
+            fail()
+        layout = None
+        if active['schemaVersion'] == 2 and active.get('layout') == COMPACT_LAYOUT:
+            layout = COMPACT_LAYOUT
+            if receipt_path.is_relative_to(root / 'c'):
+                fail()
+        elif active['schemaVersion'] != 1:
+            fail()
         expected_receipt = dict(schemaVersion=1, owner=OWNER, id=runtime_id, catalogSha256=catalog_sha,
                                 components=[dict(id=name, fingerprint=digest(components[name]['archive']['sha256'])) for name in required])
-        receipt_raw = read(receipt_path, maximum=65536)
-        if canonical(parse(receipt_raw)) != canonical(expected_receipt):
+        if layout is not None:
+            expected_receipt.update(schemaVersion=2, layout=layout)
+        if canonical(active) != canonical(expected_receipt):
             fail()
-        paths = {name: verify_component(root, components[name]) for name in required}
+        metadata_reads = []
+        if layout == COMPACT_LAYOUT:
+            marker_path = root / '.catalog.json'
+            marker_raw = read(marker_path, maximum=65536)
+            expected_marker = dict(schemaVersion=1, owner=CATALOG_OWNER,
+                                   catalogSha256=catalog_sha, layout=layout)
+            if canonical(parse(marker_raw)) != canonical(expected_marker):
+                fail()
+            metadata_reads.append((marker_path, marker_raw))
+            for name in required:
+                component = components[name]
+                fingerprint = digest(component['archive']['sha256'])
+                if not isinstance(component.get('provenance'), dict):
+                    fail()
+                component_receipt = root / 'component-receipts' / (name + '-' + fingerprint + '.json')
+                component_raw = read(component_receipt, maximum=65536)
+                expected_component = dict(schemaVersion=1, owner=COMPONENT_OWNER, id=name,
+                                          fingerprint=fingerprint, provenance=component['provenance'])
+                if canonical(parse(component_raw)) != canonical(expected_component):
+                    fail()
+                metadata_reads.append((component_receipt, component_raw))
+        paths = {name: verify_component(root, components[name], layout) for name in required}
 
         def located(record, directory=False):
             if (not isinstance(record, dict) or set(record) != {'component', 'path'}
@@ -248,10 +289,13 @@ def admit(configuration, policy, runtime_id, native_dir, native_receipt=None):
         # Re-read the receipt after component hashes to catch a concurrent swap.
         if read(receipt_path, maximum=65536) != receipt_raw:
             fail()
+        for path, raw in metadata_reads:
+            if read(path, maximum=65536) != raw:
+                fail()
         return dict(runtimeId=runtime_id, root=root, python=python, native=native,
                     nativeReceipt=receipt, dependencyDirs=dependency_dirs, components=paths,
                     catalogSha256=catalog_sha, pythonVersion=runtime['pythonVersion'],
-                    backend=runtime['backend'], support=runtime.get('support'), verified=True)
+                    backend=runtime['backend'], support=runtime.get('support'), layout=layout, verified=True)
     except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
         raise ValueError(ERROR) from None
 

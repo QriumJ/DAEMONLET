@@ -62,7 +62,7 @@ it('runtime cancellation crosses IPC while ordinary runtime setup remains pendin
 it('keeps the current pinned runtime catalog in a separate owned root and preserves older catalog receipts',async()=>{
  vi.stubGlobal('process',{...process,platform:'win32',arch:'x64'})
  const f=await fixture({catalog:'valid'}),installer=(f.controller.service as any).ggufRuntimeInstaller
- expect(installer.root).toBe(join(f.root,'gguf-runtimes',runtimePolicy.managedRuntimeCatalog.sha256));expect(await readFile(f.previousReceipt,'utf8')).toBe('old owned fixture; preserve')
+ expect(installer.root).toBe(join(f.root,'rt',runtimePolicy.managedRuntimeCatalog.sha256.slice(0,16)));expect(await readFile(f.previousReceipt,'utf8')).toBe('old owned fixture; preserve')
  const states=f.controller.service.snapshot().ggufRuntimeInstall;expect(states).toHaveLength(4);expect(states?.every(s=>!s.available&&!s.installed&&s.blockedReason==='GGUF_RUNTIME_ARTIFACT_PENDING')).toBe(true)
 })
 it('rejects a changed bundled catalog before creating or enabling its installer',async()=>{

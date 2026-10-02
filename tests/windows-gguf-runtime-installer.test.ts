@@ -10,7 +10,7 @@ afterEach(async()=>{for(const fn of clean.splice(0))await fn();vi.restoreAllMock
 const sha=(b:Buffer|string)=>createHash('sha256').update(b).digest('hex')
 const ids:GgufRuntimeId[]=['qwen-cuda','qwen-vulkan','vox-cuda','vox-vulkan']
 async function zip(files:Record<string,Buffer>,mode?:number){const archive=new ZipFile();for(const [name,b] of Object.entries(files))archive.addBuffer(b,name,{mode:mode??0o100600});archive.end();const parts:Buffer[]=[];for await(const b of archive.outputStream)parts.push(Buffer.from(b));return Buffer.concat(parts)}
-async function fixture(options:{observer?:()=>void;bundled?:boolean;fetch?:typeof fetch;badZip?:'extra'|'link'|'missing';pending?:GgufRuntimeId;free?:number}={}){
+async function fixture(options:{observer?:()=>void;bundled?:boolean;fetch?:typeof fetch;badZip?:'extra'|'link'|'missing';pending?:GgufRuntimeId;free?:number;layout?:'compact-v1'}={}){
  const base=await realpath(await mkdtemp(join(tmpdir(),'runtime-installer-'))),root=join(base,'managed'),bundles=join(base,'bundled'),archives=new Map<string,Buffer>(),catalog:GgufRuntimeCatalog={schemaVersion:1,components:{},runtimes:{} as any}
  await mkdir(bundles)
  for(const component of ['shared','cuda-redist',...ids]){
@@ -22,9 +22,9 @@ async function fixture(options:{observer?:()=>void;bundled?:boolean;fetch?:typeo
  }
  for(const id of ids)catalog.runtimes[id]={id,engine:id.startsWith('qwen')?'qwen3-tts-06b-gguf':'voxcpm2',backend:id.endsWith('cuda')?'CUDA0':'Vulkan0',available:id!==options.pending,components:id===options.pending?[]:['shared',...(id.endsWith('cuda')?['cuda-redist']:[]),id],python:{component:'shared',path:'python/python.exe'},native:{component:id,path:'native'},...(id.startsWith('vox')?{receipt:{component:id,path:'meta/native-build.json'}}:{}),dependencyDirs:[{component:'shared',path:'vc'},...(id.endsWith('cuda')?[{component:'cuda-redist',path:'cuda'}]:[])],pythonVersion:'3.11.15'}
  const fetcher=options.fetch??vi.fn(async(url)=>new Response(new Uint8Array(archives.get(String(url))!))) as typeof fetch
- const installer=new WindowsGgufRuntimeInstaller(root,()=>options.observer?.(),{catalog,catalogSha256:sha(JSON.stringify(catalog)),platform:'win32-x64',bundledRoot:options.bundled?bundles:undefined,fetch:fetcher,freeBytes:async()=>options.free??1024**3})
+ const installer=new WindowsGgufRuntimeInstaller(root,()=>options.observer?.(),{catalog,catalogSha256:sha(JSON.stringify(catalog)),layout:options.layout,platform:'win32-x64',bundledRoot:options.bundled?bundles:undefined,fetch:fetcher,freeBytes:async()=>options.free??1024**3})
  clean.push(async()=>{await installer.cancel();await rm(base,{recursive:true,force:true})})
- const target=(c:string)=>join(root,'components',c,catalog.components[c].archive.sha256)
+ const target=(c:string)=>options.layout==='compact-v1'?join(root,'c',c,catalog.components[c].archive.sha256.slice(0,12)):join(root,'components',c,catalog.components[c].archive.sha256)
  return{base,root,bundles,catalog,archives,fetcher,installer,target}
 }
 it.each(ids)('atomically admits all %s dependencies with exact paths and provenance but no native execution',async id=>{
@@ -128,4 +128,40 @@ it('keeps filesystem failures separate and exposes no raw path in the public err
 it.each([false,true])('preserves unknown stage files and reports cleanup recovery even when cancelled=%s',async cancel=>{
  const f=await fixture();let privateFile='',cancelled:Promise<void>|undefined;vi.spyOn(f.installer as any,'extract').mockImplementation(async(_id,_archive,stage)=>{await mkdir(String(stage),{recursive:true});privateFile=join(String(stage),'user-private.wav');await writeFile(privateFile,'PRIVATE WAV');if(cancel)cancelled=f.installer.cancel('qwen-cuda');throw Error('VOICE_DOWNLOAD_FAILED')})
  await expect(f.installer.install('qwen-cuda')).rejects.toThrow('GGUF_RUNTIME_RECOVERY');await cancelled;expect(f.installer.snapshot().find(s=>s.id==='qwen-cuda')).toMatchObject({installed:false,verified:false,error:'GGUF_RUNTIME_RECOVERY'});expect(await readFile(privateFile,'utf8')).toBe('PRIVATE WAV');await expect(lstat(f.target('shared'))).rejects.toThrow()
+})
+
+it('keeps compact paths short with full catalog/component identity and rejects changed markers',async()=>{
+ const f=await fixture({layout:'compact-v1',bundled:true});const c=(await f.installer.install('qwen-cuda'))!
+ expect(c.python).toBe(join(f.target('shared'),'python/python.exe'))
+ const marker=join(f.root,'.catalog.json'),active=join(f.root,'active/qwen-cuda.json')
+ expect(JSON.parse(await readFile(active,'utf8'))).toMatchObject({schemaVersion:2,layout:'compact-v1',catalogSha256:sha(JSON.stringify(f.catalog))})
+ const original=await readFile(marker,'utf8');await writeFile(marker,original.replace('compact-v1','compact-v2'))
+ await expect(f.installer.verify('qwen-cuda')).rejects.toThrow('GGUF_RUNTIME_CHANGED')
+})
+it('rejects compact prefix collisions without replacing existing unknown payload or receipt',async()=>{
+ const f=await fixture({layout:'compact-v1',bundled:true});await f.installer.install('qwen-cuda')
+ const payload=join(f.target('shared'),'python/python.exe'),original=await readFile(payload)
+ const c=f.catalog.components.shared;c.archive.sha256=c.archive.sha256.slice(0,12)+'f'.repeat(52)
+ const next=new WindowsGgufRuntimeInstaller(f.root,()=>{},{catalog:f.catalog,catalogSha256:sha(JSON.stringify(f.catalog)),layout:'compact-v1',platform:'win32-x64',bundledRoot:f.bundles})
+ await expect(next.install('qwen-cuda')).rejects.toThrow('GGUF_RUNTIME_CHANGED');expect(await readFile(payload)).toEqual(original)
+})
+it('reports excessive compact path length before directory creation or download',async()=>{
+ const f=await fixture({layout:'compact-v1'}),longRoot=join(f.base,...Array(8).fill('very-long-user-or-nested-profile'))
+ const installer=new WindowsGgufRuntimeInstaller(longRoot,()=>{},{catalog:f.catalog,catalogSha256:sha(JSON.stringify(f.catalog)),layout:'compact-v1',platform:'win32-x64',fetch:f.fetcher})
+ await installer.initialize();expect(installer.snapshot().find(s=>s.id==='qwen-cuda')).toMatchObject({available:false,error:'GGUF_RUNTIME_PATH_TOO_LONG',blockedReason:'GGUF_RUNTIME_PATH_TOO_LONG'})
+ await expect(installer.install('qwen-cuda')).rejects.toThrow('GGUF_RUNTIME_PATH_TOO_LONG');expect(f.fetcher).not.toHaveBeenCalled();await expect(lstat(longRoot)).rejects.toMatchObject({code:'ENOENT'})
+})
+it.each(['marker','active','component'] as const)('rejects duplicate escaped ownership keys in compact %s metadata',async kind=>{
+ const f=await fixture({layout:'compact-v1',bundled:true});await f.installer.install('qwen-cuda')
+ const path=kind==='marker'?join(f.root,'.catalog.json'):kind==='active'?join(f.root,'active/qwen-cuda.json'):join(f.root,'component-receipts','shared-'+f.catalog.components.shared.archive.sha256+'.json')
+ const original=await readFile(path,'utf8');await writeFile(path,original.replace('{','{"own\\u0065r":"foreign",'))
+ await expect(f.installer.verify('qwen-cuda')).rejects.toThrow('GGUF_RUNTIME_CHANGED');expect(f.installer.snapshot().find(s=>s.id==='qwen-cuda')?.verified).toBe(false)
+ expect(await readFile(path,'utf8')).toContain('foreign')
+})
+it.each(['marker','active','component','active-format'] as const)('rejects compact %s metadata changed during full payload hashing',async kind=>{
+ const f=await fixture({layout:'compact-v1',bundled:true});await f.installer.install('qwen-cuda')
+ const path=kind==='marker'?join(f.root,'.catalog.json'):kind==='component'?join(f.root,'component-receipts','shared-'+f.catalog.components.shared.archive.sha256+'.json'):join(f.root,'active/qwen-cuda.json')
+ const original=await readFile(path,'utf8'),payload=(f.installer as any).payload.bind(f.installer);let changed=false
+ vi.spyOn(f.installer as any,'payload').mockImplementation(async(...args)=>{await payload(...args);if(!changed){changed=true;const value=JSON.parse(original);if(kind!=='active-format')value.owner='foreign';await writeFile(path,JSON.stringify(value,null,2)+'\n')}})
+ await expect(f.installer.verify('qwen-cuda')).rejects.toThrow('GGUF_RUNTIME_CHANGED');expect(f.installer.snapshot().find(s=>s.id==='qwen-cuda')?.verified).toBe(false)
 })

@@ -57,13 +57,23 @@ class ManagedAdmissionTests(unittest.TestCase):
             if identity.startswith('vox'):
                 self.runtimes[identity]['receipt'] = dict(component=identity,path='meta/native-build.json')
         self.catalog = dict(schemaVersion=1,platform='win32-x64',components=self.components,runtimes=self.runtimes)
+        self.layout = None
         self.active = 'qwen-cuda'; self.refresh_catalog(); self.install_selected()
 
     def tearDown(self):
         self.scratch.cleanup()
 
     def path(self, identity):
-        return self.install/'components'/identity/self.components[identity]['archive']['sha256']
+        fingerprint=self.components[identity]['archive']['sha256']
+        return (self.install/'c'/identity/fingerprint[:12] if self.layout == 'compact-v1'
+                else self.install/'components'/identity/fingerprint)
+
+    def component_receipt(self, identity):
+        return self.install/'component-receipts'/(identity+'-'+self.components[identity]['archive']['sha256']+'.json')
+
+    def compact(self):
+        self.layout='compact-v1';self.install=self.root/'compact-installed';self.install.mkdir()
+        self.install_selected()
 
     def refresh_catalog(self):
         raw = json.dumps(self.catalog).encode()
@@ -78,6 +88,17 @@ class ManagedAdmissionTests(unittest.TestCase):
         self.receipt = self.install/'runtimes'/ (self.active+'.json'); self.receipt.parent.mkdir(exist_ok=True)
         self.receipt_value = dict(schemaVersion=1,owner=managed.OWNER,id=self.active,
                 catalogSha256=digest(self.catalog_file.read_bytes()),components=[dict(id=name,fingerprint=self.components[name]['archive']['sha256']) for name in runtime['components']])
+        if self.layout == 'compact-v1':
+            self.receipt_value.update(schemaVersion=2,layout=self.layout)
+            self.marker=self.install/'.catalog.json'
+            self.marker_value=dict(schemaVersion=1,owner='daemonlet-managed-gguf-runtime-catalog',
+                                  catalogSha256=digest(self.catalog_file.read_bytes()),layout=self.layout)
+            self.marker.write_text(json.dumps(self.marker_value))
+            for identity in runtime['components']:
+                path=self.component_receipt(identity);path.parent.mkdir(exist_ok=True)
+                path.write_text(json.dumps(dict(schemaVersion=1,owner='daemonlet-managed-gguf-runtime-component',
+                    id=identity,fingerprint=self.components[identity]['archive']['sha256'],
+                    provenance=self.components[identity]['provenance'])))
         self.receipt.write_text(json.dumps(self.receipt_value))
         self.config = dict(root=str(self.install),receipt=str(self.receipt),runtimeId=self.active)
 
@@ -195,6 +216,85 @@ class ManagedAdmissionTests(unittest.TestCase):
     def test_receipt_outside_owned_root_is_rejected(self):
         external=self.root/'copied-receipt.json';external.write_bytes(self.receipt.read_bytes())
         self.rejected(configuration=dict(self.config,receipt=str(external)))
+
+    def test_compact_all_four_routes_keep_legacy_files_and_full_identity(self):
+        old_python=self.path('shared')/'python/python.exe';old_bytes=old_python.read_bytes()
+        self.admit();self.compact()
+        for identity in self.runtimes:
+            with self.subTest(runtime=identity):
+                self.active=identity;self.install_selected();value=self.admit()
+                self.assertEqual(value['layout'],'compact-v1')
+                self.assertTrue(value['verified'])
+                for name,path in value['components'].items():
+                    self.assertEqual(path,self.install/'c'/name/self.components[name]['archive']['sha256'][:12])
+                self.assertEqual(self.receipt_value['components'],[
+                    dict(id=name,fingerprint=self.components[name]['archive']['sha256'])
+                    for name in self.runtimes[identity]['components']])
+        self.assertEqual(old_python.read_bytes(),old_bytes)
+
+    def test_compact_catalog_marker_missing_wrong_sha_shape_or_layout_fails(self):
+        self.compact();original=self.marker.read_bytes();self.marker.unlink();self.rejected()
+        for changes in [dict(catalogSha256='f'*64),dict(owner='foreign'),dict(schemaVersion=True),
+                        dict(layout='compact-v2'),dict(extra=True)]:
+            with self.subTest(changes=changes):
+                self.marker.write_text(json.dumps(dict(self.marker_value,**changes)));self.rejected()
+        self.marker.write_bytes(original);self.admit()
+
+    def test_compact_active_receipt_requires_exact_schema_layout_and_full_fingerprints(self):
+        self.compact()
+        bad_values=[dict(self.receipt_value,layout='unknown'),dict(self.receipt_value,schemaVersion=1),
+                    dict(self.receipt_value,schemaVersion=True),dict(self.receipt_value,extra=True),
+                    dict(self.receipt_value,catalogSha256='f'*64),
+                    {key:value for key,value in self.receipt_value.items() if key!='layout'},
+                    dict(self.receipt_value,components=[dict(id='shared',fingerprint=self.components['shared']['archive']['sha256'][:12])])]
+        for value in bad_values:
+            with self.subTest(value=value):
+                self.receipt.write_text(json.dumps(value));self.rejected()
+        self.receipt.write_text(json.dumps(self.receipt_value));self.admit()
+
+    def test_compact_component_ownership_receipt_is_required_and_exact(self):
+        self.compact();path=self.component_receipt('shared');original=path.read_bytes();value=json.loads(original)
+        path.unlink();self.rejected()
+        for changes in [dict(owner='foreign'),dict(schemaVersion=True),dict(id='cuda-redist'),
+                        dict(fingerprint='f'*64),dict(provenance={'spoofed':True}),dict(extra=True)]:
+            with self.subTest(changes=changes):
+                path.write_text(json.dumps(dict(value,**changes)));self.rejected()
+        path.write_bytes(original);self.admit()
+
+    def test_compact_prefix_collision_cannot_reuse_other_full_fingerprint(self):
+        self.compact();identity='qwen-cuda';old_receipt=self.component_receipt(identity)
+        old_sha=self.components[identity]['archive']['sha256'];new_sha=old_sha[:12]+'f'*52
+        self.assertNotEqual(old_sha,new_sha)
+        self.components[identity]['archive']['sha256']=new_sha;self.refresh_catalog()
+        self.receipt_value['catalogSha256']=digest(self.catalog_file.read_bytes())
+        for row in self.receipt_value['components']:
+            if row['id']==identity:row['fingerprint']=new_sha
+        self.receipt.write_text(json.dumps(self.receipt_value))
+        self.marker_value['catalogSha256']=self.receipt_value['catalogSha256']
+        self.marker.write_text(json.dumps(self.marker_value))
+        self.rejected()  # Matching 12-character path is insufficient.
+        old_receipt.rename(self.component_receipt(identity))
+        self.rejected()  # Renaming an ownership record cannot change its full identity.
+
+    def test_compact_payload_full_sha_and_extra_file_checks_remain_required(self):
+        self.compact();target=self.path('shared')/'python/python311.dll';original=target.read_bytes()
+        target.write_bytes(b'changed pinned DLL');self.rejected();target.write_bytes(original)
+        extra=self.path(self.active)/'native/unapproved.dll';extra.write_bytes(b'foreign')
+        self.rejected();extra.unlink();self.admit()
+
+    def test_compact_marker_component_and_active_receipts_are_reread_after_hashing(self):
+        self.compact();verify=managed.verify_component
+        for target in (self.marker,self.component_receipt('shared'),self.receipt):
+            with self.subTest(target=target):
+                original=target.read_bytes();changed=False
+                def mutate_after_hash(root,component,layout=None):
+                    nonlocal changed
+                    result=verify(root,component,layout)
+                    if not changed:target.write_bytes(b' '+original);changed=True
+                    return result
+                with patch.object(managed,'verify_component',side_effect=mutate_after_hash):self.rejected()
+                target.write_bytes(original)
+        self.admit()
 
     def test_portable_qwen_requires_admitted_interpreter_and_exact_versions(self):
         import qwen_gguf_worker as qwen
