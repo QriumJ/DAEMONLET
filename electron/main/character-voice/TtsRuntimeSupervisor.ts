@@ -7,8 +7,14 @@ import type {SpeechBinding,ExecutionProfile} from '../../shared/character-voice-
 
 import type {ReferenceCondition} from './ReferenceProfileStore'
 import {verifyMacInterpreter} from './VoiceRuntimeProfile'
+import {ENGINE} from './VoicePackage'
+import voxWindowsPolicy from '../../voice/runtime-gguf-windows-voxcpm2.json'
+import defaultVoice from '../../voice/base-voice-defaults.json'
 
-export type TtsConfig={modelVerification?:'full'|'installed';diagnosticPrewarm?:boolean;keepRaw?:boolean;engine?:import('../../shared/character-voice-contract').VoiceEngine;qwen?:import('../../shared/character-voice-contract').QwenCloneSettings;python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean;windowsBase?:boolean}
+export type VoxGgufConfig={runtimeDir:string;derivativeDir:string;receipt:string}
+const voxWindowsProfiles=new Set(['gguf-cuda-f16','gguf-cuda-f16-complete','gguf-vulkan-f16','gguf-vulkan-f16-complete'])
+const voxWindowsProfile=(profile:ExecutionProfile|undefined)=>voxWindowsProfiles.has(profile||'')
+export type TtsConfig={modelVerification?:'full'|'installed';diagnosticPrewarm?:boolean;keepRaw?:boolean;engine?:import('../../shared/character-voice-contract').VoiceEngine;qwen?:import('../../shared/character-voice-contract').QwenCloneSettings;ggufRuntime?:string;gguf?:VoxGgufConfig;ggufModelKind?:'public-base';python:string;model:string;worker:string;cacheRoot:string;executionProfile?:ExecutionProfile;compilerCache?:string;nativeBase?:boolean;windowsBase?:boolean}
 export type SpawnWorker=(command:string,args:string[],options:SpawnOptionsWithoutStdio)=>ChildProcessWithoutNullStreams
 export type AudioResult={audioId:string;bytes:Uint8Array;durationMs:number;generationMs:number;rtf:number;peakAllocatedBytes?:number;peakReservedBytes?:number;rawSampleRate?:number;rawDurationMs?:number;firstAudioReadyMs?:number;ramWorkingSetBytes?:number;ramPeakWorkingSetBytes?:number;ramCommitBytes?:number}
 export type AudioChunk=AudioResult & {synthesisId:string;chunkIndex:number;sampleOffset:number;sampleCount:number;firstChunkReadyMs:number}
@@ -39,6 +45,9 @@ export class TtsRuntimeSupervisor {
  private revision=0
  private streams=new Set<{retire:()=>void}>()
  private deliveries=0
+ // A protocol failure may reject and clear the request before stop runs. Keep
+ // native activity marked until a validated terminal response or cleanup ack.
+ private ggufActive=false
  audit:Record<string,unknown>|null=null
  constructor(readonly config:TtsConfig,private timeoutMs=180_000,private spawnProcess:SpawnWorker=spawn){}
  get running(){return !!this.child}
@@ -48,6 +57,7 @@ export class TtsRuntimeSupervisor {
  get busy(){return !!this.pending||!!this.starting||!!this.cancellation}
  get cancellationPending(){return !!this.cancellation}
  get deliveryPending(){return this.deliveries>0}
+ private get windowsGguf(){return this.config.engine==='qwen3-tts-06b-gguf'||voxWindowsProfile(this.config.executionProfile)}
  retireSpeech(){for(const stream of this.streams)stream.retire()}
  private call(type:string,expected:string,data:object={},chunk?:(v:any)=>void) {
   if(!this.child||this.pending||this.cancellation)return Promise.reject(Error('VOICE_WORKER_BUSY'))
@@ -56,6 +66,7 @@ export class TtsRuntimeSupervisor {
    const stream=data as {synthesisId:string;binding:SpeechBinding}
    const target=type==='stream'?{requestId:id,synthesisId:stream.synthesisId,runtimeSessionId:stream.binding.runtimeSessionId,speechEpoch:stream.binding.speechEpoch}:undefined
    this.pending={id,expected,target,resolve,reject,timer,chunk}
+   if(this.windowsGguf&&['synthesize','stream','prewarm'].includes(type))this.ggufActive=true
    this.child!.stdin.write(JSON.stringify({protocolVersion:1,type,requestId:id,...data})+'\n',error=>{if(error)this.fail(Error('VOICE_WORKER_IO'))})
   })
  }
@@ -88,7 +99,16 @@ export class TtsRuntimeSupervisor {
   try{await task}finally{if(this.starting===task)this.starting=null}
  }
  private async launch(packagePath:string,fingerprint:string,revision:number,conditioning?:ReferenceCondition) {
-  if(conditioning&&(!this.config.nativeBase&&!this.config.windowsBase&&this.config.engine!=='qwen3-tts-06b'||conditioning.kind!=='wav-reference'||!isAbsolute(conditioning.path)))throw Error('VOICE_REFERENCE_RUNTIME')
+  const qwenGguf=this.config.engine==='qwen3-tts-06b-gguf'
+  const voxGguf=voxWindowsProfile(this.config.executionProfile)
+  const publicVox=voxGguf&&this.config.ggufModelKind==='public-base'
+  if(qwenGguf&&(process.platform!=='win32'||process.arch!=='x64'||!this.config.ggufRuntime||!isAbsolute(this.config.ggufRuntime)||!['qwen-gguf','qwen-gguf-complete','qwen-gguf-vulkan','qwen-gguf-vulkan-complete'].includes(this.config.executionProfile||'')||this.config.nativeBase||this.config.windowsBase))throw Error('QWEN_GGUF_RUNTIME_CONFIG')
+  if(this.config.ggufModelKind!==undefined&&(!voxGguf||this.config.ggufModelKind!=='public-base'))throw Error('VOX_GGUF_RUNTIME_CONFIG')
+  if(voxGguf&&(process.platform!=='win32'||process.arch!=='x64'||this.config.engine!=='voxcpm2'||!this.config.gguf||![this.config.gguf.runtimeDir,this.config.gguf.derivativeDir,this.config.gguf.receipt].every(p=>typeof p==='string'&&isAbsolute(p))||(publicVox?packagePath!=='':!isAbsolute(packagePath))||this.config.nativeBase||this.config.windowsBase))throw Error('VOX_GGUF_RUNTIME_CONFIG')
+  if(publicVox&&this.config.model!==this.config.gguf!.derivativeDir)throw Error('VOX_GGUF_RUNTIME_CONFIG')
+  if(voxGguf&&!publicVox&&conditioning)throw Error('VOICE_REFERENCE_RUNTIME')
+  if(qwenGguf&&!conditioning)throw Error('VOICE_REFERENCE_RUNTIME')
+  if(conditioning&&(!this.config.nativeBase&&!this.config.windowsBase&&this.config.engine!=='qwen3-tts-06b'&&!qwenGguf&&!publicVox||conditioning.kind!=='wav-reference'||!isAbsolute(conditioning.path)))throw Error('VOICE_REFERENCE_RUNTIME')
   this.conditioning=conditioning
   for(const p of [this.config.python,this.config.model,this.config.worker,this.config.cacheRoot])if(!isAbsolute(p))throw Error('VOICE_RUNTIME_CONFIG')
   if(!this.config.nativeBase&&(this.config.executionProfile?.startsWith('mps-')||this.config.executionProfile?.startsWith('gguf-metal-')))await verifyMacInterpreter(this.config.python,this.config.executionProfile)
@@ -96,7 +116,7 @@ export class TtsRuntimeSupervisor {
   if(revision!==this.revision){await rm(cache,{recursive:true,force:true});throw Error('VOICE_CANCELLED')}
   this.cache=cache;this.sessionId=randomUUID()
   const child=this.child=this.spawnProcess(this.config.python,this.config.nativeBase?[]:['-B','-u',this.config.worker],{cwd:this.config.nativeBase?dirname(this.config.python):this.cache,windowsHide:true,shell:false,stdio:['pipe','pipe','pipe'],env:{...process.env,PYTHONPATH:'',PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',HF_HUB_OFFLINE:'1',TRANSFORMERS_OFFLINE:'1',HF_HOME:join(this.cache,'hf'),TORCH_HOME:join(this.cache,'torch'),NUMBA_CACHE_DIR:join(this.cache,'numba'),TEMP:this.cache,TMP:this.cache,TMPDIR:this.cache,MLX_AUDIO_CACHE_DIR:join(this.cache,'mlx')}})
-  this.exit=new Promise(resolve=>{child.once('close',()=>{if(this.child===child){this.child=null;this.key='';this.fail(Error('VOICE_WORKER_EXIT'))}resolve()});child.once('error',()=>{this.fail(Error('VOICE_WORKER_START'))})})
+  this.exit=new Promise(resolve=>{child.once('close',()=>{if(this.child===child){this.child=null;this.key='';this.ggufActive=false;this.fail(Error('VOICE_WORKER_EXIT'))}resolve()});child.once('error',()=>{this.fail(Error('VOICE_WORKER_START'))})})
   child.stdin.on('error',()=>this.fail(Error('VOICE_WORKER_IO')))
   let buffer=''
   child.stdout.setEncoding('utf8');child.stdout.on('data',(chunk:string)=>{
@@ -107,6 +127,8 @@ export class TtsRuntimeSupervisor {
     try {const v=JSON.parse(line),p=this.pending,c=this.cancellation
      if(c&&v.requestId===c.id){
       if(v.protocolVersion!==1||v.type!=='cancelled'||v.cleanupComplete!==true||v.keptWarm!==true||JSON.stringify(v.target)!==JSON.stringify(c.target))throw Error('VOICE_CANCEL_PROTOCOL')
+      if(voxWindowsProfile(this.config.executionProfile)&&(v.reuseAudit?.nativePid!==this.audit?.nativePid||v.reuseAudit?.referenceCacheBuilds!==this.audit?.referenceCacheBuilds))throw Error('VOICE_CANCEL_PROTOCOL')
+      this.ggufActive=false
       if(p?.id===c.target.requestId)this.fail(Error('VOICE_CANCELLED'))
       c.boundary=typeof v.boundary==='string'?v.boundary:undefined;c.reuseAudit=v.reuseAudit;c.resolve();continue
      }
@@ -115,24 +137,49 @@ export class TtsRuntimeSupervisor {
      if(v.type==='audio-chunk'&&p.chunk){p.chunk(v);continue}
      if(v.type==='error'){this.fail(Error(typeof v.code==='string'&&/^[A-Z_]{1,60}$/.test(v.code)?v.code:'VOICE_WORKER_ERROR'));void this.stop().catch(()=>{});return}
      if(v.type!==p.expected)throw Error('VOICE_PROTOCOL')
+     this.ggufActive=false
      this.pending=null;clearTimeout(p.timer);p.resolve(v)
     }catch(e){this.fail(e instanceof Error&&e.message==='VOICE_SEED_MISMATCH'?e:Error('VOICE_PROTOCOL'));void this.stop().catch(()=>{});return}
    }
   })
   // Drain, but never persist upstream text/path logs by default.
   child.stderr.on('data',()=>{})
-  try {this.audit=await this.call('init','ready',{modelVerification:this.config.modelVerification,keepRaw:this.config.keepRaw,engine:this.config.engine||'voxcpm2',qwen:this.config.qwen,runtimeSessionId:this.sessionId,package:packagePath,model:this.config.model,cache:this.cache,executionProfile:this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:this.config.windowsBase===true||this.config.nativeBase===true,...(conditioning?{conditioning}:{}),compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')});if(this.child!==child)throw Error('VOICE_CANCELLED');if(this.audit?.seedContract!==1)throw Error('VOICE_SEED_UNSUPPORTED');if(this.config.engine==='qwen3-tts-06b'&&((this.audit?.capabilities as Record<string,unknown>|undefined)?.engine!==this.config.engine||(this.audit.capabilities as Record<string,unknown>).synthesisStreaming!==!!this.config.executionProfile?.startsWith('qwen-mlx')||(this.audit.capabilities as Record<string,unknown>).cancellation!=='owned-process-termination'||(this.audit.capabilities as Record<string,unknown>).warmCancellationReuse!==false))throw Error('QWEN_CAPABILITIES');if(conditioning&&(this.audit?.mode!=='wav-reference'||this.audit.referenceContract!==1||this.audit.referenceSha256!==conditioning.sha256||this.audit.conditioningFingerprint!==conditioning.fingerprint||this.audit.referenceCacheBuilds!==1||this.audit.adapterSha256!==null||this.audit.defaultVoice!=null))throw Error('VOICE_REFERENCE_RUNTIME');this.key=fingerprint}
+  try {
+   this.audit=await this.call('init','ready',{modelVerification:qwenGguf?'full':this.config.modelVerification,keepRaw:this.config.keepRaw,engine:this.config.engine||'voxcpm2',qwen:this.config.qwen,ggufRuntime:this.config.ggufRuntime,gguf:this.config.gguf,ggufModelKind:this.config.ggufModelKind,runtimeSessionId:this.sessionId,package:packagePath,model:this.config.model,cache:this.cache,executionProfile:voxGguf?this.config.executionProfile!.replace(/-complete$/,''):this.config.executionProfile?.startsWith('cuda-compiled')?'compiled':this.config.executionProfile==='gguf-metal-f16-complete'?'gguf-metal-f16':this.config.executionProfile||'baseline',baseModel:publicVox||this.config.windowsBase===true||this.config.nativeBase===true,...(conditioning?{conditioning}:{}),compilerCache:this.config.compilerCache,ggufCache:join(this.config.cacheRoot,'..','gguf-cache')})
+   if(this.child!==child)throw Error('VOICE_CANCELLED')
+   if(this.audit?.seedContract!==1)throw Error('VOICE_SEED_UNSUPPORTED')
+   const capabilities=this.audit?.capabilities as Record<string,unknown>|undefined
+   if(this.config.engine==='qwen3-tts-06b'&&(!capabilities||capabilities.engine!==this.config.engine||capabilities.synthesisStreaming!==!!this.config.executionProfile?.startsWith('qwen-mlx')||capabilities.cancellation!=='owned-process-termination'||capabilities.warmCancellationReuse!==false))throw Error('QWEN_CAPABILITIES')
+   if(qwenGguf){const backend=this.config.executionProfile!.includes('-vulkan')?'vulkan:0':'cuda:0';if(!capabilities||capabilities.engine!==this.config.engine||capabilities.synthesisStreaming!==true||capabilities.cancellation!=='cooperative-with-process-fallback'||capabilities.warmCancellationReuse!==true||capabilities.backend!==backend||capabilities.backendDevice!==(backend==='cuda:0'?'CUDA0':'Vulkan0')||capabilities.abiVersion!==5)throw Error('QWEN_GGUF_CAPABILITIES')}
+   if(voxGguf){
+    const audit=this.audit!,backend=this.config.executionProfile!.startsWith('gguf-cuda-')?'CUDA0':'Vulkan0',components=audit.componentBackends as Record<string,unknown>|undefined
+    const componentNames=['ResidualLM','LocEnc','LocDiT','FSQ','AudioVAE','Projections','StopPredictor']
+    const packageSha=typeof audit.packageSha256==='string'?audit.packageSha256:''
+    const derivative=/^[a-f0-9]{64}$/.test(packageSha)&&Object.hasOwn(voxWindowsPolicy.derivatives,packageSha)?voxWindowsPolicy.derivatives[packageSha as keyof typeof voxWindowsPolicy.derivatives]:undefined
+    if(!capabilities||capabilities.engine!=='voxcpm2'||capabilities.synthesisStreaming!==true||capabilities.cancellation!=='cooperative-stream-with-owned-process-fallback'||capabilities.warmCancellationReuse!==true||audit.backend!==backend||audit.backendFamily!==(backend==='CUDA0'?'CUDA':'Vulkan')||!components||Object.keys(components).length!==componentNames.length||componentNames.some(name=>components[name]!==backend)||audit.offloadedLayers!==29||!Number.isSafeInteger(audit.nativePid)||Number(audit.nativePid)<=0||audit.executionProfile!==this.config.executionProfile!.replace(/-complete$/,'')||audit.dtype!=='float16-weights')throw Error('VOX_GGUF_CAPABILITIES')
+    if(!publicVox){
+     if(!derivative||audit.adapterSha256!==derivative.adapterSha256||audit.derivativeManifestSha256!==derivative.conversionSha256||audit.adapterRepresentation!=='merged-once-fp32-then-f16'||audit.mergedKeys!==384||audit.mergedMatrices!==192||audit.missingKeys!==0||audit.skippedKeys!==0||audit.referenceCacheBuilds!==1||audit.modelRevision!==ENGINE.model_revision||audit.sourceCommit!==ENGINE.source_commit||audit.nativeSourceCommit!==voxWindowsPolicy.sourceCommit||typeof audit.referenceSha256!=='string'||!/^[a-f0-9]{64}$/.test(audit.referenceSha256)||typeof audit.runtimeFingerprint!=='string'||!/^[a-f0-9]{64}$/.test(audit.runtimeFingerprint)||audit.ggufVerification!=='full-sha256'||audit.originalModelVerification!=='provenance-and-presence'||audit.defaultVoice!=null||audit.mode!=null||audit.ggufModelKind!=null)throw Error('VOX_GGUF_TRAINED_IDENTITY')
+    }else{
+     const pinned=voxWindowsPolicy.publicModel,files=audit.modelFiles as Record<string,{bytes:number;sha256:string}>|undefined
+     if(!pinned||typeof pinned.repo!=='string'||!/^[a-f0-9]{40}$/.test(pinned.revision)||!files||Object.keys(files).length!==Object.keys(pinned.files).length||Object.entries(pinned.files).some(([name,file])=>!Object.hasOwn(files,name)||files[name]?.bytes!==file.bytes||files[name]?.sha256!==file.sha256)||audit.ggufModelKind!=='public-base'||audit.modelRepository!==pinned.repo||audit.publisher!==pinned.repo.split('/')[0]||audit.modelRevision!==pinned.revision||audit.sourceCommit!==voxWindowsPolicy.sourceCommit||audit.nativeSourceCommit!==voxWindowsPolicy.sourceCommit||audit.packageSha256!==null||audit.adapterSha256!==null||audit.derivativeManifestSha256!==null||audit.adapterRepresentation!=='none'||audit.mergedKeys!==0||audit.mergedMatrices!==0||audit.missingKeys!==0||audit.skippedKeys!==0||audit.ggufVerification!=='full-sha256'||audit.originalModelVerification!=='not-applicable-public-gguf'||typeof audit.runtimeFingerprint!=='string'||!/^[a-f0-9]{64}$/.test(audit.runtimeFingerprint))throw Error('VOX_GGUF_PUBLIC_IDENTITY')
+     if(conditioning){if(audit.mode!=='wav-reference'||audit.referenceMode!=='wav-reference'||audit.defaultVoice!==null)throw Error('VOICE_REFERENCE_RUNTIME')}
+     else {const defaults=audit.defaultVoice as typeof defaultVoice|undefined;if(!defaults||audit.mode!=='base'||audit.referenceMode!=='base'||audit.referenceContract!==1||audit.referenceSha256!==null||audit.conditioningFingerprint!==null||audit.referenceCacheBuilds!==0||defaults.description!==defaultVoice.description||defaults.seed!==defaultVoice.seed||Object.keys(defaults).length!==2)throw Error('VOX_GGUF_PUBLIC_IDENTITY')}
+    }
+   }
+   if(conditioning&&(this.audit?.mode!=='wav-reference'||this.audit.referenceContract!==1||this.audit.referenceSha256!==conditioning.sha256||this.audit.conditioningFingerprint!==conditioning.fingerprint||this.audit.referenceCacheBuilds!==1||this.audit.adapterSha256!==null||this.audit.defaultVoice!=null))throw Error('VOICE_REFERENCE_RUNTIME')
+   this.key=fingerprint
+  }
   catch(e){await this.stop();throw e}
  }
  async prewarm(){
-  if(this.config.engine!=='qwen3-tts-06b'&&!this.config.diagnosticPrewarm)return
+  if(this.config.engine!=='qwen3-tts-06b'&&this.config.engine!=='qwen3-tts-06b-gguf'&&!this.config.diagnosticPrewarm)return
   const result=await this.call('prewarm','warmed')
   this.audit={...this.audit,...result}
  }
  async synthesize(text:string,binding:SpeechBinding,segmentIndex:number):Promise<AudioResult> {
   if(!validVoiceSeed(binding.effectiveSeed))throw Error('VOICE_SEED_INVALID')
-  if(this.conditioning&&binding.conditioningFingerprint!==this.conditioning.fingerprint)throw Error('VOICE_REFERENCE_BINDING')
-  if(['gguf-metal-f16-complete','cuda-compiled-complete'].includes(this.config.executionProfile||'')){
+  if(this.conditioning?binding.conditioningFingerprint!==this.conditioning.fingerprint:this.config.ggufModelKind==='public-base'&&binding.conditioningFingerprint!=null)throw Error('VOICE_REFERENCE_BINDING')
+  if(['gguf-metal-f16-complete','cuda-compiled-complete','gguf-cuda-f16-complete','gguf-vulkan-f16-complete'].includes(this.config.executionProfile||'')){
    const parts:Buffer[]=[];let header:Buffer|undefined,samples=0
    const result=await this.stream(text,binding,segmentIndex,async chunk=>{
     if(chunk.bytes.length!==44+chunk.sampleCount*2)throw Error('VOICE_INVALID_WAV')
@@ -155,7 +202,7 @@ export class TtsRuntimeSupervisor {
  }
  async stream(text:string,binding:SpeechBinding,segmentIndex:number,accept:(audio:AudioChunk)=>Promise<void>) {
   if(!validVoiceSeed(binding.effectiveSeed))throw Error('VOICE_SEED_INVALID')
-  if(this.conditioning&&binding.conditioningFingerprint!==this.conditioning.fingerprint)throw Error('VOICE_REFERENCE_BINDING')
+  if(this.conditioning?binding.conditioningFingerprint!==this.conditioning.fingerprint:this.config.ggufModelKind==='public-base'&&binding.conditioningFingerprint!=null)throw Error('VOICE_REFERENCE_BINDING')
   const synthesisId=randomUUID(),cache=this.cache,child=this.child
   if(!cache||!child||binding.runtimeSessionId!==this.sessionId)throw Error('VOICE_SESSION')
   let index=0,offset=0,reads=Promise.resolve(),failure:Error|null=null,retired=false,delivered=false,nextCredit=0,discardCredits=false
@@ -209,11 +256,19 @@ export class TtsRuntimeSupervisor {
   this.retireSpeech()
   ++this.revision
   if(this.ending)return this.ending
-  const wasBusy=!!this.pending||!!this.starting
+  const wasBusy=!!this.pending||!!this.starting||this.windowsGguf&&(this.ggufActive||!!this.cancellation)
   this.fail(Error('VOICE_CANCELLED'));this.key=''
   const child=this.child,exited=this.exit,cache=this.cache
   const task=(async()=>{
    if(child){
+    const wait=async(ms:number)=>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([exited.then(()=>true),new Promise<false>(resolve=>{timer=setTimeout(()=>resolve(false),ms)})])}finally{clearTimeout(timer)}}
+    if(process.platform==='win32'&&this.windowsGguf&&!wasBusy&&child.exitCode===null&&!child.stdin.destroyed){
+     // Let only this engine's idle native context release CUDA allocations and
+     // cached references before its Python redirector exits. Bound the wait;
+     // active generation or an unresponsive shutdown still owns one tree.
+     child.stdout.removeAllListeners('data');child.stdout.resume()
+     child.stdin.end(JSON.stringify({protocolVersion:1,type:'shutdown',requestId:randomUUID()})+'\n');await wait(1000)
+    }
     // Windows venv launchers can have a Python child. Kill only this owned tree.
     if(process.platform==='win32'&&child.pid&&child.exitCode===null){
      await new Promise<void>((resolve,reject)=>{
@@ -224,10 +279,9 @@ export class TtsRuntimeSupervisor {
     }else if(process.platform==='darwin'){
      // Ignore only this retiring worker's protocol. Keep draining its pipe.
      child.stdout.removeAllListeners('data');child.stdout.resume()
-     const wait=async(ms:number)=>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([exited.then(()=>true),new Promise<false>(resolve=>{timer=setTimeout(()=>resolve(false),ms)})])}finally{clearTimeout(timer)}}
      if(!wasBusy&&!child.stdin.destroyed){child.stdin.end(JSON.stringify({protocolVersion:1,type:'shutdown',requestId:randomUUID()})+'\n');await wait(500)}
      if(child.exitCode===null&&child.signalCode==null){child.kill('SIGTERM');if(!await wait(1500)){child.kill('SIGKILL');if(!await wait(2000))throw Error('VOICE_WORKER_STOP_TIMEOUT')}}
-    }else child.kill()
+    }else if(!this.windowsGguf||child.exitCode===null)child.kill()
     let timer:ReturnType<typeof setTimeout>|undefined
     try{await Promise.race([exited,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('VOICE_WORKER_STOP_TIMEOUT')),5000)})])}finally{if(timer)clearTimeout(timer)}
    }

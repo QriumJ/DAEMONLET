@@ -21,6 +21,7 @@ describe('Windows installer TTS payload',()=>{
  })
  afterAll(async()=>{await rm(root,{recursive:true,force:true})})
  it('ships the CPU full-check worker as an ASAR-bound runtime resource',()=>{expect(voiceRuntimeFiles).toContain('windows_model_check.py');expect(files.some(f=>f.path==='resources/voice/windows_model_check.py'&&f.bytes>0)).toBe(true);expect(()=>checkInstallerPayload(files.filter(f=>f.path!=='resources/voice/windows_model_check.py'),asar)).toThrow('Missing')})
+ it('ships the GGUF worker, ABI and fixed policy with matching packaged bytes',()=>{for(const name of ['qwen_gguf_worker.py','qwen_gguf_abi.py','runtime-qwen-gguf-windows.json','voxcpm_windows_gguf_worker.py','voxcpm_windows_gguf_runtime.py','runtime-gguf-windows-voxcpm2.json']){expect(voiceRuntimeFiles).toContain(name);expect(files.find(f=>f.path==='resources/voice/'+name)?.bytes).toBeGreaterThan(0)}})
  it('accepts the complete production workers with exact ASAR bytes',()=>expect(()=>checkInstallerPayload(files,asar)).not.toThrow())
  it('rejects altered workers even at an allowed path',()=>expect(()=>checkInstallerPayload(files.map((f,i)=>i===0?{...f,sha256:'0'.repeat(64)}:f),asar)).toThrow('differs'))
  it('rejects missing runtime files',()=>expect(()=>checkInstallerPayload(files.slice(1),asar)).toThrow('Missing'))

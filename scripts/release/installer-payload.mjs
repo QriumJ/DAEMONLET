@@ -5,6 +5,8 @@ import { extractFile } from '@electron/asar'
 // Runtime workers are executable application resources, not authoring tools.
 // Keep this list explicit and bind each external copy to the packaged ASAR.
 export const voiceRuntimeFiles = Object.freeze([
+  'qwen_gguf_worker.py','qwen_gguf_abi.py','runtime-qwen-gguf-windows.json',
+  'voxcpm_windows_gguf_worker.py','voxcpm_windows_gguf_runtime.py','runtime-gguf-windows-voxcpm2.json',
   'install_qwen.py','install-qwen-darwin-arm64.json','install-qwen-win32-x64.json','windows_model_check.py', 'qwen_mlx_worker.py', 'qwen_audio.py', 'qwen-mlx-policy.json', 'qwen_worker.py', 'qwen_memory.py', 'qwen-policy.json',
   'reference-import-worker.cjs', 'reference-policy.json', 'reference_condition.py','seed_contract.py', 'worker.py', 'engine.py', 'control.py', 'base-voice-defaults.json',
   'backend.py', 'macos_runtime.py', 'runtime-macos.json', 'gguf_worker.py',

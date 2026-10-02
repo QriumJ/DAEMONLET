@@ -3,6 +3,9 @@ import { dirname, join, resolve } from 'node:path'
 import { verifyArtwork, digest } from './artwork.mjs'
 
 export const requiredNotices = {
+  'voxcpm-llama-cpp-omni-MIT.txt': 'distribution/licenses/voxcpm-llama-cpp-omni-MIT.txt',
+  'qwentts-cpp-MIT.txt': 'distribution/licenses/qwentts-cpp-MIT.txt',
+  'qwentts-ggml-MIT.txt': 'distribution/licenses/qwentts-ggml-MIT.txt',
   'PROJECT-LICENSE.txt': 'LICENSE',
   'Anime2.5DRig-LICENSE.txt': 'vendor/anime25drig/LICENSE',
   'Anime2.5DRig-MODIFICATIONS.md': 'vendor/anime25drig/UPSTREAM.md',

@@ -20,6 +20,8 @@ await mkdir(resolve(outdir, "voice"), { recursive: true })
 await copyFile(resolve(root, "electron/voice/worker.py"), resolve(outdir, "voice/worker.py"))
 await copyFile(resolve(root, "electron/voice/engine.py"), resolve(outdir, "voice/engine.py"))
 await copyFile(resolve(root, "electron/voice/control.py"), resolve(outdir, "voice/control.py"))
+// GGUF binaries and models remain external; ship only the audited bridge and policy.
+for(const file of ['qwen_gguf_worker.py','qwen_gguf_abi.py','runtime-qwen-gguf-windows.json','voxcpm_windows_gguf_worker.py','voxcpm_windows_gguf_runtime.py','runtime-gguf-windows-voxcpm2.json'])await copyFile(resolve(root,'electron/voice',file),resolve(outdir,'voice',file))
 for (const file of ['install_qwen.py','install-qwen-darwin-arm64.json','install-qwen-win32-x64.json','windows_model_check.py','qwen_mlx_worker.py', 'qwen_audio.py', 'qwen-mlx-policy.json', 'qwen_worker.py','qwen_memory.py','qwen-policy.json','base-voice-defaults.json','reference-policy.json','reference_condition.py','seed_contract.py','backend.py','macos_runtime.py','runtime-macos.json','gguf_worker.py','gguf_runtime.py','gguf_cache.py','gguf_prepare.py','voice_package.py','runtime-gguf-macos.json','windows_base_worker.py','runtime-windows-base.json','install-windows-base.json','install_windows_base.py']) await copyFile(resolve(root, 'electron/voice', file), resolve(outdir, 'voice', file))
 const chatTarget = runtimeTarget(process.env.PET_BUILD_PLATFORM || process.platform, process.env.PET_BUILD_ARCH || process.arch)
 const baseRuntime=resolve(root,'.generated/voice-base-runtime',chatTarget)

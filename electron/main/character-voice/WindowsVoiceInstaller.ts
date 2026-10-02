@@ -11,6 +11,7 @@ import {safeRelative} from './VoicePackage'
 import {downloadVoiceFile,type PinnedVoiceFile} from './PinnedVoiceDownload'
 import type {BaseVoiceInstallation} from './VoiceBaseInstaller'
 import type {VoiceInstallState,VoiceProfile} from '../../shared/character-voice-contract'
+import {managedModelRemoval,trashManagedModel,type ManagedModelManifest} from './ManagedVoiceModelRemoval'
 const fingerprint=createHash('sha256').update(JSON.stringify({policy,lock})).digest('hex')
 export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  readonly native=false
@@ -20,6 +21,7 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  private verifyController:AbortController|null=null
  private operation:Promise<void>|null=null
  private controller:AbortController|null=null
+ private removing:Promise<void>|null=null
  private lastUpdate=0
  private status:VoiceInstallState={supported:process.platform==='win32'&&process.arch==='x64',installed:false,phase:'idle',bytes:0,total:0,error:null}
  constructor(readonly root:string,private resources:string,private changed:()=>void){this.status.total=this.assets().reduce((n,a)=>n+a.file.bytes,0)}
@@ -50,6 +52,7 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  })}
  private async checkFile(path:string,bytes:number,sha256:string,signal?:AbortSignal){const s=await lstat(path);if(!s.isFile()||s.isSymbolicLink()||s.size!==bytes||await digestFile(path,signal)!==sha256)throw Error('VOICE_BASE_CHANGED')}
  ready(modelVerification:'full'|'installed'='full'):Promise<string>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
   if(this.verifying)return this.verifying
   const controller=this.verifyController=new AbortController()
   const task=this.verifying=this.verifyReady(controller.signal,modelVerification).finally(()=>{if(this.verifying===task){this.verifying=null;this.verifyController=null}})
@@ -68,6 +71,7 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
  async cancelVerification(){this.verifyController?.abort();await this.verifying?.catch(()=>{})}
  async cancel(){const operation=this.operation;this.controller?.abort();await Promise.allSettled([operation,this.cancelVerification()]);if(!this.operation||this.operation===operation)this.assetsIdentity?.close()}
  install():Promise<void>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
   if(this.operation)return this.operation
   if(!this.status.supported)return Promise.reject(Error('VOICE_BASE_UNSUPPORTED'))
   // Admission owns cancellation before any await or observer callback can reenter.
@@ -93,6 +97,19 @@ export class WindowsVoiceInstaller implements BaseVoiceInstallation {
   return task
  }
  private async publish(stage:string,target:string,signal:AbortSignal){signal.throwIfAborted();let old:string|undefined;await mkdir(join(target,'..'),{recursive:true});try{await lstat(target);signal.throwIfAborted();old=target+'.previous-'+randomUUID();await rename(target,old)}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e}try{signal.throwIfAborted();await rename(stage,target)}catch(e){if(old)await rename(old,target);throw e}}
+ private removalManifest():ManagedModelManifest{
+  const files=Object.keys(policy.model.files),matches=(receipt:any)=>receipt?.model_id===policy.model.repo&&receipt.revision===policy.model.revision&&JSON.stringify(receipt.files)===JSON.stringify(Object.fromEntries(Object.entries(policy.model.files).map(([name,file])=>[name,file.sha256])))
+  return {root:this.root,id:'voxcpm2-base',engine:'voxcpm2',modelId:policy.model.repo,revision:policy.model.revision,
+   directories:[{path:this.path,files:[...files,'snapshot-provenance.json'],receipt:{name:'snapshot-provenance.json',matches}},{path:join(this.root,'downloads','model'),files}]}
+ }
+ modelRemoval(){if(this.removing||this.operation||this.verifying)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'));return managedModelRemoval(this.removalManifest())}
+ removeModel(expectedPlanId:string,trashItem:(path:string)=>Promise<void>):Promise<void>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
+  const task=Promise.resolve().then(async()=>{await this.cancel();await trashManagedModel(this.removalManifest(),expectedPlanId,trashItem);this.assetsIdentity?.invalidate();this.update({installed:false,bytes:0,error:null})}).catch(async e=>{
+   this.status.installed=false;this.assetsIdentity?.invalidate();await this.initialize().catch(()=>{});this.update({error:e instanceof Error&&/^VOICE_MODEL_REMOVAL_[A-Z_]+$/.test(e.message)?e.message:'VOICE_MODEL_REMOVAL_FAILED'});throw e
+  }).finally(()=>{if(this.removing===task)this.removing=null})
+  this.removing=task;return task
+ }
  private async prepare(signal:AbortSignal){
   signal.throwIfAborted()
   await mkdir(this.root,{recursive:true});if((await lstat(this.root)).isSymbolicLink())throw Error('VOICE_BASE_CHANGED')

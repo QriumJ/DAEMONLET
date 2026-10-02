@@ -9,9 +9,10 @@ import {streamChunks} from '../character-chat/stream'
 import type {VoiceProfile,VoiceInstallState} from '../../shared/character-voice-contract'
 import {VoiceAssetIdentity} from './VoiceAssetIdentity'
 import defaults from '../../voice/base-voice-defaults.json'
+import {managedModelRemoval,trashManagedModel,type ManagedModelManifest,type ManagedVoiceModelRemoval} from './ManagedVoiceModelRemoval'
 export const BASE_VOICE:VoiceProfile={kind:'base-default',id:'voxcpm2_default',version:catalog.revision,name:'기본 음성 · VoxCPM2',fingerprint:createHash('sha256').update(JSON.stringify({catalog,defaults})).digest('hex'),adapterSha256:'none'}
 export const BASE_KEY=BASE_VOICE.id+'@'+BASE_VOICE.version
-export interface BaseVoiceInstallation {readonly native:boolean;readonly profile:VoiceProfile;readonly executable:string;readonly path:string;snapshot():VoiceInstallState;initialize():Promise<void>;identity():Promise<string|null>;ready(modelVerification?:'full'|'installed'):Promise<string>;recordModelCheck?(valid:boolean):void;cancelVerification():Promise<void>;install():Promise<void>;cancel():Promise<void>}
+export interface BaseVoiceInstallation {readonly native:boolean;readonly profile:VoiceProfile;readonly executable:string;readonly path:string;snapshot():VoiceInstallState;initialize():Promise<void>;identity():Promise<string|null>;ready(modelVerification?:'full'|'installed'):Promise<string>;recordModelCheck?(valid:boolean):void;cancelVerification():Promise<void>;install():Promise<void>;cancel():Promise<void>;modelRemoval?():Promise<ManagedVoiceModelRemoval|null>;removeModel?(expectedPlanId:string,trashItem:(path:string)=>Promise<void>):Promise<void>}
 export class VoiceBaseInstaller implements BaseVoiceInstallation {
  readonly native=true
  readonly profile=BASE_VOICE
@@ -21,6 +22,7 @@ export class VoiceBaseInstaller implements BaseVoiceInstallation {
  private lastUpdate=0
  private operation:Promise<void>|null=null
  private controller:AbortController|null=null
+ private removing:Promise<void>|null=null
  private status:VoiceInstallState={supported:process.platform==='darwin'&&process.arch==='arm64',installed:false,phase:'idle',bytes:0,total:Object.values(catalog.files).reduce((n,f)=>n+f.bytes,0),error:null}
  constructor(readonly root:string,readonly runtimeRoot:string,private changed:()=>void,private options:{fetch?:typeof fetch;catalog?:typeof catalog;verifyRuntime?:(signal?:AbortSignal)=>Promise<unknown>;freeBytes?:()=>Promise<number>}={}){}
  private get model(){return this.options.catalog??catalog}
@@ -38,6 +40,7 @@ export class VoiceBaseInstaller implements BaseVoiceInstallation {
   return this.path
  }
  ready():Promise<string>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
   if(this.verifying)return this.verifying
   const controller=this.verifyController=new AbortController()
   const task=this.verifying=(async()=>{try{await this.runtime(controller.signal);const path=await this.verify(controller.signal);this.update({installed:true});return path}catch(e){if(!controller.signal.aborted)this.update({installed:false});throw e}})().finally(()=>{if(this.verifying===task){this.verifying=null;this.verifyController=null}})
@@ -45,6 +48,7 @@ export class VoiceBaseInstaller implements BaseVoiceInstallation {
  }
  async cancelVerification(){this.verifyController?.abort();await this.verifying?.catch(()=>{})}
  install():Promise<void>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
   if(this.operation)return this.operation
   if(!this.status.supported)return Promise.reject(Error('VOICE_BASE_UNSUPPORTED'))
   // Admission owns cancellation before any await or observer callback can reenter.
@@ -70,6 +74,19 @@ export class VoiceBaseInstaller implements BaseVoiceInstallation {
   return task
  }
  async cancel(){const operation=this.operation;this.controller?.abort();await Promise.allSettled([operation,this.cancelVerification()]);if(!this.operation||this.operation===operation)this.assets?.close()}
+ private removalManifest():ManagedModelManifest{
+  const files=Object.keys(this.model.files),matches=(receipt:unknown)=>JSON.stringify(receipt)===JSON.stringify(this.model)
+  return {root:this.root,id:'voxcpm2-base',engine:'voxcpm2',modelId:this.model.repo,revision:this.model.revision,
+   directories:[{path:this.path,files:[...files,'model-receipt.json'],receipt:{name:'model-receipt.json',matches}},{path:this.path+'.download',files:[...files,'model-receipt.json']}]}
+ }
+ modelRemoval(){if(this.removing||this.operation||this.verifying)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'));return managedModelRemoval(this.removalManifest())}
+ removeModel(expectedPlanId:string,trashItem:(path:string)=>Promise<void>):Promise<void>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
+  const task=Promise.resolve().then(async()=>{await this.cancel();await trashManagedModel(this.removalManifest(),expectedPlanId,trashItem);this.assets?.invalidate();this.update({installed:false,bytes:0,error:null})}).catch(async e=>{
+   this.status.installed=false;this.assets?.invalidate();await this.initialize().catch(()=>{});this.update({error:e instanceof Error&&/^VOICE_MODEL_REMOVAL_[A-Z_]+$/.test(e.message)?e.message:'VOICE_MODEL_REMOVAL_FAILED'});throw e
+  }).finally(()=>{if(this.removing===task)this.removing=null})
+  this.removing=task;return task
+ }
  private async download(signal:AbortSignal){
   signal.throwIfAborted();await this.runtime(signal);signal.throwIfAborted();await mkdir(this.root,{recursive:true,mode:0o700})
   if((await lstat(this.root)).isSymbolicLink())throw Error('VOICE_BASE_CHANGED')

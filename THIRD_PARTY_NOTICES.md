@@ -74,3 +74,35 @@ These external packages and model weights are not bundled in the app.
 Pinned snapshots, distribution source hashes, and installation license receipts
 are documented in `docs/character-chat-voice-qwen-ab.md` and the Qwen policies.
 No dots-voice source code or bundled voice is incorporated.
+
+### Optional Windows Qwen GGUF bridge
+
+The ABI definitions used by `qwen_gguf_abi.py` follow qwentts.cpp commit
+`6fae92914045cd83364d2845ceaa0f7969727319` (MIT; The omnivoice.cpp authors).
+The external runtime uses ServeurpersoCom/ggml commit
+`40e16e4a814f7fe851a0c486fb9e8c722e957830` (MIT; The ggml authors).
+Their full notices are included in `distribution/licenses/qwentts-cpp-MIT.txt`
+and `distribution/licenses/qwentts-ggml-MIT.txt`. This community runtime is
+independent from Qwen's official PyTorch runtime.
+
+Serveurperso/Qwen3-TTS-GGUF revision
+`b7ee2e8c7459c3bea99da23e3d178125a7d1713c` declares Apache-2.0 for the
+Base Q8 model and codec. Model weights, native DLLs, CUDA, and Python packages
+are external dependencies and are not distributed by the app. See
+`docs/voice-qwen-gguf-windows.md` for the fixed versions and admission checks.
+
+### Optional Windows VoxCPM2 GGUF and public model downloads
+
+The external Windows Vox engine uses tc-mb/llama.cpp-omni commit
+`873056743b74e1a4ce5dcf7290e2298428e214db` (MIT; the llama.cpp authors).
+The license is preserved in `distribution/licenses/voxcpm-llama-cpp-omni-MIT.txt`.
+The separately built engine and GPU SDK/toolkit are not bundled by this bridge.
+VoxCPM2's original OpenBMB weights and the DennisHuang648/VoxCPM2-GGUF
+public conversion declare Apache-2.0. The public F16 pair revision is
+`169f64d8b98bbaab1761e4ca3a83e6af653456cc`; DennisHuang648 is the conversion
+publisher, rather than a claim of direct OpenBMB distribution.
+Qwen Base Q8 and its codec are published by Serveurperso at revision
+`b7ee2e8c7459c3bea99da23e3d178125a7d1713c`, with Apache-2.0 declared.
+Downloads require an explicit model selection and include no Python/native
+runtime installation. User-trained voice packs and their private merged
+GGUF derivatives are excluded from the public download catalog.

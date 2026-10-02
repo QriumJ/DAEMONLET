@@ -3,6 +3,7 @@ import {createElement} from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
 import {VoiceSettings} from '../src/character-chat/VoiceControls'
 import type {VoiceSnapshot} from '../electron/shared/character-voice-contract'
+import {ENGLISH_MESSAGES} from '../electron/shared/translations'
 const state:VoiceSnapshot={epoch:1,enabled:true,autoRead:true,volume:.5,profiles:[],bindings:{},status:'idle',error:null,runtimeConfigured:true,engine:'qwen3-tts-06b',availableEngines:['voxcpm2','qwen3-tts-06b'],qwenConfigured:true,qwenClone:{mode:'x-vector',transcript:''},availableProfiles:['qwen-mlx','qwen-mlx-complete'],executionProfile:'qwen-mlx'}
 it('Mac settings label real incremental Qwen and offer complete decoding separately',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state,act:()=>{},playbackReady:true,characterId:'test'}))
@@ -53,4 +54,39 @@ it('Vox default can install Qwen without changing engine, and keeps failure/canc
   if(install.phase==='downloading')expect(html).toContain('Qwen 설치 중단')
   else expect(html).toContain(install.installed?'설치된 Qwen 적용':install.error?'Qwen 설치 다시 시도':'Qwen 다운로드·설치 후 적용')
  }
+})
+
+const gguf:VoiceSnapshot={...state,engine:'qwen3-tts-06b-gguf',availableEngines:['voxcpm2','qwen3-tts-06b','qwen3-tts-06b-gguf'],qwenGgufConfigured:false,qwenInstall:managed,modelVerification:'installed',availableProfiles:['qwen-gguf','qwen-gguf-complete'],executionProfile:'qwen-gguf'}
+it('GGUF is separately selectable with manual setup and no PyTorch installation action',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:gguf,act:()=>{},playbackReady:true,characterId:'test'}))
+ for(const text of ['value="qwen3-tts-06b-gguf" selected','Base Q8 · GGUF CUDA','Qwen GGUF Python·DLL·모델 연결','자동 다운로드나 설치는 하지 않습니다.','커뮤니티 MIT','Apache-2.0','Vulkan과 AMD·Intel','Qwen GGUF CUDA · 청크 재생','Qwen GGUF CUDA · 완성 후 재생'])expect(html).toContain(text)
+ expect(html).not.toContain('Qwen 다운로드 및 설치');expect(html).not.toContain('Qwen 다운로드·설치 후 적용');expect(html).not.toContain('Qwen MLX · 청크 재생')
+ expect(html).not.toContain('Qwen GGUF 런타임 다시 연결') // An existing PyTorch connection does not configure GGUF.
+ const connected=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,qwenGgufConfigured:true},act:()=>{},playbackReady:true}));expect(connected).toContain('Qwen GGUF 런타임 다시 연결')
+ const mac=renderToStaticMarkup(createElement(VoiceSettings,{state,act:()=>{},playbackReady:true}));expect(mac).not.toContain('value="qwen3-tts-06b-gguf"')
+})
+it('GGUF always presents full model verification while the PyTorch policy remains available',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:gguf,act:()=>{},playbackReady:true}))
+ expect(html).toContain('모델 준비 검사');expect(html).toMatch(/<select disabled=""><option value="full" selected="">/);expect(html).toContain('Base와 codec 모델 파일 전체를 검사');expect(html).not.toContain('설치 때 검사 · 빠른 준비');expect(html).toContain('모델 전체 검사')
+})
+it('both Qwen engines retain WAV and ICL controls but disable trained LoRA and default profiles',()=>{
+ for(const engine of ['qwen3-tts-06b','qwen3-tts-06b-gguf'] as const){
+  const profiles:VoiceSnapshot['profiles']=[{id:'trained',version:'1',name:'Trained voice',fingerprint:'a',adapterSha256:'b'},{id:'wav-reference',version:'1',name:'Reference',kind:'wav-reference',fingerprint:'c',referenceSha256:'d',reference:{durationMs:5000,sampleRate:48000,channels:1,encoding:'pcm16',samples:240000,bytes:480044}},{id:'default',version:'1',name:'Default',kind:'base-default',adapterSha256:'none',fingerprint:'e'}]
+  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,engine,profiles,bindings:{test:'trained@1'},qwenClone:{mode:'icl',transcript:''}},act:()=>{},playbackReady:true,characterId:'test'}))
+  expect(html).toMatch(/<option disabled="" value="trained@1" selected="">/);expect(html).toMatch(/<option disabled="" value="default@1">/);expect(html).toMatch(/<option value="wav-reference@1">/)
+  expect(html).toContain('LoRA 가중치는 적용되지 않습니다.');expect(html).toContain('기존 학습팩은 그대로 보존');expect(html).toContain('기준 WAV의 정확한 문장');expect(html).toContain('Qwen을 준비하려면 WAV 기준 음성을 선택')
+ }
+})
+it('GGUF user-facing setup and compatibility guidance has English translations',()=>{
+ for(const key of ['Qwen GGUF Python·DLL·모델 연결','Qwen GGUF 런타임 다시 연결','Qwen GGUF CUDA · 청크 재생','Qwen GGUF CUDA · 완성 후 재생','Qwen은 WAV 기준 음성을 사용합니다. VoxCPM2 학습팩의 LoRA 가중치는 적용되지 않습니다. 기존 학습팩은 그대로 보존됩니다.','현재 CUDA 시험 장치는 Windows x64·RTX 4090입니다. Vulkan과 AMD·Intel GPU의 실행은 아직 검증하지 않았습니다.','Qwen GGUF 환경의 Python 선택','검증된 Qwen GGUF CUDA DLL 폴더 선택','Qwen 0.6B Base Q8·codec Q8 모델 폴더 선택'])expect(ENGLISH_MESSAGES[key]).toBeTruthy()
+})
+it.each([
+ ['QWEN_GGUF_RUNTIME_VERSION','Python 패키지 버전이 맞지 않습니다.'],
+ ['QWEN_GGUF_PLATFORM_REQUIRED','Windows x64와 지원되는 NVIDIA CUDA'],
+ ['QWEN_GGUF_CUDA_REQUIRED','CUDA 실행을 확인하지 못했습니다.'],
+ ['QWEN_GGUF_BASE_REQUIRED','CustomVoice 모델은 사용할 수 없습니다.'],
+ ['QWEN_GGUF_RUNTIME_CONFIG','검증된 CUDA DLL과 Base Q8·codec Q8'],
+ ['QWEN_GGUF_CAPABILITIES','런타임 버전이 맞지 않습니다.']
+])('GGUF diagnostic %s gives actionable setup guidance', (error,message)=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,error},act:()=>{},playbackReady:true}));expect(html).toContain(message)
 })

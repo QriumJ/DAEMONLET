@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "repo": "https://github.com/tc-mb/llama.cpp-omni",
+  "sourceCommit": "873056743b74e1a4ce5dcf7290e2298428e214db",
+  "archiveUrl": "https://codeload.github.com/tc-mb/llama.cpp-omni/tar.gz/873056743b74e1a4ce5dcf7290e2298428e214db",
+  "archiveBytes": 41841487,
+  "archiveSha256": "d690d59b920a893400656c13987e1da138ac0e05ca26bde7d419ea00ad63bcd7",
+  "sourceTreeDigestRecipe": "sort paths; SHA256(UTF8(path NUL decimal-bytes NUL lowercase-file-SHA256 LF))",
+  "sourceTreeSha256": "34fd5dc9899003effff15911e3543ebd89d3b31e1dd0313204c87f6409f8cd36",
+  "sourceFileCount": 3431,
+  "sourceExpandedBytes": 163325558,
+  "originalRuntimeSha256": "877cdf6819268877669bfbf6837ed2fe85f009fb80b0bae502c35bb962d1e174",
+  "cachedRuntimeSha256": "a3727b630e399387637d8b4c5ecbc697f9ac3fbe54f86af1598c8270614e25d6",
+  "license": "MIT",
+  "submodules": []
+}
