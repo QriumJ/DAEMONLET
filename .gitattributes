@@ -12,3 +12,8 @@
 /electron/voice/install-windows-base.json text eol=lf
 # Vendor legal text includes intentional original spaces; do not rewrite it.
 /distribution/licenses/character-chat/CUDA-13.0-EULA.txt whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol
+# These bytes are hashed by both managed GGUF worker policies. Preserve the
+# committed bytes even when a Windows checkout enables core.autocrlf.
+electron/voice/managed-gguf-runtime-catalog.json -text
+electron/voice/runtime-qwen-gguf-windows.json -text
+electron/voice/runtime-gguf-windows-voxcpm2.json -text

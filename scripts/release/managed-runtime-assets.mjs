@@ -14,6 +14,15 @@ const fail = reason => Error('GGUF_RUNTIME_PACKAGE_NOT_READY: ' + reason)
 const ordinary = info => info.isFile() && !info.isSymbolicLink() && info.nlink === 1n
 const stamp = info => [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].map(String)
 
+async function verifyWorkerCatalogPins(voiceDirectory, bytes) {
+  const expected = { filename: managedRuntimeCatalogName, bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex') }
+  for (const name of ['runtime-qwen-gguf-windows.json', 'runtime-gguf-windows-voxcpm2.json']) {
+    const policy = JSON.parse(await readFile(join(voiceDirectory, name), 'utf8'))
+    if (!isDeepStrictEqual(policy.managedRuntimeCatalog, expected)) throw fail('worker catalog pin differs: ' + name)
+  }
+}
+
 export function managedRuntimeArchivePins(catalog, { requireAvailable = true } = {}) {
   if (catalog?.schemaVersion !== 1 || catalog.platform !== 'win32-x64' || !catalog.components || !catalog.runtimes ||
       !isDeepStrictEqual(Object.keys(catalog.runtimes).sort(), [...runtimeIds].sort())) throw fail('invalid catalog')
@@ -101,6 +110,7 @@ export async function stageManagedRuntimeArchives(root, voiceDirectory, { target
   if (!target?.startsWith('win32-')) return report
   if (target !== 'win32-x64') throw fail('unsupported Windows target: ' + target)
   const catalogBytes = await readFile(join(root, 'electron/voice', managedRuntimeCatalogName))
+  await verifyWorkerCatalogPins(join(root, 'electron/voice'), catalogBytes)
   const catalog = JSON.parse(catalogBytes.toString('utf8'))
   report.catalogSha256 = createHash('sha256').update(catalogBytes).digest('hex')
   const pins = managedRuntimeArchivePins(catalog)
@@ -136,5 +146,6 @@ export async function verifyPackagedManagedRuntime(voiceDirectory, target, { tru
   if (target !== 'win32-x64') throw fail('unsupported Windows target: ' + target)
   const bytes = await readFile(join(voiceDirectory, managedRuntimeCatalogName))
   if (trustedCatalogPath && !bytes.equals(await readFile(trustedCatalogPath))) throw fail('packaged runtime catalog differs from source')
+  await verifyWorkerCatalogPins(voiceDirectory, bytes)
   return { status: 'bundled', ...await verifyManagedRuntimeArchives(join(voiceDirectory, managedRuntimeArchivesName), JSON.parse(bytes.toString('utf8'))) }
 }

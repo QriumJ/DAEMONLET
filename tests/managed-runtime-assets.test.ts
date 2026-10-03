@@ -22,6 +22,8 @@ async function fixture(archives=true){
  await mkdir(join(root,'electron/voice'),{recursive:true});await mkdir(voice,{recursive:true})
  const catalogBytes=Buffer.from(JSON.stringify(catalog)+'\n')
  await writeFile(join(root,'electron/voice',managedRuntimeCatalogName),catalogBytes);await writeFile(join(voice,managedRuntimeCatalogName),catalogBytes)
+ const policy=JSON.stringify({managedRuntimeCatalog:{filename:managedRuntimeCatalogName,bytes:catalogBytes.length,sha256:digest(catalogBytes)}})+'\n'
+ for(const name of ['runtime-qwen-gguf-windows.json','runtime-gguf-windows-voxcpm2.json'])for(const directory of [join(root,'electron/voice'),voice])await writeFile(join(directory,name),policy)
  if(archives){await mkdir(source,{recursive:true});for(const [name,bytes] of Object.entries(payload))await writeFile(join(source,name),bytes)}
  return {root,source,voice,catalog,payload,pins:managedRuntimeArchivePins(catalog),stage:(production=true,target='win32-x64')=>stageManagedRuntimeArchives(root,voice,{production,target})}
 }
@@ -84,6 +86,17 @@ it.each(['unavailable','traversal','different-bundled-path','unpinned','unrefere
 it('detects a packaged catalog differing from the source lock',async()=>{
  const f=await fixture();await f.stage();await writeFile(join(f.voice,managedRuntimeCatalogName),JSON.stringify({...f.catalog,note:'different'}))
  await expect(verifyPackagedManagedRuntime(f.voice,'win32-x64',{trustedCatalogPath:join(f.root,'electron/voice',managedRuntimeCatalogName)})).rejects.toThrow('catalog differs from source')
+})
+it('rejects checkout newline conversion before staging any runtime archives',async()=>{
+ const f=await fixture(),path=join(f.root,'electron/voice',managedRuntimeCatalogName)
+ await writeFile(path,(await readFile(path,'utf8')).replaceAll('\n','\r\n'))
+ await expect(f.stage()).rejects.toThrow('worker catalog pin differs')
+ await expect(readdir(join(f.voice,managedRuntimeArchivesName))).rejects.toThrow()
+})
+it('rejects a packaged worker policy with a different catalog pin',async()=>{
+ const f=await fixture();await f.stage()
+ await writeFile(join(f.voice,'runtime-gguf-windows-voxcpm2.json'),JSON.stringify({managedRuntimeCatalog:{}}))
+ await expect(verifyPackagedManagedRuntime(f.voice,'win32-x64')).rejects.toThrow('worker catalog pin differs')
 })
 it('checks every packaged archive again and rejects an unsupported Windows target',async()=>{
  const f=await fixture();await f.stage();await writeFile(join(f.voice,managedRuntimeArchivesName,f.pins[0].name),Buffer.alloc(f.pins[0].bytes))
