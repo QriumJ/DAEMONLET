@@ -32,18 +32,19 @@ beforeEach(async()=>{
 })
 afterEach(()=>{hooks.cleanups.forEach(cleanup=>cleanup());vi.unstubAllGlobals()})
 
-it.each(['installGgufModel','verifyGgufModel'] as const)('dispatches cancel while full-settings %s remains pending, keeping other mutations serialized',async type=>{
+it.each(['installGgufModel','verifyGgufModel','prepareVoiceFiles'] as const)('dispatches cancel while full-settings %s remains pending, keeping other mutations serialized',async type=>{
  let complete!:(s:ChatSettingsSnapshot)=>void
  const pending=new Promise<ChatSettingsSnapshot>(resolve=>{complete=resolve})
  action.mockImplementation((request:ChatSettingsAction)=>request.type==='voice'&&request.action.type===type?pending:Promise.resolve({...initial,revision:3}))
- const task=voiceControls().act({type,id:'qwen3-tts-06b-gguf'});await flush()
+ const cancelType=type==='prepareVoiceFiles'?'cancelPrepareVoiceFiles':'cancelInstallGgufModel'
+ const task=voiceControls().act(type==='prepareVoiceFiles'?{type}:{type,id:'qwen3-tts-06b-gguf'});await flush()
  publish({...initial,revision:2,voice:{...initial.voice,ggufInstall:[{id:'qwen3-tts-06b-gguf',supported:true,installed:false,verified:false,phase:type==='installGgufModel'?'downloading':'verifying',bytes:10,total:100,error:null,verification:'sha256',runtimeIncluded:false}]}});await flush()
  expect(voiceControls().busy).toBe(true)
- expect(await voiceControls().act({type:'cancelInstallGgufModel'})).toBe(true)
- expect(action).toHaveBeenCalledWith({type:'voice',action:{type:'cancelInstallGgufModel'},context})
+ expect(await voiceControls().act({type:cancelType})).toBe(true)
+ expect(action).toHaveBeenCalledWith({type:'voice',action:{type:cancelType},context})
  await flush();expect(voiceControls().busy).toBe(true)
  expect(await voiceControls().act({type:'engine',value:'voxcpm2'})).toBe(false)
- expect(action.mock.calls.map(([request])=>request.type==='voice'?request.action.type:request.type)).toEqual([type,'cancelInstallGgufModel'])
+ expect(action.mock.calls.map(([request])=>request.type==='voice'?request.action.type:request.type)).toEqual([type,cancelType])
  // Completion of cancellation must not unlock the original operation or allow
  // its older result to overwrite a newer cancellation snapshot.
  complete({...initial,revision:2});await task;await flush()

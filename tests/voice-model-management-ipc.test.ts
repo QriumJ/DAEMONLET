@@ -34,10 +34,15 @@ it('model removal is confirmed with current main-owned paths, model, revision an
  expect(options.defaultId).toBe(0);expect(options.cancelId).toBe(0);expect(options.detail).toContain(plan.modelId);expect(options.detail).toContain(plan.revision);expect(options.detail).toContain('1,234 bytes');for(const directory of plan.directories)expect(options.detail).toContain(directory.path)
  expect(options.detail).toContain('학습팩, 기준 WAV와 외부 모델은 보존');expect(options.detail).not.toContain('/renderer/injected');expect(f.remove).toHaveBeenCalledWith(plan.id,plan.planId,expect.any(Function))
 })
-it.each(['cancel','navigation','character','revision','conversation','close'] as const)('pending model removal is revoked on %s',async boundary=>{
+it.each(['cancel','navigation','character','revision','conversation','close','engine','profile','voice','connection'] as const)('pending model removal is revoked on %s',async boundary=>{
  const f=await fixture();let reply!:(value:any)=>void;vi.mocked(dialog.showMessageBox).mockImplementation(()=>new Promise(resolve=>reply=resolve) as any)
  const pending=f.manage({type:'removeManagedModel',id:plan.id});await vi.waitFor(()=>expect(reply).toBeTypeOf('function'))
  if(boundary==='navigation')f.expire();else if(boundary==='character')f.state.character.id='other';else if(boundary==='revision')f.state.character.revision='2';else if(boundary==='conversation')f.state.conversation.id='two';else if(boundary==='close')await f.controller.close()
+ const owner=f.controller.service as any
+ if(boundary==='engine')owner.state.engine='qwen3-tts-06b'
+ else if(boundary==='profile')owner.state.executionProfile='cached'
+ else if(boundary==='voice')owner.state.bindings.test='other@1'
+ else if(boundary==='connection')owner.config={python:'/fixture/python',model:'/fixture/model'}
  reply({response:boundary==='cancel'?0:1});await pending;expect(f.remove).not.toHaveBeenCalled()
 })
 it('expiring during fresh inspection never opens a confirmation dialog',async()=>{
@@ -58,6 +63,13 @@ it('runtime cancellation crosses IPC while ordinary runtime setup remains pendin
  const f=await fixture();let done!:()=>void;f.runtimeSetup.mockImplementation(()=>new Promise<void>(resolve=>done=resolve))
  const pending=f.manage({type:'installGgufRuntime',id:'vox-vulkan'});await vi.waitFor(()=>expect(done).toBeTypeOf('function'))
  await f.manage({type:'cancelInstallGgufRuntime'});expect(f.runtimeCancel).toHaveBeenCalledOnce();done();await pending
+})
+it('combined file cancellation crosses IPC while preparation is pending',async()=>{
+ const f=await fixture(),owner=f.controller.service as any;let done!:()=>void
+ owner.prepareVoiceFiles=vi.fn(()=>new Promise<void>(resolve=>done=resolve));owner.cancelPrepareVoiceFiles=vi.fn(async()=>{})
+ const pending=f.manage({type:'prepareVoiceFiles'});await vi.waitFor(()=>expect(done).toBeTypeOf('function'))
+ await f.manage({type:'cancelPrepareVoiceFiles'});expect(owner.cancelPrepareVoiceFiles).toHaveBeenCalledOnce()
+ done();await pending
 })
 it('keeps the current pinned runtime catalog in a separate owned root and preserves older catalog receipts',async()=>{
  vi.stubGlobal('process',{...process,platform:'win32',arch:'x64'})

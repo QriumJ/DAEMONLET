@@ -21,7 +21,7 @@ it('Windows preparation policy explains skipped weights and offers an explicit f
 })
 it('a running full check shows cancellation and disables engine controls',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,modelVerification:'full',modelCheck:{busy:true,error:null}},act:()=>{},playbackReady:true}))
- expect(html).toContain('모델 전체 검사 중');expect(html).toContain('검사 중단');expect(html).toContain('aria-label="음성 엔진" disabled')
+ expect(html).toContain('모델 전체 검사 중');expect(html).toContain('검사 중단');expect(html).toMatch(/<input type="radio" disabled="" name="voice-engine-path"/)
 })
 
 it('a damaged managed Vox model offers user-initiated repair rather than a disabled installed button',()=>{
@@ -37,7 +37,7 @@ it('Qwen install clearly includes runtime/conversion/space and hides all Vox ins
 })
 it.each(['preparing','downloading','installing','verifying','applying'] as const)('Qwen phase %s shows a live status and interruptible cancellation even during a pending page action',phase=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,qwenInstall:{...managed,phase,bytes:managed.total/2}},act:()=>{},playbackReady:false,busy:true}))
- expect(html).toContain('aria-live="polite"');expect(html).toContain('<button>Qwen 설치 중단</button>');expect(html).toContain('aria-label="음성 엔진" disabled');expect(html).not.toContain('>Qwen 다운로드·설치 후 적용</button>')
+ expect(html).toContain('aria-live="polite"');expect(html).toContain('<button>Qwen 설치 중단</button>');expect(html).toMatch(/<input type="radio" disabled="" name="voice-engine-path"/);expect(html).not.toContain('>Qwen 다운로드·설치 후 적용</button>')
  if(phase==='downloading')expect(html).toContain('50%');else expect(html).not.toContain('50%')
 })
 it('installed, repair, retry and deferred registration offer the correct explicit operation',()=>{
@@ -47,23 +47,24 @@ it('installed, repair, retry and deferred registration offer the correct explici
  const windows=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,qwenInstall:{...managed,communityConversion:false,model:'Qwen/Qwen3-TTS-12Hz-0.6B-Base',modelBytes:2516106051,runtimeBytes:3695031909,total:6211137960,minimumFreeBytes:30*1024**3}},act:()=>{},playbackReady:false}));expect(windows).toContain('Qwen 공식 원본');expect(windows).toContain('6.21 GB');expect(windows).toContain('30 GiB');expect(windows).toContain('PyTorch CUDA')
 })
 
-it('Vox default can install Qwen without changing engine, and keeps failure/cancel/deferred actions visible',()=>{
+it('Vox shows only its selected files while an outstanding Qwen download retains cancellation',()=>{
  for(const install of [managed,{...managed,error:'VOICE_DOWNLOAD_FAILED'},{...managed,installed:true,applicationDeferred:true},{...managed,phase:'downloading' as const}]){
-  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,engine:'voxcpm2',qwenConfigured:false,qwenInstall:install},act:()=>{},playbackReady:false}))
-  expect(html).toContain('value="voxcpm2" selected');expect(html).toContain('Qwen 다운로드 및 설치')
-  if(install.phase==='downloading')expect(html).toContain('Qwen 설치 중단')
-  else expect(html).toContain(install.installed?'설치된 Qwen 적용':install.error?'Qwen 설치 다시 시도':'Qwen 다운로드·설치 후 적용')
+  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...state,engine:'voxcpm2',executionProfile:'gguf-metal-f16',qwenConfigured:false,qwenInstall:install},act:()=>{},playbackReady:false}))
+  expect(html).toMatch(/<input(?=[^>]*value="vox-metal")(?=[^>]*checked="")[^>]*>/)
+  if(install.phase==='downloading'){expect(html).toContain('Qwen 다운로드 및 설치');expect(html).toContain('Qwen 설치 중단')}
+  else expect(html).not.toContain('Qwen 다운로드 및 설치')
  }
 })
 
-const gguf:VoiceSnapshot={...state,engine:'qwen3-tts-06b-gguf',availableEngines:['voxcpm2','qwen3-tts-06b','qwen3-tts-06b-gguf'],qwenGgufConfigured:false,qwenInstall:managed,modelVerification:'installed',availableProfiles:['qwen-gguf','qwen-gguf-complete'],executionProfile:'qwen-gguf'}
+const gguf:VoiceSnapshot={...state,platform:'win32',arch:'x64',engine:'qwen3-tts-06b-gguf',availableEngines:['voxcpm2','qwen3-tts-06b','qwen3-tts-06b-gguf'],qwenGgufConfigured:false,qwenInstall:managed,modelVerification:'installed',availableProfiles:['qwen-gguf','qwen-gguf-complete'],executionProfile:'qwen-gguf'}
 it('GGUF is separately selectable with manual setup and no PyTorch installation action',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:gguf,act:()=>{},playbackReady:true,characterId:'test'}))
- for(const text of ['value="qwen3-tts-06b-gguf" selected','Base Q8 · GGUF CUDA','Qwen GGUF Python·DLL·모델 연결','보유한 GGUF 실행 환경 수동 연결','CUDA SDK나 새 GPU 드라이버를 설치하지 않습니다.','compute capability 8.9와 R580 이상','커뮤니티 MIT','Apache-2.0','Qwen GGUF CUDA · 청크 재생','Qwen GGUF CUDA · 완성 후 재생'])expect(html).toContain(text)
+ expect(html).toMatch(/<input(?=[^>]*value="qwen-gguf")(?=[^>]*checked="")[^>]*>/)
+ for(const text of ['Base Q8','Qwen GGUF Python·DLL·모델 연결','보유한 GGUF 실행 환경 수동 연결','CUDA SDK나 새 GPU 드라이버를 설치하지 않습니다.','compute capability 8.9와 R580 이상','커뮤니티 MIT','Apache-2.0','Qwen GGUF CUDA · 청크 재생','Qwen GGUF CUDA · 완성 후 재생'])expect(html).toContain(text)
  expect(html).not.toContain('Qwen 다운로드 및 설치');expect(html).not.toContain('Qwen 다운로드·설치 후 적용');expect(html).not.toContain('Qwen MLX · 청크 재생')
  expect(html).not.toContain('Qwen GGUF 런타임 다시 연결') // An existing PyTorch connection does not configure GGUF.
  const connected=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,qwenGgufConfigured:true},act:()=>{},playbackReady:true}));expect(connected).toContain('Qwen GGUF 런타임 다시 연결')
- const mac=renderToStaticMarkup(createElement(VoiceSettings,{state,act:()=>{},playbackReady:true}));expect(mac).not.toContain('value="qwen3-tts-06b-gguf"')
+ const mac=renderToStaticMarkup(createElement(VoiceSettings,{state,act:()=>{},playbackReady:true}));expect(mac).not.toContain('value="qwen-gguf"')
 })
 it('GGUF always presents full model verification while the PyTorch policy remains available',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:gguf,act:()=>{},playbackReady:true}))

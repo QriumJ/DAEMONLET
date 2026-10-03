@@ -24,6 +24,7 @@ afterEach(async()=>{release.splice(0).forEach(fn=>fn());await Promise.allSettled
 
 async function fixture(){
  const root=await mkdtemp(join(tmpdir(),'windows-gguf-service-'));roots.push(root)
+ await writeFile(join(root,'settings.json'),JSON.stringify({version:1,engine:'voxcpm2',enabled:false,autoRead:true,volume:.8,bindings:{},executionProfile:'baseline',baseExecutionProfile:'cuda-compiled'}))
  const paths={worker:join(root,'bridge','worker.py'),python:join(root,'env','Scripts','python.exe'),original:join(root,'models','original'),publicModel:join(root,'models','public'),trainedModel:join(root,'models','trained'),cuda:join(root,'native-cuda'),vulkan:join(root,'native-vulkan'),receipt:join(root,'native-cuda','approval.json')}
  for(const path of [join(root,'bridge'),join(root,'env','Scripts'),join(root,'env','Lib','site-packages'),paths.original,paths.publicModel,paths.trainedModel,paths.cuda,paths.vulkan])await mkdir(path,{recursive:true})
  await Promise.all([writeFile(paths.worker,'# Never executed'),writeFile(paths.python,'fixture only'),writeFile(join(root,'env','pyvenv.cfg'),'fixture'),writeFile(join(root,'env','Lib','site-packages','soundfile.py'),'# fixture'),writeFile(paths.receipt,'{}')])
@@ -48,7 +49,7 @@ async function fixture(){
 }
 
 describe('managed model operations own cancellation, unload and confirmation context',()=>{
- it('drains every installer before unloading, blocks competing work, and inspects only after unload',async()=>{
+ it('confirmed removal drains every installer before unloading and rechecks the plan after release',async()=>{
   const f=await fixture();await f.service.enabled(true);await f.service.prepare(true);const runtime=f.runtimes[0],order:string[]=[]
   const baseDone=gate(),qwenDone=gate(),ggufDone=gate(),stopDone=gate()
   f.base.install.mockImplementation(async()=>{await baseDone.promise});f.qwen.install.mockImplementation(async()=>{await qwenDone.promise;return {python:f.paths.python,model:'/late-torch-model'}})
@@ -58,14 +59,14 @@ describe('managed model operations own cancellation, unload and confirmation con
   await vi.waitFor(()=>expect(f.gguf.install).toHaveBeenCalledOnce())
   runtime.stop.mockImplementation(async()=>{order.push('unload');await stopDone.promise;runtime.running=false})
   f.gguf.modelRemoval.mockImplementation(async()=>{order.push('inspect');expect(runtime.running).toBe(false);return f.plan()})
-  const inspecting=f.service.inspectManagedModelRemoval('qwen3-tts-06b-gguf')
+  const inspecting=f.service.removeManagedModel('qwen3-tts-06b-gguf','fixture-plan')
   await vi.waitFor(()=>expect(runtime.stop).toHaveBeenCalled())
   expect(f.gguf.modelRemoval).not.toHaveBeenCalled();expect(f.service.snapshot().managedModelRemoval?.busy).toBe(true)
   await expect(f.service.prepare(true)).rejects.toThrow('VOICE_MODEL_REMOVAL_BUSY');await f.service.prepare()
   await expect(f.service.installGgufModel('voxcpm2-gguf-f16')).rejects.toThrow('VOICE_MODEL_REMOVAL_BUSY')
   await expect(f.service.refreshManagedModels()).rejects.toThrow('VOICE_MODEL_REMOVAL_BUSY');expect(()=>f.service.configureQwen('/unused','/unused')).toThrow('VOICE_MODEL_REMOVAL_BUSY')
-  stopDone.resolve();expect(await inspecting).toEqual(f.plan());await Promise.all(installing)
-  expect(order.slice(0,3)).toEqual(['cancel-base','cancel-qwen','cancel-gguf']);expect(order.at(-1)).toBe('inspect');expect(order.slice(3,-1).every(step=>step==='unload')).toBe(true);expect(f.service.snapshot()).toMatchObject({engine:'voxcpm2',qwenConfigured:false,managedModelRemoval:{busy:false,error:null}})
+  stopDone.resolve();await inspecting;await Promise.all(installing)
+  expect(order.slice(0,3)).toEqual(['cancel-base','cancel-qwen','cancel-gguf']);expect(order.at(-1)).toBe('inspect');expect(order.indexOf('unload')).toBeLessThan(order.indexOf('inspect'));expect(f.gguf.removeModel).toHaveBeenCalledWith('qwen3-tts-06b-gguf','fixture-plan',f.trash);expect(f.service.snapshot()).toMatchObject({engine:'voxcpm2',qwenConfigured:false,managedModelRemoval:{busy:false,error:null}})
   expect(f.trash).not.toHaveBeenCalled();expect(f.runtimes).toHaveLength(1)
  })
 
@@ -74,6 +75,7 @@ describe('managed model operations own cancellation, unload and confirmation con
   const startDone=gate(),stopEntered=gate();const nativeStart=vi.fn(async()=>{await startDone.promise})
   f.make.mockImplementation(config=>{let stopped=false;const runtime:FixtureRuntime={config,sessionId:'preparation',running:false,busy:false,audit:{warmed:true},get ready(){return this.running},start:vi.fn(async()=>{await nativeStart();runtime.running=!stopped}),prewarm:vi.fn(async()=>{}),stop:vi.fn(async()=>{stopped=true;stopEntered.resolve();await startDone.promise;runtime.running=false}),retireSpeech:vi.fn(),cancelSpeech:vi.fn(async()=>({}))};f.runtimes.push(runtime);return runtime})
   const preparing=f.service.prepare(true);await vi.waitFor(()=>expect(nativeStart).toHaveBeenCalledOnce())
+  f.gguf.modelRemoval.mockResolvedValue(f.plan('voxcpm2-gguf-f16'))
   f.gguf.removeModel.mockImplementation(async(_id,token,trash)=>{expect(token).toBe('fixture-plan');expect(f.runtimes[0].running).toBe(false);await trash(f.paths.publicModel)})
   const removing=f.service.removeManagedModel('voxcpm2-gguf-f16','fixture-plan');await stopEntered.promise
   expect(f.trash).not.toHaveBeenCalled();await expect(f.service.prepare(true)).rejects.toThrow('VOICE_MODEL_REMOVAL_BUSY')
@@ -100,14 +102,14 @@ describe('managed model operations own cancellation, unload and confirmation con
   const f=await fixture();await f.service.bind('character',referenceKey);await f.service.configureQwen('/kept-python','/kept-torch');await f.service.enabled(true)
   let present=true;f.gguf.modelRemoval.mockImplementation(async id=>present&&id==='qwen3-tts-06b-gguf'?f.plan():null)
   f.gguf.removeModel.mockImplementation(async(id,token,trash)=>{expect(id).toBe('qwen3-tts-06b-gguf');if(token!=='fixture-plan')throw Error('VOICE_MODEL_REMOVAL_CHANGED');await trash(f.paths.publicModel);present=false;Object.assign(f.installStates[0],{installed:false,verified:false,modelPath:undefined})})
-  await f.service.refreshManagedModels();expect(f.service.snapshot().managedModels).toEqual([f.plan()])
+  await f.service.refreshManagedModels();expect(f.service.snapshot().managedModels).toEqual([{...f.plan(),currentVoiceAffected:false,legacy:false}])
   f.trash.mockRejectedValueOnce(Error('private OS details'))
   await expect(f.service.removeManagedModel('qwen3-tts-06b-gguf','fixture-plan')).rejects.toThrow('private OS details')
   expect(f.service.snapshot()).toMatchObject({managedModels:[],managedModelRemoval:{busy:false,error:'VOICE_MODEL_REMOVAL_FAILED'},bindings:{character:referenceKey},qwenConfigured:true})
-  await f.service.refreshManagedModels();expect(f.service.snapshot().managedModels).toEqual([f.plan()])
+  await f.service.refreshManagedModels();expect(f.service.snapshot().managedModels).toEqual([{...f.plan(),currentVoiceAffected:false,legacy:false}])
   await expect(f.service.removeManagedModel('qwen3-tts-06b-gguf','obsolete-plan')).rejects.toThrow('VOICE_MODEL_REMOVAL_CHANGED');expect(f.trash).toHaveBeenCalledTimes(1)
   await f.service.removeManagedModel('qwen3-tts-06b-gguf','fixture-plan')
-  expect(f.trash).toHaveBeenCalledTimes(2);expect(f.service.snapshot()).toMatchObject({managedModels:[],managedModelRemoval:{busy:false,error:null},status:'unavailable',qwenConfigured:true,bindings:{character:referenceKey}})
+  expect(f.trash).toHaveBeenCalledTimes(2);expect(f.service.snapshot()).toMatchObject({managedModels:[],managedModelRemoval:{busy:false,error:null},status:'idle',qwenConfigured:true,bindings:{character:referenceKey}})
   expect(await f.saved()).toMatchObject({qwenRuntime:{python:'/kept-python',model:'/kept-torch'},bindings:{character:referenceKey}})
  })
 
@@ -118,13 +120,46 @@ describe('managed model operations own cancellation, unload and confirmation con
   done.resolve();await Promise.all([inspecting,closing]);expect(closed).toBe(true);await f.service.prepare();expect(f.make).not.toHaveBeenCalled()
  })
 
- it('aborts and drains an active model checker before metadata inspection without recording its late PASS',async()=>{
+ it('metadata preview blocks while a checker is active and does not cancel it',async()=>{
   const f=await fixture(),done=gate();let aborted=false
   vi.mocked(checkWindowsModel).mockImplementationOnce(async(_python,_model,_worker,_engine,signal)=>{signal.addEventListener('abort',()=>{aborted=true});await done.promise})
   const checking=f.service.checkModel();await vi.waitFor(()=>expect(checkWindowsModel).toHaveBeenCalledOnce())
-  f.gguf.modelRemoval.mockResolvedValue(f.plan());const inspecting=f.service.inspectManagedModelRemoval('qwen3-tts-06b-gguf')
-  await turn();expect(aborted).toBe(true);expect(f.gguf.modelRemoval).not.toHaveBeenCalled();expect(f.service.snapshot().managedModelRemoval?.busy).toBe(true)
-  done.resolve();await Promise.all([checking,inspecting]);expect(f.base.recordModelCheck).not.toHaveBeenCalled();expect(f.service.snapshot().modelCheck?.completedAt).toBeUndefined()
+  await expect(f.service.inspectManagedModelRemoval('qwen3-tts-06b-gguf')).rejects.toThrow('VOICE_MODEL_REMOVAL_BUSY')
+  expect(aborted).toBe(false);expect(f.gguf.modelRemoval).not.toHaveBeenCalled()
+  const cancelling=f.service.cancelModelCheck();done.resolve();await Promise.all([checking,cancelling]);expect(aborted).toBe(true)
+  expect(f.base.recordModelCheck).not.toHaveBeenCalled();expect(f.service.snapshot().modelCheck?.completedAt).toBeUndefined()
+ })
+ it('inventory and preview keep the existing worker ready until deletion is confirmed',async()=>{
+  const f=await fixture();await f.service.enabled(true);await f.service.prepare(true)
+  const runtime=f.runtimes[0],stops=runtime.stop.mock.calls.length
+  f.gguf.modelRemoval.mockImplementation(async id=>id==='qwen3-tts-06b-gguf'?f.plan():null)
+  await f.service.refreshManagedModels();expect(await f.service.inspectManagedModelRemoval('qwen3-tts-06b-gguf')).toMatchObject(f.plan())
+  expect(runtime.running).toBe(true);expect(runtime.stop).toHaveBeenCalledTimes(stops)
+  for(const installer of [f.base,f.qwen,f.gguf])expect(installer.cancel).not.toHaveBeenCalled()
+  expect(f.trash).not.toHaveBeenCalled()
+ })
+ it('removing the active model disconnects only its connections and persists protected choices',async()=>{
+  const f=await fixture();await f.service.configure('/external/python','/external/model');await f.service.configureQwen('/external/qwen-python','/external/qwen-model')
+  await f.connectTrained();await f.connectPublic();await f.service.bind('character',referenceKey);await f.service.executionProfile('gguf-cuda-f16');await f.service.enabled(true)
+  const plan=f.plan('voxcpm2-gguf-f16');f.gguf.modelRemoval.mockImplementation(async id=>id===plan.id?plan:null)
+  expect(f.service.modelRemovalImpact(plan)).toBe(true)
+  f.gguf.removeModel.mockImplementation(async(_id,_token,trash)=>{await trash(f.paths.publicModel)})
+  await f.service.removeManagedModel(plan.id,plan.planId)
+  expect(f.service.snapshot()).toMatchObject({engine:'voxcpm2',executionProfile:'gguf-cuda-f16',bindings:{character:referenceKey},runtimeConfigured:false,voxGgufConfigured:false,status:'unavailable'})
+  expect(f.trash.mock.calls).toEqual([[f.paths.publicModel]])
+  const saved=await f.saved();expect(saved).toMatchObject({runtime:{model:'/external/model'},qwenRuntime:{model:'/external/qwen-model'},voxGgufRuntime:{model:f.paths.original},bindings:{character:referenceKey}})
+  expect(saved.voxPublicGgufRuntime).toBeNull();expect(saved.voxPublicGgufBackends.cuda).toBeUndefined()
+  expect(await readFile(f.paths.receipt,'utf8')).toBe('{}');expect(f.store.close).not.toHaveBeenCalled()
+ })
+ it('removing an unrelated legacy model keeps the current GGUF connection usable',async()=>{
+  const f=await fixture();await f.service.configureQwen(f.paths.python,f.paths.original);await f.connectPublic();await f.service.bind('character',referenceKey);await f.service.executionProfile('gguf-cuda-f16');await f.service.enabled(true)
+  const plan={...f.plan('qwen3-tts-06b'),directories:[{path:f.paths.original,bytes:16,files:[]}]};f.qwen.modelRemoval.mockResolvedValue(plan)
+  expect(f.service.modelRemovalImpact(plan)).toBe(false)
+  f.qwen.removeModel.mockImplementation(async(_token,trash)=>{await trash(f.paths.original)})
+  await f.service.removeManagedModel(plan.id,plan.planId)
+  expect(f.service.snapshot()).toMatchObject({runtimeConfigured:true,voxGgufConfigured:true,qwenConfigured:false,status:'idle',bindings:{character:referenceKey}})
+  expect(await f.saved()).toMatchObject({qwenRuntime:null,voxPublicGgufRuntime:{model:f.paths.publicModel,gguf:{runtimeDir:f.paths.cuda}},bindings:{character:referenceKey}})
+  expect(f.trash.mock.calls).toEqual([[f.paths.original]])
  })
 })
 

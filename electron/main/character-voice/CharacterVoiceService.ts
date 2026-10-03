@@ -1,3 +1,4 @@
+import {defaultVoiceSetup,voiceSetupPaths,currentVoiceSetupPath,isLegacyVoiceModel,type VoiceSetupPathId} from '../../shared/voice-setup-paths'
 import type {WindowsGgufModelInstallation} from './WindowsGgufModelInstaller'
 import type {WindowsGgufRuntimeInstallation} from './WindowsGgufRuntimeInstaller'
 import type {GgufRuntimeId,GgufRuntimeCatalog,GgufRuntimeConnection} from '../../shared/windows-gguf-runtime-catalog'
@@ -8,7 +9,7 @@ import {DEFAULT_VOICE_SEED,validSeedSettings,validVoiceSeed,type VoiceSeedSettin
 import {VoiceReplayCache,type ReplayCandidate} from './VoiceReplayCache'
 import {VoiceAssetIdentity} from './VoiceAssetIdentity'
 import {mkdir,readdir,readFile,rm,writeFile,realpath} from 'node:fs/promises'
-import {dirname,join} from 'node:path'
+import {dirname,join,relative,isAbsolute} from 'node:path'
 import {createHash,randomUUID,randomInt} from 'node:crypto'
 import type {ChatMessage,LocalChatSnapshot} from '../../shared/character-chat-contract'
 import {isManagedVoice,isReferenceProfile,isQwenEngine,isWindowsVoxGgufProfile,DEFAULT_SPEECH_POLICY,planSpeech,type SpeechPolicy,isStreamingProfile,voiceCapabilities,type SpeechBinding,type PlaybackBinding,type VoiceEvent,type VoiceSnapshot,type ExecutionProfile} from '../../shared/character-voice-contract'
@@ -25,7 +26,7 @@ type QwenGgufConnection={python:string;model:string;ggufRuntime:string}&ManagedR
 type VoiceOutputOwner='local'|'presentation'
 
 export class CharacterVoiceService {
- private state:VoiceSnapshot={seedSettings:{...DEFAULT_VOICE_SEED},seedError:false,engine:'voxcpm2',qwenClone:{mode:'x-vector',transcript:''},epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'gguf-metal-f16':'baseline'}
+ private state:VoiceSnapshot={seedSettings:{...DEFAULT_VOICE_SEED},seedError:false,engine:defaultVoiceSetup(process.platform,process.arch).engine,qwenClone:{mode:'x-vector',transcript:''},epoch:0,enabled:false,autoRead:true,volume:0.8,profiles:[],bindings:{},status:'off',error:null,runtimeConfigured:false,availableProfiles:voiceCapabilities(process.platform,process.arch),executionProfile:process.platform==='darwin'?'gguf-metal-f16':process.platform==='win32'&&process.arch==='x64'?'gguf-cuda-f16':'baseline'}
  private replay=new VoiceReplayCache()
  readonly references:ReferenceProfileStore
  private referenceOperation:{controller:AbortController;task:Promise<void>}|null=null
@@ -36,6 +37,8 @@ export class CharacterVoiceService {
  private ggufInstallEpoch=0
  private ggufRuntimeInstaller?:WindowsGgufRuntimeInstallation
  private ggufRuntimeCatalog?:GgufRuntimeCatalog
+ private filePreparationTask:Promise<void>|null=null
+ private filePreparationEpoch=0
  private runtimeSetupTask:Promise<void>|null=null
  private runtimeSetupId:GgufRuntimeId|null=null
  private runtimeSetupEpoch=0
@@ -49,7 +52,7 @@ export class CharacterVoiceService {
  private qwenApplicationDeferred=false
  private installingBase:Promise<void>|null=null
  private installEpoch=0
- private baseExecutionProfile:ExecutionProfile='cuda-compiled'
+ private baseExecutionProfile:ExecutionProfile=process.platform==='win32'&&process.arch==='x64'?'gguf-cuda-f16':'cuda-compiled'
  private verifiedBase:{runtime:TtsRuntimeSupervisor;session:string;key:string;identity:string}|null=null
  private qwenExecutionProfile:ExecutionProfile='qwen-mlx'
  private qwenSupported(){return process.platform==='win32'||process.platform==='darwin'&&process.arch==='arm64'}
@@ -85,6 +88,7 @@ export class CharacterVoiceService {
  private pendingRemoval=new Set<string>()
  private disposed=false
  private currentSpeech:(()=>boolean)|null=null
+ private speechHandoffs=0
  private preparing:Promise<void>|null=null
  private preparationCurrent:(()=>boolean)|null=null
  private chunks=new Map<string,{epoch:number;bytes:Uint8Array;durationMs:number;claimed:boolean;resolve:()=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>;segmentIndex:number;chunkIndex:number}>()
@@ -106,24 +110,25 @@ export class CharacterVoiceService {
   if(id==='qwen3-tts-06b-gguf'||id==='voxcpm2-gguf-f16')return this.ggufInstaller?{modelRemoval:()=>this.ggufInstaller!.modelRemoval(id),removeModel:(plan:string,trash:(path:string)=>Promise<void>)=>this.ggufInstaller!.removeModel(id,plan,trash)}:undefined
   throw Error('VOICE_ACTION')
  }
- private async managedPlans(){const plans:ManagedVoiceModelRemoval[]=[];for(const id of ['voxcpm2-base','qwen3-tts-06b','qwen3-tts-06b-gguf','voxcpm2-gguf-f16'] as const){const value=await this.managedInstaller(id)?.modelRemoval?.();if(value)plans.push(value)}return plans}
- private manageModels<T>(work:()=>Promise<T>):Promise<T>{
-  if(this.managedTask)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
+ private async managedPlans(){const plans:ManagedVoiceModelRemoval[]=[];for(const id of ['voxcpm2-base','qwen3-tts-06b','qwen3-tts-06b-gguf','voxcpm2-gguf-f16'] as const){const value=await this.managedInstaller(id)?.modelRemoval?.();if(value)plans.push({...value,currentVoiceAffected:this.modelRemovalImpact(value),legacy:isLegacyVoiceModel(value.id,process.platform)})}return plans}
+ private manageModels<T>(work:()=>Promise<T>,release=true):Promise<T>{
+  if(this.managedTask||!release&&(this.speechHandoffs||this.preparing||this.currentSpeech||this.installingBase||this.installingQwen||this.installingGguf||this.runtimeSetupTask||this.runtimeCancelTask||this.modelCheckTask||this.filePreparationTask))return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
   const task:Promise<T>=Promise.resolve().then(async()=>{
    this.state.managedModelRemoval={busy:true,error:null};this.emit()
    // Cancel outside serial: a download may be waiting on its own queued apply.
-   await Promise.all([this.cancelInstallBase(),this.cancelInstallQwen(),this.cancelInstallGgufModel(),this.cancelInstallGgufRuntime(),this.cancelModelCheck()])
-   const action=this.serial.then(async()=>{await this.stop();if(this.disposed)throw Error('CHAT_SETTINGS_EXPIRED');return work()});this.serial=action.catch(()=>{});return action
+   if(release)await Promise.all([this.cancelPrepareVoiceFiles(),this.cancelInstallBase(),this.cancelInstallQwen(),this.cancelInstallGgufModel(),this.cancelInstallGgufRuntime(),this.cancelModelCheck()])
+   const action=this.serial.then(async()=>{if(release)await this.stop();if(this.disposed)throw Error('CHAT_SETTINGS_EXPIRED');return work()});this.serial=action.catch(()=>{});return action
   }).catch(e=>{this.state.managedModels=[];this.state.managedModelRemoval={busy:true,error:e instanceof Error&&/^[A-Z_]+$/.test(e.message)?e.message:'VOICE_MODEL_REMOVAL_FAILED'};throw e})
    .finally(()=>{if(this.managedTask===task){this.managedTask=null;if(this.state.managedModelRemoval)this.state.managedModelRemoval.busy=false;this.emit()}})
   this.managedTask=task;return task
  }
- refreshManagedModels(current=()=>true){return this.manageModels(async()=>{if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.state.managedModels=await this.managedPlans();if(!current()){this.state.managedModels=[];throw Error('CHAT_SETTINGS_EXPIRED')}})}
- inspectManagedModelRemoval(id:ManagedVoiceModelRemoval['id'],current=()=>true){return this.manageModels(async()=>{if(!current())throw Error('CHAT_SETTINGS_EXPIRED');const plan=await this.managedInstaller(id)?.modelRemoval?.();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!plan)throw Error('VOICE_MODEL_REMOVAL_CHANGED');return plan})}
+ refreshManagedModels(current=()=>true){return this.manageModels(async()=>{if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.state.managedModels=await this.managedPlans();if(!current()){this.state.managedModels=[];throw Error('CHAT_SETTINGS_EXPIRED')}},false)}
+ inspectManagedModelRemoval(id:ManagedVoiceModelRemoval['id'],current=()=>true){return this.manageModels(async()=>{if(!current())throw Error('CHAT_SETTINGS_EXPIRED');const plan=await this.managedInstaller(id)?.modelRemoval?.();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!plan)throw Error('VOICE_MODEL_REMOVAL_CHANGED');return {...plan,currentVoiceAffected:this.modelRemovalImpact(plan),legacy:isLegacyVoiceModel(plan.id,process.platform)}},false)}
  removeManagedModel(id:ManagedVoiceModelRemoval['id'],planId:string,current=()=>true){return this.manageModels(async()=>{
   if(!current())throw Error('CHAT_SETTINGS_EXPIRED');const installer=this.managedInstaller(id);if(!installer?.removeModel||!this.modelTrash)throw Error('VOICE_MODEL_REMOVAL_FAILED')
-  await installer.removeModel(planId,this.modelTrash);this.verifiedBase=null;this.runtime=null;this.state.lastGeneration=undefined;this.replay.clear()
-  this.state.managedModels=await this.managedPlans();this.state.status=this.state.enabled?'unavailable':'off';this.state.error=null
+  const plan=await installer.modelRemoval?.();if(!plan||plan.planId!==planId)throw Error('VOICE_MODEL_REMOVAL_CHANGED')
+  const affected=this.modelRemovalImpact(plan);await installer.removeModel(planId,this.modelTrash);this.disconnectRemovedModels(plan);if(affected)this.state.filePreparation=undefined;await this.save();this.verifiedBase=null;this.runtime=null;this.state.lastGeneration=undefined;this.replay.clear()
+  this.state.managedModels=await this.managedPlans();this.state.status=this.state.enabled?(this.configured()?'idle':'unavailable'):'off';this.state.error=null
  })}
  installGgufModel(id:GgufModelId,current=()=>true):Promise<void>{
   if(this.runtimeSetupTask)return Promise.reject(Error('GGUF_RUNTIME_BUSY'))
@@ -182,6 +187,38 @@ export class CharacterVoiceService {
    this.state.ggufRuntimeSetup!.application='connected'
   },true)
  }
+ prepareVoiceFiles(current=()=>true):Promise<void>{
+  if(this.filePreparationTask)return this.filePreparationTask
+  this.assertModelsAvailable()
+  const id=this.selectedGgufRuntimeId(),runtime=this.ggufRuntimeInstaller?.snapshot().find(value=>value.id===id)
+  if(!id||!runtime?.supported||!runtime.available)throw Error('GGUF_RUNTIME_ARTIFACT_PENDING')
+  const modelId:GgufModelId=id.startsWith('qwen')?'qwen3-tts-06b-gguf':'voxcpm2-gguf-f16'
+  const trained=id.startsWith('vox')&&!isManagedVoice(this.selectedProfile())
+  if(trained&&!this.voxGgufConnection())throw Error('VOX_GGUF_DERIVATIVE_UNSUPPORTED')
+  const epoch=this.filePreparationEpoch,settings=this.qwenSettingsEpoch,engine=this.state.engine,profile=this.activeProfile(),voice=this.selectedProfile()?.fingerprint
+  const valid=()=>!this.disposed&&epoch===this.filePreparationEpoch&&settings===this.qwenSettingsEpoch&&current()&&engine===this.state.engine&&profile===this.activeProfile()&&voice===this.selectedProfile()?.fingerprint
+  const task:Promise<void>=Promise.resolve().then(async()=>{
+   if(!valid())return
+   this.state.filePreparation={busy:true,id,phase:'models',error:null};this.emit()
+   if(!trained)await this.installGgufModel(modelId,valid)
+   if(!valid())return
+   this.state.filePreparation={busy:true,id,phase:'runtime',error:null};this.emit()
+   await this.setupGgufRuntime(id,'install',valid)
+   if(!valid())return
+   this.state.filePreparation={busy:true,id,phase:this.state.ggufRuntimeSetup?.application==='connected'?'connected':'deferred',error:null}
+  }).catch(error=>{
+   if(!valid())return
+   const code=error instanceof Error&&/^[A-Z_]{1,80}$/.test(error.message)?error.message:'GGUF_RUNTIME_INSTALL_FAILED'
+   this.state.filePreparation={busy:true,id,phase:'error',error:code};throw Error(code)
+  }).finally(()=>{if(this.filePreparationTask===task){this.filePreparationTask=null;if(this.state.filePreparation){this.state.filePreparation.busy=false;if(!valid()&&this.state.filePreparation.phase!=='error')this.state.filePreparation.phase=epoch!==this.filePreparationEpoch?'cancelled':'deferred';this.state.filePreparation.cancelling=false}this.emit()}})
+  this.filePreparationTask=task;return task
+ }
+ async cancelPrepareVoiceFiles(){
+  const task=this.filePreparationTask;if(!task)return
+  ++this.filePreparationEpoch
+  if(this.state.filePreparation){this.state.filePreparation.cancelling=true;this.emit()}
+  await Promise.all([this.cancelInstallGgufModel(),this.cancelInstallGgufRuntime()]);await task.catch(()=>{})
+ }
  setupGgufRuntime(id:GgufRuntimeId,mode:'install'|'repair'|'verify',current=()=>true):Promise<void>{
   if(this.managedTask)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
   if(this.runtimeCancelTask)return Promise.reject(Error('GGUF_RUNTIME_BUSY'))
@@ -232,6 +269,7 @@ export class CharacterVoiceService {
  snapshot(){
   this.syncReplayScope()
   const s=structuredClone(this.state),selected=this.selectedProfile(),managed=isManagedVoice(selected)
+  s.platform=process.platform;s.arch=process.arch;s.engineReady=!!this.runtime?.ready
   if(process.platform==='win32'){s.modelVerification=this.modelVerification;s.ggufCatalog=GGUF_MODEL_CATALOG;s.ggufInstall=this.ggufInstaller?.snapshot();s.ggufRuntimeInstall=this.ggufRuntimeInstaller?.snapshot();s.ggufRuntimeCatalog=this.ggufRuntimeCatalog?{schemaVersion:1,platform:this.ggufRuntimeCatalog.platform,runtimes:Object.values(this.ggufRuntimeCatalog.runtimes).map(({id,engine,backend,title,support,pythonVersion})=>({id,engine,backend,title,support,pythonVersion}))}:undefined}
   s.availableEngines=this.qwenSupported()?['voxcpm2','qwen3-tts-06b',...(this.qwenGgufSupported()?['qwen3-tts-06b-gguf' as const]:[])]:['voxcpm2'];s.qwenConfigured=!!this.qwenConfig;s.qwenGgufConfigured=!!this.qwenConnection()&&this.state.engine==='qwen3-tts-06b-gguf';s.voxGgufConfigured=!!this.voxGgufConnection()
   if(this.qwenInstaller){s.qwenInstall=this.qwenInstaller.snapshot();s.qwenInstall.applied=s.engine==='qwen3-tts-06b'&&!!this.qwenConfig;s.qwenInstall.applicationDeferred=this.qwenApplicationDeferred}
@@ -326,6 +364,7 @@ export class CharacterVoiceService {
     if(saved.version!==1||typeof saved.enabled!=='boolean'||typeof saved.autoRead!=='boolean'||!Number.isFinite(saved.volume)||saved.volume<0||saved.volume>1||!saved.bindings||typeof saved.bindings!=='object'||Array.isArray(saved.bindings))throw Error('VOICE_SETTINGS')
     this.pendingRemoval=new Set(Array.isArray(saved.pendingRemoval)?saved.pendingRemoval.filter((v:unknown)=>typeof v==='string'&&/^[a-z0-9_-]+@[a-zA-Z0-9._-]+$/.test(v)):[])
     if(Object.hasOwn(saved,'seedSettings')){if(validSeedSettings(saved.seedSettings))this.state.seedSettings={...saved.seedSettings};else{this.state.seedError=true;this.state.error='VOICE_SEED_SETTINGS'}}
+    this.state.engine='voxcpm2' // Existing settings without an engine keep their original Vox path.
     if(saved.engine==='qwen3-tts-06b'&&this.qwenSupported()||saved.engine==='qwen3-tts-06b-gguf'&&this.qwenGgufSupported())this.state.engine=saved.engine
     if(saved.qwenRuntime&&typeof saved.qwenRuntime.python==='string'&&typeof saved.qwenRuntime.model==='string')this.qwenConfig=saved.qwenRuntime
     if(saved.qwenGgufRuntime&&['python','model','ggufRuntime'].every(k=>typeof saved.qwenGgufRuntime[k]==='string'))this.qwenGgufConfig={python:saved.qwenGgufRuntime.python,model:saved.qwenGgufRuntime.model,ggufRuntime:saved.qwenGgufRuntime.ggufRuntime,...this.managedFields(saved.qwenGgufRuntime),...(typeof saved.qwenGgufRuntime.ggufVulkanRuntime==='string'?{ggufVulkanRuntime:saved.qwenGgufRuntime.ggufVulkanRuntime,ggufVulkanManagedRuntime:this.managedFields({managedRuntime:saved.qwenGgufRuntime.ggufVulkanManagedRuntime,dependencyDirs:saved.qwenGgufRuntime.ggufVulkanDependencyDirs}).managedRuntime,ggufVulkanDependencyDirs:this.managedFields({managedRuntime:saved.qwenGgufRuntime.ggufVulkanManagedRuntime,dependencyDirs:saved.qwenGgufRuntime.ggufVulkanDependencyDirs}).dependencyDirs}:{})}
@@ -389,12 +428,48 @@ export class CharacterVoiceService {
  async cancelReferenceImport(){const operation=this.referenceOperation;if(operation){operation.controller.abort();await operation.task}}
  renameReference(profile:string,name:string,current=()=>true){const task=this.serial.then(async()=>{if(this.disposed||!current())throw Error('CHAT_SETTINGS_EXPIRED');await this.references.rename(profile,name,()=>!this.disposed&&current());const p=this.references.list().find(p=>profileKey(p)===profile);if(p)this.state.profiles=this.state.profiles.map(old=>profileKey(old)===profile?p:old);this.emit()});this.serial=task.catch(()=>{});return task}
  private validQwenClone(value:unknown):value is import('../../shared/character-voice-contract').QwenCloneSettings{const v=value as any;return !!v&&['x-vector','icl'].includes(v.mode)&&typeof v.transcript==='string'&&v.transcript.length<=2000&&!/[\x00-\x08\x0b-\x1f\x7f]/.test(v.transcript)&&(v.mode!=='icl'||!!v.transcript.trim())}
+ private removalContains(plan:ManagedVoiceModelRemoval,path:string|undefined){return !!path&&plan.directories.some(directory=>{const rel=relative(directory.path,path);return !rel||rel!=='..'&&!rel.startsWith('../')&&!rel.startsWith('..\\')&&!isAbsolute(rel)})}
+ modelRemovalImpact(plan:ManagedVoiceModelRemoval){
+  if(isQwenEngine(this.state.engine))return this.removalContains(plan,this.qwenConnection()?.model)
+  if(isWindowsVoxGgufProfile(this.activeProfile())){const vox=this.voxGgufConnection();return this.removalContains(plan,vox?.model)||this.removalContains(plan,vox?.gguf.derivativeDir)}
+  return this.removalContains(plan,isManagedVoice(this.selectedProfile())?this.base?.path:this.config?.model)
+ }
+ private disconnectRemovedModels(plan:ManagedVoiceModelRemoval){
+  const removed=(value:{model:string}|null|undefined)=>!!value&&this.removalContains(plan,value.model)
+  if(removed(this.config)){this.config=null;this.state.runtimeConfigured=false}
+  if(removed(this.qwenConfig))this.qwenConfig=null
+  if(removed(this.qwenGgufConfig))this.qwenGgufConfig=null
+  for(const backend of ['cuda','vulkan'] as const){
+   if(removed(this.qwenGgufBackends[backend]))delete this.qwenGgufBackends[backend]
+   if(removed(this.voxTrainedGgufBackends[backend])||this.removalContains(plan,this.voxTrainedGgufBackends[backend]?.gguf.derivativeDir))delete this.voxTrainedGgufBackends[backend]
+   if(removed(this.voxPublicGgufBackends[backend]))delete this.voxPublicGgufBackends[backend]
+  }
+  if(removed(this.voxGgufConfig)||this.removalContains(plan,this.voxGgufConfig?.gguf.derivativeDir))this.voxGgufConfig=null
+  if(removed(this.voxPublicGgufConfig))this.voxPublicGgufConfig=null
+ }
+ modelRemovalContext(){return createHash('sha256').update(JSON.stringify({engine:this.state.engine,executionProfile:this.activeProfile(),bindings:this.state.bindings,config:this.config,qwen:this.qwenConfig,qwenGguf:this.qwenGgufConfig,qwenBackends:this.qwenGgufBackends,vox:this.voxGgufConfig,voxBackends:this.voxTrainedGgufBackends,voxPublic:this.voxPublicGgufConfig,voxPublicBackends:this.voxPublicGgufBackends})).digest('hex')}
+ selectVoicePath(id:VoiceSetupPathId,current=()=>true){
+  const path=voiceSetupPaths(process.platform,process.arch).find(path=>path.id===id)
+  if(!path)throw Error('VOICE_ACTION')
+  this.assertModelsAvailable()
+  if(!current())throw Error('CHAT_SETTINGS_EXPIRED')
+  if(currentVoiceSetupPath(this.snapshot())===id)return Promise.resolve()
+  ++this.qwenSettingsEpoch;void this.stop().catch(()=>{})
+  return this.mutate(async()=>{
+   await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED')
+   this.state.engine=path.engine
+   if(path.engine==='qwen3-tts-06b-gguf')this.qwenGgufExecutionProfile=path.profile
+   else if(path.engine==='qwen3-tts-06b')this.qwenExecutionProfile=path.profile
+   else {this.state.executionProfile=path.id==='vox-legacy'?'compiled':path.profile;this.baseExecutionProfile=path.profile}
+   this.runtime=null;this.verifiedBase=null;this.state.error=null;this.state.status=this.state.enabled?'unavailable':'off'
+  })
+ }
  engine(value:import('../../shared/character-voice-contract').VoiceEngine,current=()=>true){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!['voxcpm2','qwen3-tts-06b','qwen3-tts-06b-gguf'].includes(value)||value==='qwen3-tts-06b'&&!this.qwenSupported()||value==='qwen3-tts-06b-gguf'&&!this.qwenGgufSupported())throw Error('VOICE_ACTION');this.state.engine=value;this.runtime=null;this.state.error=null}).then(()=>this.prepare())}
  qwenClone(value:import('../../shared/character-voice-contract').QwenCloneSettings,current=()=>true){if(!this.validQwenClone(value))throw Error('QWEN_TRANSCRIPT_REQUIRED');void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.state.qwenClone={mode:value.mode,transcript:value.mode==='x-vector'?'':value.transcript};this.runtime=null;this.state.error=null})}
  configureQwen(python:string,model:string,current=()=>true){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenSupported())throw Error('VOICE_ACTION');this.qwenConfig={python,model};this.runtime=null;this.state.error=null})}
  configureQwenGguf(python:string,model:string,ggufRuntime:string,current=()=>true){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenGgufSupported())throw Error('QWEN_GGUF_UNSUPPORTED');const prior=this.qwenGgufConfig??{python,model,ggufRuntime:''};this.qwenGgufConfig=this.qwenGgufExecutionProfile.includes('-vulkan')?{...prior,python,model,ggufVulkanRuntime:ggufRuntime,ggufVulkanManagedRuntime:undefined,ggufVulkanDependencyDirs:undefined}:{...prior,python,model,ggufRuntime,managedRuntime:undefined,dependencyDirs:undefined};this.qwenGgufBackends[this.qwenGgufExecutionProfile.includes('-vulkan')?'vulkan':'cuda']={python,model,ggufRuntime};this.runtime=null;this.state.error=null})}
- configureVoxGguf(python:string,model:string,gguf:{runtimeDir:string;derivativeDir:string;receipt:string},current=()=>true){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenGgufSupported())throw Error('VOX_GGUF_PLATFORM');this.voxGgufConfig={python,model,gguf:{...gguf}};this.voxTrainedGgufBackends[this.activeProfile().includes('vulkan')?'vulkan':'cuda']=this.voxGgufConfig;this.runtime=null;this.state.error=null})}
- configureVoxPublicGguf(python:string,model:string,gguf:{runtimeDir:string;derivativeDir:string;receipt:string},current=()=>true){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenGgufSupported())throw Error('VOX_GGUF_PLATFORM');if(model!==gguf.derivativeDir)throw Error('VOX_GGUF_RUNTIME_CONFIG');this.voxPublicGgufConfig={python,model,gguf:{...gguf}};this.voxPublicGgufBackends[this.activeProfile().includes('vulkan')?'vulkan':'cuda']=this.voxPublicGgufConfig;this.runtime=null;this.state.error=null})}
+ configureVoxGguf(python:string,model:string,gguf:{runtimeDir:string;derivativeDir:string;receipt:string},current=()=>true){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenGgufSupported())throw Error('VOX_GGUF_PLATFORM');this.voxGgufConfig={python,model,gguf:{...gguf}};this.voxTrainedGgufBackends[this.activeProfile().includes('vulkan')?'vulkan':'cuda']=this.voxGgufConfig;this.runtime=null;this.state.error=null})}
+ configureVoxPublicGguf(python:string,model:string,gguf:{runtimeDir:string;derivativeDir:string;receipt:string},current=()=>true){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(!current())throw Error('CHAT_SETTINGS_EXPIRED');if(!this.qwenGgufSupported())throw Error('VOX_GGUF_PLATFORM');if(model!==gguf.derivativeDir)throw Error('VOX_GGUF_RUNTIME_CONFIG');this.voxPublicGgufConfig={python,model,gguf:{...gguf}};this.voxPublicGgufBackends[this.activeProfile().includes('vulkan')?'vulkan':'cuda']=this.voxPublicGgufConfig;this.runtime=null;this.state.error=null})}
  configure(python:string,model:string){++this.qwenSettingsEpoch;void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(this.state.executionProfile?.startsWith('mps-')||this.state.executionProfile?.startsWith('gguf-metal-'))await verifyMacInterpreter(python,this.state.executionProfile);this.config={python,model};this.state.runtimeConfigured=true;this.runtime=null;this.state.error=null})}
  enabled(value:boolean){void this.stop().catch(()=>{});return this.mutate(async()=>{await this.stop();if(value&&!this.snapshot().availableProfiles?.length)throw Error('UNSUPPORTED_DEVICE');this.state.enabled=value;this.state.status=value?'idle':'off';this.state.error=null})}
  seedSettings(value:VoiceSeedSettings,current=()=>true){if(!validSeedSettings(value))throw Error('VOICE_SEED_INVALID');return this.mutate(async()=>{if(!current())throw Error('CHAT_SETTINGS_EXPIRED');this.state.seedSettings={...value};this.state.seedError=false;if(this.state.error==='VOICE_SEED_SETTINGS')this.state.error=null})}
@@ -563,7 +638,12 @@ export class CharacterVoiceService {
   const seedSettings={...(this.state.seedSettings||DEFAULT_VOICE_SEED)},executionProfile=this.activeProfile()
   const before=this.chat(),source=structuredClone(message),profile=this.selectedProfile()
   if(!profile)throw Error(referenceKey(this.bindingKey(before.character?.id||''))?'VOICE_REFERENCE_UNAVAILABLE':'VOICE_NOT_INSTALLED');if(isReferenceProfile(profile)&&profile.error)throw Error(profile.error);if(mode!=='replay'&&!this.configured())throw Error(isManagedVoice(profile)?'VOICE_BASE_NOT_INSTALLED':'VOICE_RUNTIME_MISSING')
-  const op=++this.operation;await this.stop(false);if(op!==this.operation||this.disposed)return
+  const op=++this.operation
+  // stop() retires currentSpeech before asynchronous cancellation drains. Keep
+  // read-only metadata out of that gap until the successor owns currentSpeech.
+  ++this.speechHandoffs
+  try{await this.stop(false)}finally{--this.speechHandoffs}
+  if(op!==this.operation||this.disposed)return
   const epoch=this.state.epoch,origin=before.character
   const current=()=>{const s=this.chat();return permitted()&&(owner!=='presentation'||!this.presentationMuted)&&!this.disposed&&this.outputReady&&this.state.enabled&&op===this.operation&&epoch===this.state.epoch&&s.character?.id===source.binding!.characterId&&s.character.revision===source.binding!.revision&&s.epoch===before.epoch&&s.model===before.model&&s.conversation?.id===before.conversation?.id&&this.bindingKey(s.character.id)===profileKey(profile)&&(test||!!s.conversation?.messages.some(m=>m.id===source.id&&m.status==='complete'&&m.text===source.text))}
   if(!origin||!current())return
@@ -728,5 +808,5 @@ export class CharacterVoiceService {
   }}finally{await verification}
  }
  outputStopped(epoch:number,elapsedMs:number){if(epoch===this.state.epoch)this.diagnose({type:'output-stopped',at:Date.now(),epoch,mainActionToRendererStopMs:elapsedMs})}
- async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();const installation=Promise.all([this.cancelInstallBase(),this.cancelInstallQwen(),this.cancelInstallGgufModel(),this.cancelInstallGgufRuntime(),this.cancelReferenceImport()]);void installation.catch(()=>{});try{await this.stop()}finally{await installation;await this.managedTask?.catch(()=>{});await this.serial.catch(()=>{})}}
+ async close(){this.disposed=true;this.outputReady=false;this.allowedRequests.clear();const installation=Promise.all([this.cancelPrepareVoiceFiles(),this.cancelInstallBase(),this.cancelInstallQwen(),this.cancelInstallGgufModel(),this.cancelInstallGgufRuntime(),this.cancelReferenceImport()]);void installation.catch(()=>{});try{await this.stop()}finally{await installation;await this.managedTask?.catch(()=>{});await this.serial.catch(()=>{})}}
 }

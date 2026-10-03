@@ -34,6 +34,7 @@ async function fixture(installed=true){
  const catalog:GgufRuntimeCatalog={schemaVersion:1,components:{shared:{id:'shared',archive:{name:'fixture.zip',bytes:10,sha256:'1'.repeat(64),format:'zip'},files:{'private-file':{bytes:1,sha256:'2'.repeat(64)}},provenance:{largeNeverSent:'x'.repeat(700000)}}},runtimes:catalogRuntimes}
  const services:CharacterVoiceService[]=[]
  const create=()=>{const s=new CharacterVoiceService(root,worker,()=>({character:{id:'gpichan',revision:'1'}}) as any,()=>{},()=>{},make as any,undefined,base as any,undefined,store as any);s.attachGgufInstaller(models);s.attachGgufRuntimeInstaller(installer,catalog);services.push(s);return s}
+ await writeFile(join(root,'settings.json'),JSON.stringify({version:1,engine:'voxcpm2',enabled:false,autoRead:true,volume:.8,bindings:{},executionProfile:'baseline',baseExecutionProfile:'cuda-compiled'}))
  const service=create();await service.initialize()
  cleanup.push(async()=>{for(const s of services)await s.close();await rm(root,{recursive:true,force:true})})
  const selectQwen=async()=>{await service.engine('qwen3-tts-06b-gguf');await service.bind('gpichan','wav-fixture@1')}
@@ -100,6 +101,32 @@ it('uses the managed portable prefix without a venv config and detects dependenc
 it('does not send the component inventory or provenance in progress snapshots',async()=>{
  const f=await fixture();const text=JSON.stringify(f.service.snapshot());expect(text.length).toBeLessThan(20000);expect(text).not.toContain('largeNeverSent');expect(text).not.toContain('private-file');expect(f.service.snapshot().ggufRuntimeCatalog?.runtimes).toHaveLength(4)
 })
+it.each(['refresh','preview'] as const)('metadata %s cannot interrupt a pending managed preparation admission',async action=>{
+ const f=await fixture(),verification=gate();await f.selectQwen();await f.service.setupGgufRuntime('qwen-cuda','install');await f.service.enabled(true)
+ f.installer.verify.mockImplementation(async()=>{await verification.promise;return f.connections['qwen-cuda']})
+ const preparing=f.service.prepare(true);await vi.waitFor(()=>expect(f.installer.verify).toHaveBeenCalledOnce())
+ const listing=action==='refresh'?f.service.refreshManagedModels():f.service.inspectManagedModelRemoval('qwen3-tts-06b-gguf')
+ await expect(listing).rejects.toThrow('VOICE_MODEL_REMOVAL_BUSY');expect(f.models.modelRemoval).not.toHaveBeenCalled();expect(f.installer.cancel).not.toHaveBeenCalled()
+ verification.resolve();await preparing
+ expect(f.service.snapshot()).toMatchObject({status:'idle',error:null,engineReady:true});expect(f.runtimes[0].running).toBe(true)
+})
+it.each(['refresh','preview'] as const)('metadata %s cannot enter the retired speech cancellation handoff',async action=>{
+ const f=await fixture(),cancellation=gate(),owner=f.service as any
+ await f.selectQwen();await f.service.setupGgufRuntime('qwen-cuda','install');await f.service.enabled(true);await f.service.prepare(true)
+ const runtime=f.runtimes[0];runtime.busy=true;owner.currentSpeech=()=>true
+ runtime.cancelSpeech.mockImplementation(async()=>{await cancellation.promise;runtime.running=false;runtime.busy=false;return {}})
+ runtime.stream=vi.fn(async(_text:string,_binding:unknown,_index:number,accept:any)=>{await accept({audioId:'handoff-chunk',bytes:new Uint8Array(20),durationMs:1,generationMs:1,rtf:1,synthesisId:'handoff',chunkIndex:0,sampleOffset:0,sampleCount:1,firstChunkReadyMs:1});return{totalChunks:1,totalSamples:1}})
+ owner.event=(event:any)=>{if(event.type==='audio')queueMicrotask(()=>{f.service.audio(event.audioId,event.epoch);f.service.played(event.audioId,event.epoch)})}
+ f.service.setOutputReady(true,false)
+ const message={id:'handoff',role:'assistant',status:'complete',text:'응.',createdAt:'fixture',binding:{characterId:'gpichan',revision:'1',conversationId:'',personaHash:'fixture',semanticHash:'fixture',requestId:'fixture'}}
+ const reading=owner.read(message,true);await vi.waitFor(()=>expect(runtime.cancelSpeech).toHaveBeenCalledOnce())
+ expect(owner.currentSpeech).toBeNull();expect(owner.preparing).toBeNull()
+ await expect(action==='refresh'?f.service.refreshManagedModels():f.service.inspectManagedModelRemoval('qwen3-tts-06b-gguf')).rejects.toThrow('VOICE_MODEL_REMOVAL_BUSY')
+ expect(f.models.modelRemoval).not.toHaveBeenCalled();expect(f.installer.cancel).not.toHaveBeenCalled()
+ cancellation.resolve();await reading
+ expect(runtime.stream).toHaveBeenCalledOnce();expect(runtime.start).toHaveBeenCalledTimes(2)
+ expect(f.service.snapshot()).toMatchObject({status:'idle',error:null,engineReady:true})
+})
 it.each(['prepare','checkModel'] as const)('cancels an internal managed %s admission without marking verified model files damaged',async owner=>{
  const f=await fixture();await f.selectQwen();await f.service.setupGgufRuntime('qwen-cuda','install');await f.service.enabled(true)
  let entered!:()=>void,reject!: (error:Error)=>void
@@ -110,4 +137,39 @@ it.each(['prepare','checkModel'] as const)('cancels an internal managed %s admis
  await f.service.cancelInstallGgufRuntime();await pending
  expect(f.service.snapshot()).toMatchObject({status:'stopped',error:null});expect(f.service.snapshot().modelCheck?.error??null).toBeNull();expect((f.service as any).blockedModels.size).toBe(0)
  expect(f.runtimes.every(runtime=>!runtime.running)).toBe(true)
+})
+
+it('one files action installs the chosen model then connects its verified runtime without speech',async()=>{
+ const f=await fixture(false);await f.selectQwen();await f.service.prepareVoiceFiles()
+ expect(f.models.install).toHaveBeenCalledWith('qwen3-tts-06b-gguf');expect(f.installer.install).toHaveBeenCalledWith('qwen-cuda')
+ expect(f.service.snapshot()).toMatchObject({enabled:false,qwenGgufConfigured:true,runtimeConfigured:true,filePreparation:{busy:false,id:'qwen-cuda',phase:'connected',error:null}})
+ expect(f.make).not.toHaveBeenCalled()
+})
+it('unpublished runtime blocks combined preparation before any model download',async()=>{
+ const f=await fixture(false);await f.selectQwen();const snapshot=f.installer.snapshot
+ f.installer.snapshot=()=>snapshot().map(s=>({...s,available:false,blockedReason:'GGUF_RUNTIME_ARTIFACT_PENDING'}))
+ expect(()=>f.service.prepareVoiceFiles()).toThrow('GGUF_RUNTIME_ARTIFACT_PENDING');expect(f.models.install).not.toHaveBeenCalled();expect(f.installer.install).not.toHaveBeenCalled()
+})
+it.each(['cancel','context','engine'] as const)('model-stage %s prevents the next runtime stage and any late connection',async reason=>{
+ const f=await fixture(false),g=gate();await f.selectQwen();let current=true;const original=f.models.install.getMockImplementation()!
+ f.models.install.mockImplementation(async id=>{await g.promise;return original(id)});f.models.cancel.mockImplementation(async()=>{g.resolve()})
+ const preparing=f.service.prepareVoiceFiles(()=>current);await vi.waitFor(()=>expect(f.models.install).toHaveBeenCalledOnce())
+ if(reason==='cancel')await f.service.cancelPrepareVoiceFiles();else{if(reason==='context')current=false;else await f.service.selectVoicePath('vox-gguf');g.resolve()}
+ await preparing;expect(f.installer.install).not.toHaveBeenCalled();expect(f.service.snapshot().qwenGgufConfigured).toBe(false);expect(f.make).not.toHaveBeenCalled()
+ expect(f.service.snapshot().filePreparation).toMatchObject({busy:false,phase:reason==='cancel'?'cancelled':'deferred'})
+})
+it('a failed model stage preserves a retry route and never starts its runtime',async()=>{
+ const f=await fixture(false);await f.selectQwen();f.models.install.mockRejectedValueOnce(Error('VOICE_DOWNLOAD_FAILED'))
+ await expect(f.service.prepareVoiceFiles()).rejects.toThrow('VOICE_DOWNLOAD_FAILED');expect(f.installer.install).not.toHaveBeenCalled()
+ expect(f.service.snapshot().filePreparation).toMatchObject({busy:false,phase:'error',error:'VOICE_DOWNLOAD_FAILED'})
+ await f.service.prepareVoiceFiles();expect(f.service.snapshot().filePreparation?.phase).toBe('connected');expect(f.make).not.toHaveBeenCalled()
+})
+it.each(['cancel','close'] as const)('runtime-stage %s drains the chain and prevents late application',async boundary=>{
+ const f=await fixture(false),g=gate();await f.selectQwen();const original=f.installer.install.getMockImplementation()!
+ f.installer.install.mockImplementation(async id=>{await g.promise;return original(id)})
+ f.installer.cancel.mockImplementation(async()=>{g.resolve()})
+ const preparing=f.service.prepareVoiceFiles();await vi.waitFor(()=>expect(f.installer.install).toHaveBeenCalledOnce())
+ await (boundary==='close'?f.service.close():f.service.cancelPrepareVoiceFiles());await preparing
+ expect(f.service.snapshot()).toMatchObject({qwenGgufConfigured:false,filePreparation:{busy:false,phase:'cancelled'}})
+ expect(f.make).not.toHaveBeenCalled()
 })

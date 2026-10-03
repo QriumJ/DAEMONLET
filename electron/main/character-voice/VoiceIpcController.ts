@@ -203,6 +203,9 @@ export class VoiceIpcController {
    case 'installBase':return this.service.installBase()
    case 'cancelInstallBase':return this.service.cancelInstallBase()
    case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()
+   case 'prepareVoiceFiles':return this.service.prepareVoiceFiles(contextCurrent)
+   case 'cancelPrepareVoiceFiles':return this.service.cancelPrepareVoiceFiles()
+   case 'selectVoicePath':return this.service.selectVoicePath(v.id,contextCurrent)
    case 'engine':return this.service.engine(v.value,contextCurrent)
    case 'qwenClone':return this.service.qwenClone(v.value,contextCurrent)
    case 'modelVerification':return this.service.modelVerificationPolicy(v.value,contextCurrent)
@@ -215,13 +218,14 @@ export class VoiceIpcController {
     if(!['voxcpm2-base','qwen3-tts-06b','qwen3-tts-06b-gguf','voxcpm2-gguf-f16'].includes(v.id))throw Error('VOICE_ACTION')
     const win=owner;if(!win||win.isDestroyed()||this.picking)return
     this.picking=true
-    const current=()=>!this.closing&&contextCurrent()&&!win.isDestroyed()
+    const selection=this.service.modelRemovalContext()
+    const current=()=>!this.closing&&contextCurrent()&&!win.isDestroyed()&&this.service.modelRemovalContext()===selection
     try{
      if(!current())return
      const plan=await this.service.inspectManagedModelRemoval(v.id,current)
      if(!plan||!current())return
      const bytes=(value:number)=>value.toLocaleString(appLanguage()==='en'?'en-US':'ko-KR')+' bytes'
-     const detail=[appText('모델')+': '+plan.modelId,appText('고정 버전')+': '+plan.revision,appText('삭제 용량')+': '+bytes(plan.totalBytes),...plan.directories.map(directory=>directory.path+'\n'+bytes(directory.bytes)),appText('현재 음성과 해당 모델 다운로드를 중단합니다. 모델 파일과 모델 다운로드 캐시만 휴지통으로 옮깁니다. Python·실행 환경, 캐릭터 음성 연결, 학습팩, 기준 WAV와 외부 모델은 보존됩니다.')].join('\n\n')
+     const detail=[appText('모델')+': '+plan.modelId,appText('고정 버전')+': '+plan.revision,appText('삭제 용량')+': '+bytes(plan.totalBytes),...plan.directories.map(directory=>directory.path+'\n'+bytes(directory.bytes)),appText(this.service.modelRemovalImpact(plan)?'현재 목소리가 이 모델을 사용합니다. 삭제 후에는 필요한 모델을 다시 받고 연결해야 합니다.':'현재 선택한 목소리는 이 모델을 사용하지 않습니다.'),appText('휴지통을 비우기 전까지 저장 공간을 계속 사용합니다. 복원 후 다시 연결할 수 있습니다.'),appText('현재 음성과 해당 모델 다운로드를 중단합니다. 모델 파일과 모델 다운로드 캐시만 휴지통으로 옮깁니다. Python·실행 환경, 캐릭터 목소리 선택, 학습팩, 기준 WAV와 외부 모델은 보존됩니다.')].join('\n\n')
      const result=await dialog.showMessageBox(win,{type:'warning',buttons:[appText('취소'),appText('휴지통으로 이동')],defaultId:0,cancelId:0,message:appText('앱이 관리하는 음성 모델을 휴지통으로 옮길까요?'),detail})
      if(result.response===1&&current())await this.service.removeManagedModel(v.id,plan.planId,current)
     }finally{this.picking=false}

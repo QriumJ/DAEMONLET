@@ -1,5 +1,5 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
-import {mkdtemp,readFile,rm} from 'node:fs/promises'
+import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {CharacterVoiceService} from '../electron/main/character-voice/CharacterVoiceService'
@@ -11,6 +11,8 @@ afterEach(async()=>{for(const fn of cleanup.splice(0))await fn();Object.definePr
 const reference:ReferenceVoiceProfile={kind:'wav-reference',id:'wav-owned',version:'1',name:'Authorized WAV',fingerprint:'a'.repeat(64),referenceSha256:'b'.repeat(64),reference:{durationMs:4000,sampleRate:24000,channels:1,encoding:'pcm16',samples:96000,bytes:192044}}
 async function fixture(){
  const root=await mkdtemp(join(tmpdir(),'qwen-gguf-service-')),make=vi.fn(),store={initialize:async()=>{},list:()=>[reference],close:async()=>{}} as any
+ // These regressions exercise an existing PyTorch user's explicit GGUF opt-in.
+ await writeFile(join(root,'settings.json'),JSON.stringify({version:1,engine:'voxcpm2',enabled:false,autoRead:true,volume:.8,bindings:{},executionProfile:'baseline',baseExecutionProfile:'cuda-compiled'}))
  const service=new CharacterVoiceService(root,'/worker.py',()=>({character:{id:'character'}}) as any,()=>{},()=>{},make,undefined,undefined,undefined,store)
  await service.initialize();const owner=service as any;owner.state.bindings.character='wav-owned@1';owner.config={python:'/vox/python',model:'/vox/model'};owner.qwenConfig={python:'/torch/python',model:'/torch/model'}
  cleanup.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})})

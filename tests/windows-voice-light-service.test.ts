@@ -9,7 +9,7 @@ const original=process.platform,roots:string[]=[],services:CharacterVoiceService
 afterEach(async()=>{for(const s of services.splice(0))await s.close();Object.defineProperty(process,'platform',{value:original});for(const r of roots.splice(0))await rm(r,{recursive:true,force:true});vi.clearAllMocks()})
 async function fixture(saved?:'installed'){
  const root=await mkdtemp(join(tmpdir(),'voice-light-policy-'));roots.push(root);Object.defineProperty(process,'platform',{value:'win32'})
- if(saved)await writeFile(join(root,'settings.json'),JSON.stringify({version:1,engine:'voxcpm2',enabled:false,autoRead:false,volume:0,bindings:{},executionProfile:'compiled',modelVerification:saved}))
+ await writeFile(join(root,'settings.json'),JSON.stringify({version:1,engine:'voxcpm2',enabled:false,autoRead:false,volume:0,bindings:{},executionProfile:'compiled',modelVerification:saved??'full'}))
  let installed=true
  const base={recordModelCheck:vi.fn((valid:boolean)=>{installed=valid}),install:vi.fn(async()=>{installed=true}),native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/python',path:'/model',snapshot:()=>({supported:true,installed}),initialize:async()=>{},identity:async()=> 'stable',ready:vi.fn(async()=>'/model'),cancelVerification:async()=>{},cancel:async()=>{}}
  const runtime={config:{python:'/python',model:'/model',windowsBase:true,nativeBase:false},sessionId:'session',running:false,get ready(){return this.running},start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),retireSpeech:vi.fn()}
