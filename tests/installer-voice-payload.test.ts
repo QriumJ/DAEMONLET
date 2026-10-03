@@ -1,6 +1,6 @@
 import {afterAll,beforeAll,describe,expect,it} from 'vitest'
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises'
-import {join} from 'node:path'
+import {dirname,join} from 'node:path'
 import {tmpdir} from 'node:os'
 import {createHash} from 'node:crypto'
 import {build} from 'esbuild'
@@ -15,7 +15,8 @@ describe('Windows installer TTS payload',()=>{
   await mkdir(join(root,'stage/dist-electron/voice'),{recursive:true})
   for(const name of voiceRuntimeFiles){
    const bytes=name==='reference-import-worker.cjs'?Buffer.from((await build({entryPoints:['electron/utility/reference-import-worker.ts'],bundle:true,platform:'node',format:'cjs',write:false})).outputFiles[0].contents):await readFile(join('electron/voice',name))
-   await writeFile(join(root,'stage/dist-electron/voice',name),bytes)
+   const target=join(root,'stage/dist-electron/voice',name)
+   await mkdir(dirname(target),{recursive:true});await writeFile(target,bytes)
    files.push({path:'resources/voice/'+name,bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex')})
   }
   const catalog=JSON.parse(await readFile(join('electron/voice','managed-gguf-runtime-catalog.json'),'utf8'))
@@ -26,6 +27,13 @@ describe('Windows installer TTS payload',()=>{
  it('ships the CPU full-check worker as an ASAR-bound runtime resource',()=>{expect(voiceRuntimeFiles).toContain('windows_model_check.py');expect(files.some(f=>f.path==='resources/voice/windows_model_check.py'&&f.bytes>0)).toBe(true);expect(()=>checkInstallerPayload(files.filter(f=>f.path!=='resources/voice/windows_model_check.py'),asar)).toThrow('Missing')})
  it('ships the GGUF worker, ABI and fixed policy with matching packaged bytes',()=>{for(const name of ['qwen_gguf_worker.py','qwen_gguf_abi.py','runtime-qwen-gguf-windows.json','voxcpm_windows_gguf_worker.py','voxcpm_windows_gguf_runtime.py','runtime-gguf-windows-voxcpm2.json']){expect(voiceRuntimeFiles).toContain(name);expect(files.find(f=>f.path==='resources/voice/'+name)?.bytes).toBeGreaterThan(0)}})
  it('ships managed admission and its fixed catalog as ASAR-bound resources',()=>{for(const name of ['managed_gguf_runtime.py','managed-gguf-runtime-catalog.json'])expect(voiceRuntimeFiles).toContain(name)})
+ it('requires the consent policy and pinned offline originals to match their ASAR copies',()=>{
+  for(const path of ['resources/voice/managed-runtime-terms.json','resources/voice/runtime-terms/VC-V14-2026-Original-ENU.docx','resources/voice/runtime-terms/vc-14.40.33810.0-license-ko.rtf','resources/voice/runtime-terms/CUDA-13.0-EULA.txt']){
+   expect(()=>checkInstallerPayload(files.filter(f=>f.path!==path),asar)).toThrow('Missing')
+   expect(()=>checkInstallerPayload(files.map(f=>f.path===path?{...f,sha256:'0'.repeat(64)}:f),asar)).toThrow('differs')
+  }
+  expect(()=>checkInstallerPayload([...files,{path:'resources/voice/runtime-terms/unlisted.docx',bytes:1,sha256:'0'.repeat(64)}],asar)).toThrow('Authoring')
+ })
  it('accepts the complete production workers with exact ASAR bytes',()=>expect(()=>checkInstallerPayload(files,asar)).not.toThrow())
  it('rejects altered workers even at an allowed path',()=>expect(()=>checkInstallerPayload(files.map((f,i)=>i===0?{...f,sha256:'0'.repeat(64)}:f),asar)).toThrow('differs'))
  it('rejects missing runtime files',()=>expect(()=>checkInstallerPayload(files.slice(1),asar)).toThrow('Missing'))
