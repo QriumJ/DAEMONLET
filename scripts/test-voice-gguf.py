@@ -21,23 +21,26 @@ class GgufTests(unittest.TestCase):
         worker.cache=Path(directory.name)
         worker.native=SimpleNamespace(pid=123,poll=lambda:None)
         commands=[]
-        chunk=dict(type='chunk',id='synth',index=0,offset=0,pcm=[0.25]*7680)
-        end=dict(type='end',id='synth',samples=7680,cleanupComplete=True,cancelled=False,error='')
+        chunk=dict(type='chunk',id='synth',index=0,offset=0,pcm=[0.25]*7680,effectiveSeed=42)
+        end=dict(type='end',id='synth',samples=7680,cleanupComplete=True,cancelled=False,error='',effectiveSeed=42)
         def send(value):
             commands.append(value)
             if value['type']=='generate':worker.output.put(chunk.copy())
             elif value['type']=='credit':worker.output.put(end.copy())
             elif value['type']=='cancel':worker.output.put(dict(end,cancelled=True))
         worker._send=send
-        request=dict(streamVersion=1,text='시험',style=None,synthesisId='synth',requestId='request',binding={'runtimeSessionId':'session','speechEpoch':7},segmentIndex=2)
+        request=dict(streamVersion=1,text='시험',seed=42,style=None,synthesisId='synth',requestId='request',binding={'runtimeSessionId':'session','speechEpoch':7,'effectiveSeed':42},segmentIndex=2)
         return worker,request,events,commands,chunk,end
 
     def test_stream_keeps_binding_samples_and_pcm_contract(self):
         w,r,events,commands,_,_=self.fixture()
         result=w.stream(r,lambda _:None)
         self.assertEqual((result['totalSamples'],result['totalChunks']),(7680,1))
+        self.assertEqual(result['effectiveSeed'],r['seed'])
+        self.assertEqual(commands[0],dict(type='generate',id='synth',text=r['text'],seed=r['seed']))
         kind,ident,event=events[0]
         self.assertEqual((kind,ident,event['binding']),('audio-chunk','request',r['binding']))
+        self.assertEqual(event['effectiveSeed'],r['seed'])
         with wave.open(str(w.cache/(event['audioId']+'.wav'))) as audio:
             self.assertEqual((audio.getframerate(),audio.getnchannels(),audio.getsampwidth(),audio.getnframes()),(48000,1,2,7680))
         self.assertEqual(commands[-1],dict(type='credit',id='synth',index=0))

@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+from threading import local as thread_local
 import unittest
 from unittest.mock import patch
 
@@ -38,7 +39,7 @@ class RollingHashTests(unittest.TestCase):
         self.lock = threading.Lock()
         self.release = threading.Event()
         self.ready = threading.Event()
-        self.local = threading.local()
+        self.hash_context = thread_local()
         self.started = []
         self.finished = []
         self.fds = []
@@ -62,7 +63,7 @@ class RollingHashTests(unittest.TestCase):
             self.started.append(path.name)
             self.active += 1
             self.peak_active = max(self.peak_active, self.active)
-        self.local.index = index
+        self.hash_context.index = index
         try:
             return self.real_hash(path, record)
         finally:
@@ -114,7 +115,7 @@ class RollingHashTests(unittest.TestCase):
         barrier = threading.Barrier(4, timeout=5)
         first_closed = threading.Event()
         def digest(source, algorithm):
-            index = self.local.index
+            index = self.hash_context.index
             if index < 4:
                 barrier.wait()
                 if index == 0:
@@ -133,7 +134,7 @@ class RollingHashTests(unittest.TestCase):
             try:
                 return original(path, record)
             finally:
-                if getattr(self.local, 'index', None) == 0:
+                if getattr(self.hash_context, 'index', None) == 0:
                     first_closed.set()
         with self.patches(digest), patch.object(managed, 'full_hash', side_effect=hash_and_notify):
             self.run_background()
@@ -152,7 +153,7 @@ class RollingHashTests(unittest.TestCase):
     def test_all_eight_full_hashes_bound_four_real_fds_and_return_after_close(self):
         barrier = threading.Barrier(4, timeout=5)
         def digest(source, algorithm):
-            if self.local.index < 4:
+            if self.hash_context.index < 4:
                 barrier.wait()
             return self.real_digest(source, algorithm)
         with self.patches(digest):
@@ -180,7 +181,7 @@ class RollingHashTests(unittest.TestCase):
                 if self.index == 0: raise OSError('private injected close failure')
                 return value
         def fdopen(fd, *args, **kwargs):
-            return CloseFailure(self.real_fdopen(fd, *args, **kwargs), self.local.index)
+            return CloseFailure(self.real_fdopen(fd, *args, **kwargs), self.hash_context.index)
         with patch.object(managed.os, 'fdopen', side_effect=fdopen):
             self.drain_scenario('close')
 
@@ -241,7 +242,7 @@ class RollingHashTests(unittest.TestCase):
             with self.lock:
                 if not changed:
                     changed = True
-                    with open(self.directory/self.started[self.local.index], 'r+b') as writer:
+                    with open(self.directory/self.started[self.hash_context.index], 'r+b') as writer:
                         writer.write(b'changed!'); writer.flush(); os.fsync(writer.fileno())
             return value
         with self.patches(digest):
@@ -257,7 +258,7 @@ class RollingHashTests(unittest.TestCase):
     def scheduler_drain(self, kind):
         entered = threading.Barrier(5, timeout=5)
         def digest(source, algorithm):
-            if self.local.index < 4:
+            if self.hash_context.index < 4:
                 entered.wait()
                 if not self.release.wait(5): raise RuntimeError('fixture timeout')
             return self.real_digest(source, algorithm)
@@ -325,7 +326,7 @@ class RollingHashTests(unittest.TestCase):
             return original(futures, return_when=concurrent.futures.ALL_COMPLETED)
         def digest(source, algorithm):
             result = self.real_digest(source, algorithm)
-            return hashlib.sha256(b'wrong full digest') if self.local.index == 0 else result
+            return hashlib.sha256(b'wrong full digest') if self.hash_context.index == 0 else result
         with self.patches(digest), patch.object(concurrent.futures, 'wait', side_effect=wait_all):
             with self.assertRaisesRegex(ValueError, managed.ERROR):
                 managed.verify_component(self.root, self.component)
