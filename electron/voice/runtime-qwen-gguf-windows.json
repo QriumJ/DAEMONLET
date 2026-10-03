@@ -264,7 +264,7 @@
   },
   "managedRuntimeCatalog": {
     "filename": "managed-gguf-runtime-catalog.json",
-    "bytes": 683928,
-    "sha256": "929d3942da8c3eeef80fdadffdd7d22c978963c462aae64b1aaefaa1192f4e5b"
+    "bytes": 693831,
+    "sha256": "5487a3d3b42fa58e4dcf9ebf19c3540296c93c3075510b115319a9641df5186e"
   }
 }

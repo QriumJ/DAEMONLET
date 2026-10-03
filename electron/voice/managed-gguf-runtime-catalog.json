@@ -5,13 +5,157 @@
     "shared": {
       "id": "shared",
       "archive": {
-        "name": "shared-win32-x64-v3.zip",
-        "bytes": 65210434,
-        "sha256": "97feb9a041ed9a2b3e074ab36c32f1746d63e6b3bf01913ee9ab89956336ae97",
+        "name": "shared-win32-x64-v4.zip",
+        "bytes": 65303429,
+        "sha256": "2ffe702c4634f044e9b52a3d7a828f49e830dd1117695d110c3cf5650ed77cc0",
         "format": "zip",
-        "bundledPath": "shared-win32-x64-v3.zip"
+        "bundledPath": "shared-win32-x64-v4.zip"
       },
       "files": {
+        "licenses/codecs/RELINK.md": {
+          "bytes": 1336,
+          "sha256": "5fee769c9b76e2f9085ab50ec82bfbd710fdbb1071472bc10a67b92cc02da6d3"
+        },
+        "licenses/codecs/libflac/AUTHORS": {
+          "bytes": 2354,
+          "sha256": "ac4e8005a9725bcbd532f163250eac193266113c90075e6728370e3d3f5e81e0"
+        },
+        "licenses/codecs/libflac/COPYING.FDL": {
+          "bytes": 20403,
+          "sha256": "f45cc81b400a048b56c9edbd4c3317f7a8958463dfd55aa96f268ecfd6baa12c"
+        },
+        "licenses/codecs/libflac/COPYING.GPL": {
+          "bytes": 18092,
+          "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+        },
+        "licenses/codecs/libflac/COPYING.LGPL": {
+          "bytes": 26436,
+          "sha256": "5df07007198989c622f5d41de8d703e7bef3d0e79d62e24332ee739a452af62a"
+        },
+        "licenses/codecs/libflac/COPYING.Xiph": {
+          "bytes": 1509,
+          "sha256": "12600ea1a7affcbf469bd0d8b2cd725e4167114a2ee834b88f5d2857bfd7ddbf"
+        },
+        "licenses/codecs/libogg/AUTHORS": {
+          "bytes": 198,
+          "sha256": "6fcb33d0cdd60b5054e7df820916388b590427514288c2bab01c626bb8ae9506"
+        },
+        "licenses/codecs/libogg/COPYING": {
+          "bytes": 1466,
+          "sha256": "d2ab5758336489da61c12cc5bb757da5339c4ae9001f9bb0562b4370249af814"
+        },
+        "licenses/codecs/libsndfile/AUTHORS": {
+          "bytes": 11603,
+          "sha256": "373fb9abaa154db5da8ab692853da32ced8977b817a713913953c63e50eb4499"
+        },
+        "licenses/codecs/libsndfile/COPYING": {
+          "bytes": 26518,
+          "sha256": "ad01ea5cd2755f6048383c8d54c88459cd6fcb17757c5c8892f8c5ea060f6140"
+        },
+        "licenses/codecs/libsndfile/src/ALAC/LICENSE": {
+          "bytes": 9112,
+          "sha256": "232efbd83786e157286b0b96c68ebb673541b69b33036287bf1e5ec5067a49d9"
+        },
+        "licenses/codecs/libsndfile/src/GSM610/COPYRIGHT": {
+          "bytes": 690,
+          "sha256": "1bbe7119b1bcd1489e0f36cb95b8902f7f0ceec9a2f3a67394bc9f4709a4e0a7"
+        },
+        "licenses/codecs/libvorbis/AUTHORS": {
+          "bytes": 65,
+          "sha256": "f5cab9f16035f770f50299f85cf2938c06dc3a9a30425961067788102ec896d3"
+        },
+        "licenses/codecs/libvorbis/COPYING": {
+          "bytes": 1470,
+          "sha256": "ec1815db59fcd302846df949d7424876cb2e2dc5ed1606c5fb0b36787b1cf43a"
+        },
+        "licenses/codecs/libvorbis/debian/copyright": {
+          "bytes": 1695,
+          "sha256": "1f6c6b6397d86d20968d7856d6945591b89e4cb64e5fc1ec8b992811f6a65ed8"
+        },
+        "licenses/codecs/mp3lame/COPYING": {
+          "bytes": 25284,
+          "sha256": "bfe4a52dc4645385f356a8e83cc54216a293e3b6f1cb4f79f5fc0277abf937fd"
+        },
+        "licenses/codecs/mp3lame/LICENSE": {
+          "bytes": 487,
+          "sha256": "7a40cbd8818c57e5285e83c772a459a996d1662c824a879836b97b473c07cae4"
+        },
+        "licenses/codecs/mp3lame/debian/copyright": {
+          "bytes": 2303,
+          "sha256": "1f27f9f698183275bd615c1140b7bf6e498750e9280597c6eb39790e54ae809b"
+        },
+        "licenses/codecs/mp3lame/mpglib/AUTHORS": {
+          "bytes": 604,
+          "sha256": "d8ecf9556aafa8c653796d6be3dc43deea374257680e21c30109a5c3c4484263"
+        },
+        "licenses/codecs/mpg123/AUTHORS": {
+          "bytes": 9320,
+          "sha256": "aef659cff59b308dcec513e3b2519a4bb3095878bfd1821c006c08ba91914a1b"
+        },
+        "licenses/codecs/mpg123/COPYING": {
+          "bytes": 40718,
+          "sha256": "c22482728a634a8dfdb4ff72a96d4c1ed64cd8f3e79335c401751ac591609366"
+        },
+        "licenses/codecs/mpg123/doc/LICENSE": {
+          "bytes": 957,
+          "sha256": "cca79ea6fc0a7715e52450df2d86311f990e85067dd13f4d7f5a88d4fd23a07c"
+        },
+        "licenses/codecs/opus/AUTHORS": {
+          "bytes": 239,
+          "sha256": "f9fd849e652219ce98e008303370b352d37663d0ffb27b8dc514ad93c9c7438b"
+        },
+        "licenses/codecs/opus/COPYING": {
+          "bytes": 1945,
+          "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+        },
+        "licenses/codecs/opus/LICENSE_PLEASE_READ.txt": {
+          "bytes": 703,
+          "sha256": "7efb4989e0cd1b256229bdf2f09300c5d14e35db0e7476bfb87fac243498273d"
+        },
+        "licenses/codecs/provenance-libsndfile.json": {
+          "bytes": 4116,
+          "sha256": "27534f9dbc346a7af43bfd8ec50cb7d3e1a5d8733151489be26cbc286d6290a3"
+        },
+        "licenses/python-vendor/LICENSE.bzip2.txt": {
+          "bytes": 1780,
+          "sha256": "bd5628cc76fb0ebf9c657d1dd4d1a240a1a7b216c31663e7bbf1131c0b70a910"
+        },
+        "licenses/python-vendor/LICENSE.cpython.txt": {
+          "bytes": 36935,
+          "sha256": "8fe98bf9822926d854f56ffd8d97877d8b942617aa44eb7ea77fd99e22f2537e"
+        },
+        "licenses/python-vendor/LICENSE.expat.txt": {
+          "bytes": 1165,
+          "sha256": "8a9cfe4b5924f4b25881aa0c9f5e4561c5f31065d0c4a13cdcdbcf917edf39aa"
+        },
+        "licenses/python-vendor/LICENSE.libffi.txt": {
+          "bytes": 1153,
+          "sha256": "9afb8970cd29fc1031fa647278e4bef613399e2e3468a1e3a397f4d158c6101c"
+        },
+        "licenses/python-vendor/LICENSE.liblzma.txt": {
+          "bytes": 673,
+          "sha256": "d87d218dd908b3243ec4cbc72af400e5b7437513ea9d9229291d0812b8464fec"
+        },
+        "licenses/python-vendor/LICENSE.mpdecimal.txt": {
+          "bytes": 1308,
+          "sha256": "f094277cd46e1f6e4d87916cc4b51e22f613d45eb81f48231c3cb7caf8fc8a6a"
+        },
+        "licenses/python-vendor/LICENSE.openssl-3.txt": {
+          "bytes": 10352,
+          "sha256": "ed72ce2b51ee58f117e5a021e2e04af158857f40269fbc03491f0b2a99dbcc96"
+        },
+        "licenses/python-vendor/LICENSE.sqlite.txt": {
+          "bytes": 1504,
+          "sha256": "d8eb9aba7ef6b5ed06cb3ec19a7242316af2e5933c638eb67fb781c13884e01d"
+        },
+        "licenses/python-vendor/LICENSE.zlib.txt": {
+          "bytes": 1016,
+          "sha256": "365e36720db366054863235aea5d6f440142ab968834bfaf81fa9d187c99b9b8"
+        },
+        "licenses/python-vendor/provenance-python-vendor.json": {
+          "bytes": 157658,
+          "sha256": "2494e6b4e51a0178f4ce8162dd2cdf73f1cb4502d219a4fb38fdb3583b3a5041"
+        },
         "licenses/runtime-origin.txt": {
           "bytes": 417,
           "sha256": "5c4349423513b0a518269261ce2a5b909ca3dce07b93d4b33224afcc7f70f4ac"
@@ -143,6 +287,14 @@
         "python/DLLs/winsound.pyd": {
           "bytes": 19456,
           "sha256": "e393cd8f9db4b3156931bd9f02cda414a16674c394a82c17c2ff224712a18d78"
+        },
+        "python/LICENSE.txt": {
+          "bytes": 25066,
+          "sha256": "886a0ead2d89030ee62dbff52b04e47ab91998341295bb9c56fb952b4e081c7a"
+        },
+        "python/Lib/EXTERNALLY-MANAGED": {
+          "bytes": 97,
+          "sha256": "d9464392449b553040ca45de3dbce3bb5c3af66e4c807bbd720ab8fd98bb4c54"
         },
         "python/Lib/__future__.py": {
           "bytes": 5218,
@@ -400,6 +552,10 @@
           "bytes": 11847,
           "sha256": "76ab3252924e71e859d7d90e8d3db13b6554975cfcac0fdadced4de7f8779330"
         },
+        "python/Lib/cProfile.py": {
+          "bytes": 6346,
+          "sha256": "0a97cf92d0e3efd2e08c2f9b0f0fb8e52a2b26978550804d8e59435201f3fa84"
+        },
         "python/Lib/calendar.py": {
           "bytes": 24731,
           "sha256": "15903bacf6416869a58abff7d1680e16f26e9bd0186ad0562a0668d05f076fd9"
@@ -488,10 +644,6 @@
           "bytes": 7677,
           "sha256": "5499e1be7ba52d4715a911ae65ef2d703db9379d21fff2a07fad8877c318e070"
         },
-        "python/Lib/cProfile.py": {
-          "bytes": 6346,
-          "sha256": "0a97cf92d0e3efd2e08c2f9b0f0fb8e52a2b26978550804d8e59435201f3fa84"
-        },
         "python/Lib/crypt.py": {
           "bytes": 3913,
           "sha256": "208df2ff33c19056345dcf5474abef1a58da799e2f3bab09d1d28b77ad3c623d"
@@ -511,6 +663,10 @@
         "python/Lib/ctypes/_endian.py": {
           "bytes": 2536,
           "sha256": "38dc998ee2d180a64d4fe561b79287b19850df405f48fe72dede7a65d71de844"
+        },
+        "python/Lib/ctypes/macholib/README.ctypes": {
+          "bytes": 296,
+          "sha256": "dc29d1da83b6a0a09a41647e4111eee878ed079c2d6b54a98fd6d8b88dd581f2"
         },
         "python/Lib/ctypes/macholib/__init__.py": {
           "bytes": 154,
@@ -535,10 +691,6 @@
         "python/Lib/ctypes/macholib/framework.py": {
           "bytes": 1105,
           "sha256": "302439e40d9cbdd61b8b7cffd0b7e1278a6811b635044ee366a36e0d991f62da"
-        },
-        "python/Lib/ctypes/macholib/README.ctypes": {
-          "bytes": 296,
-          "sha256": "dc29d1da83b6a0a09a41647e4111eee878ed079c2d6b54a98fd6d8b88dd581f2"
         },
         "python/Lib/ctypes/util.py": {
           "bytes": 13959,
@@ -603,6 +755,10 @@
         "python/Lib/dis.py": {
           "bytes": 28906,
           "sha256": "2e8d70c8cd2f4ce1fab5574f4a5ee81f5572d929da00067d14e6f6582356d240"
+        },
+        "python/Lib/distutils/README": {
+          "bytes": 244,
+          "sha256": "8d19071886238eda514e96a7ab1c17d6d8c26ae628c4ddbc8ecc5329fd9d8000"
         },
         "python/Lib/distutils/__init__.py": {
           "bytes": 541,
@@ -775,10 +931,6 @@
         "python/Lib/distutils/msvccompiler.py": {
           "bytes": 23527,
           "sha256": "4dae9b283df0b4606089d2e442c1f12932a106665701a69fbab64c1ef3181513"
-        },
-        "python/Lib/distutils/README": {
-          "bytes": 244,
-          "sha256": "8d19071886238eda514e96a7ab1c17d6d8c26ae628c4ddbc8ecc5329fd9d8000"
         },
         "python/Lib/distutils/spawn.py": {
           "bytes": 4660,
@@ -1444,10 +1596,6 @@
           "bytes": 79583,
           "sha256": "01addb65722daecee235caf6b345e4a910b1882aacc29e4fb846e0e0904043e6"
         },
-        "python/Lib/EXTERNALLY-MANAGED": {
-          "bytes": 97,
-          "sha256": "d9464392449b553040ca45de3dbce3bb5c3af66e4c807bbd720ab8fd98bb4c54"
-        },
         "python/Lib/filecmp.py": {
           "bytes": 10178,
           "sha256": "178f19895fdd43d5d3865b2bfe9ae7b665611a30d29cfc23d44f01417774851c"
@@ -1544,6 +1692,94 @@
           "bytes": 49150,
           "sha256": "44ff36aff5367692b887b5943280750af95beb227fe0ed47aebc4d269e13a916"
         },
+        "python/Lib/idlelib/CREDITS.txt": {
+          "bytes": 2152,
+          "sha256": "33e6a36056667d40e26f195c14371567470f53324c3fec43aec29e09d7d2a60b"
+        },
+        "python/Lib/idlelib/ChangeLog": {
+          "bytes": 56360,
+          "sha256": "b7f42699e5e5a7c82ebdf2a2962946b7228c933ece0ea7c0d7789f21a7dd7e64"
+        },
+        "python/Lib/idlelib/HISTORY.txt": {
+          "bytes": 10312,
+          "sha256": "531067a78ad392f25631aba1d885f40786cf5f47854577162c9f90ff1f33164c"
+        },
+        "python/Lib/idlelib/Icons/README.txt": {
+          "bytes": 443,
+          "sha256": "60399d6129e3e486ce6b437bbf614ff4838bd4e7f42d461c3e5467cf3b4fa272"
+        },
+        "python/Lib/idlelib/Icons/folder.gif": {
+          "bytes": 120,
+          "sha256": "7c98d566a13fd599d1c11a375f387fef69b6c595c4f18c5d88c188a860be0e55"
+        },
+        "python/Lib/idlelib/Icons/idle.ico": {
+          "bytes": 57746,
+          "sha256": "7f13eeb5dca39d05e24b9eb069c6dcb2748633822d67288a8bf8b7e21cdddf55"
+        },
+        "python/Lib/idlelib/Icons/idle_16.gif": {
+          "bytes": 634,
+          "sha256": "fe3af292b38660a8a58b1a8b4fa4240aa190602e7e9a700ea0536b3181fc968e"
+        },
+        "python/Lib/idlelib/Icons/idle_16.png": {
+          "bytes": 1031,
+          "sha256": "78fb3fb0ec11f61bc6cf0947f3c3923aa18e1c6513684058ed0fa01ac858143e"
+        },
+        "python/Lib/idlelib/Icons/idle_256.png": {
+          "bytes": 39205,
+          "sha256": "3f517467d12e0e3ecf20f9bd68ce4bd18a2b8088f32308fd978fd80e87d3628b"
+        },
+        "python/Lib/idlelib/Icons/idle_32.gif": {
+          "bytes": 1019,
+          "sha256": "fe70991cfccd1267922e94d91e02e9a58d2d29fd3382a2f4975280b9023cb7b9"
+        },
+        "python/Lib/idlelib/Icons/idle_32.png": {
+          "bytes": 2036,
+          "sha256": "797cd05f1964d57c4c6c248ac7f7ea6a38019ada32a9ab7e6c28d060f87b03de"
+        },
+        "python/Lib/idlelib/Icons/idle_48.gif": {
+          "bytes": 1388,
+          "sha256": "37484901eb40eefa846308e1da3ff6f240ea98f769a2afc3cf4fdba00327ecbe"
+        },
+        "python/Lib/idlelib/Icons/idle_48.png": {
+          "bytes": 3977,
+          "sha256": "a09f433197c8870b12bb7859cc4c3fe2068908cb1ddbd4880ab0f6fee91b6c23"
+        },
+        "python/Lib/idlelib/Icons/minusnode.gif": {
+          "bytes": 75,
+          "sha256": "efa5aa1d1e3439ab85425bd2aa3a25b9e6c21309e672690cfb32219e1eb7a7f3"
+        },
+        "python/Lib/idlelib/Icons/openfolder.gif": {
+          "bytes": 125,
+          "sha256": "9a59e2abf1840156e9db8f85a38822fd56ab79a139eb95ec86f1fba1bb87326b"
+        },
+        "python/Lib/idlelib/Icons/plusnode.gif": {
+          "bytes": 78,
+          "sha256": "6ace9e90a2bcb16d06c4d78837137f2c14bc26b3bd9f24b7b6afeadb689bdafb"
+        },
+        "python/Lib/idlelib/Icons/python.gif": {
+          "bytes": 380,
+          "sha256": "158c31382f8e5b41fded0c2aa9cc66a382928b003cdd8b5b0518836ad9c89377"
+        },
+        "python/Lib/idlelib/Icons/tk.gif": {
+          "bytes": 72,
+          "sha256": "7f16cb2e322891dbd9101302c09ffda0c2a3a72d053bb8c0927d507414c59cad"
+        },
+        "python/Lib/idlelib/NEWS2x.txt": {
+          "bytes": 27172,
+          "sha256": "c89a3b513501ebace8e428aea68dce39d0af9f29196e08fc9ea49c99605e79e7"
+        },
+        "python/Lib/idlelib/News3.txt": {
+          "bytes": 55422,
+          "sha256": "ac8bf0e6cc500f17b0a3c784d1ea5939c19a9d5811435d05a90b392504b60dc5"
+        },
+        "python/Lib/idlelib/README.txt": {
+          "bytes": 11653,
+          "sha256": "4f2dc8ffdbfc7837b60edc32ac2f593a220f4abf0ea00cc477382ad8ecf8eb3d"
+        },
+        "python/Lib/idlelib/TODO.txt": {
+          "bytes": 8478,
+          "sha256": "f88e0fb30fa0ab5d0dc3030442ed92713f34170336c4dd2623723dc34829df89"
+        },
         "python/Lib/idlelib/__init__.py": {
           "bytes": 396,
           "sha256": "3f8058df4fec56eb20ff67ff84c86fd3d9697e2384c5a290ed696f6d3187aa45"
@@ -1575,10 +1811,6 @@
         "python/Lib/idlelib/calltip_w.py": {
           "bytes": 7083,
           "sha256": "077e9d0d95946296077d5c95f343e242a7d250a6efece4afc58759b5e984e6c3"
-        },
-        "python/Lib/idlelib/ChangeLog": {
-          "bytes": 56360,
-          "sha256": "b7f42699e5e5a7c82ebdf2a2962946b7228c933ece0ea7c0d7789f21a7dd7e64"
         },
         "python/Lib/idlelib/codecontext.py": {
           "bytes": 11420,
@@ -1615,10 +1847,6 @@
         "python/Lib/idlelib/configdialog.py": {
           "bytes": 105314,
           "sha256": "68a6a9470476408acdce5e3a8816196e025f8cccd0845bf1da579db19a5bba8c"
-        },
-        "python/Lib/idlelib/CREDITS.txt": {
-          "bytes": 2152,
-          "sha256": "33e6a36056667d40e26f195c14371567470f53324c3fec43aec29e09d7d2a60b"
         },
         "python/Lib/idlelib/debugger.py": {
           "bytes": 20991,
@@ -1680,73 +1908,9 @@
           "bytes": 4065,
           "sha256": "f91f1568d083bdbc856d38ef48493bcb138c6a492d523385b300a5bac30133e6"
         },
-        "python/Lib/idlelib/HISTORY.txt": {
-          "bytes": 10312,
-          "sha256": "531067a78ad392f25631aba1d885f40786cf5f47854577162c9f90ff1f33164c"
-        },
         "python/Lib/idlelib/hyperparser.py": {
           "bytes": 12889,
           "sha256": "18563d2b4c248aed70b7f29fd903fd51d1b5aceb3dc93c23f9a54141eed7a9b0"
-        },
-        "python/Lib/idlelib/Icons/folder.gif": {
-          "bytes": 120,
-          "sha256": "7c98d566a13fd599d1c11a375f387fef69b6c595c4f18c5d88c188a860be0e55"
-        },
-        "python/Lib/idlelib/Icons/idle.ico": {
-          "bytes": 57746,
-          "sha256": "7f13eeb5dca39d05e24b9eb069c6dcb2748633822d67288a8bf8b7e21cdddf55"
-        },
-        "python/Lib/idlelib/Icons/idle_16.gif": {
-          "bytes": 634,
-          "sha256": "fe3af292b38660a8a58b1a8b4fa4240aa190602e7e9a700ea0536b3181fc968e"
-        },
-        "python/Lib/idlelib/Icons/idle_16.png": {
-          "bytes": 1031,
-          "sha256": "78fb3fb0ec11f61bc6cf0947f3c3923aa18e1c6513684058ed0fa01ac858143e"
-        },
-        "python/Lib/idlelib/Icons/idle_256.png": {
-          "bytes": 39205,
-          "sha256": "3f517467d12e0e3ecf20f9bd68ce4bd18a2b8088f32308fd978fd80e87d3628b"
-        },
-        "python/Lib/idlelib/Icons/idle_32.gif": {
-          "bytes": 1019,
-          "sha256": "fe70991cfccd1267922e94d91e02e9a58d2d29fd3382a2f4975280b9023cb7b9"
-        },
-        "python/Lib/idlelib/Icons/idle_32.png": {
-          "bytes": 2036,
-          "sha256": "797cd05f1964d57c4c6c248ac7f7ea6a38019ada32a9ab7e6c28d060f87b03de"
-        },
-        "python/Lib/idlelib/Icons/idle_48.gif": {
-          "bytes": 1388,
-          "sha256": "37484901eb40eefa846308e1da3ff6f240ea98f769a2afc3cf4fdba00327ecbe"
-        },
-        "python/Lib/idlelib/Icons/idle_48.png": {
-          "bytes": 3977,
-          "sha256": "a09f433197c8870b12bb7859cc4c3fe2068908cb1ddbd4880ab0f6fee91b6c23"
-        },
-        "python/Lib/idlelib/Icons/minusnode.gif": {
-          "bytes": 75,
-          "sha256": "efa5aa1d1e3439ab85425bd2aa3a25b9e6c21309e672690cfb32219e1eb7a7f3"
-        },
-        "python/Lib/idlelib/Icons/openfolder.gif": {
-          "bytes": 125,
-          "sha256": "9a59e2abf1840156e9db8f85a38822fd56ab79a139eb95ec86f1fba1bb87326b"
-        },
-        "python/Lib/idlelib/Icons/plusnode.gif": {
-          "bytes": 78,
-          "sha256": "6ace9e90a2bcb16d06c4d78837137f2c14bc26b3bd9f24b7b6afeadb689bdafb"
-        },
-        "python/Lib/idlelib/Icons/python.gif": {
-          "bytes": 380,
-          "sha256": "158c31382f8e5b41fded0c2aa9cc66a382928b003cdd8b5b0518836ad9c89377"
-        },
-        "python/Lib/idlelib/Icons/README.txt": {
-          "bytes": 443,
-          "sha256": "60399d6129e3e486ce6b437bbf614ff4838bd4e7f42d461c3e5467cf3b4fa272"
-        },
-        "python/Lib/idlelib/Icons/tk.gif": {
-          "bytes": 72,
-          "sha256": "7f16cb2e322891dbd9101302c09ffda0c2a3a72d053bb8c0927d507414c59cad"
         },
         "python/Lib/idlelib/idle.bat": {
           "bytes": 177,
@@ -1776,14 +1940,6 @@
           "bytes": 18652,
           "sha256": "efb7d9bddcae17fab2108cb714c240c82d1368087b6d2b91e02ec224ddebce12"
         },
-        "python/Lib/idlelib/NEWS2x.txt": {
-          "bytes": 27172,
-          "sha256": "c89a3b513501ebace8e428aea68dce39d0af9f29196e08fc9ea49c99605e79e7"
-        },
-        "python/Lib/idlelib/News3.txt": {
-          "bytes": 55422,
-          "sha256": "ac8bf0e6cc500f17b0a3c784d1ea5939c19a9d5811435d05a90b392504b60dc5"
-        },
         "python/Lib/idlelib/outwin.py": {
           "bytes": 5715,
           "sha256": "e1946c1a25a020a48843b2ed528bcdd6df29b2af117472b7e2627997b1339b84"
@@ -1811,10 +1967,6 @@
         "python/Lib/idlelib/query.py": {
           "bytes": 15067,
           "sha256": "faea5edd6b8693e6a32107054ad0de3be4d28e6aacb7792f86cbbe146131373b"
-        },
-        "python/Lib/idlelib/README.txt": {
-          "bytes": 11653,
-          "sha256": "4f2dc8ffdbfc7837b60edc32ac2f593a220f4abf0ea00cc477382ad8ecf8eb3d"
         },
         "python/Lib/idlelib/redirector.py": {
           "bytes": 6777,
@@ -1871,10 +2023,6 @@
         "python/Lib/idlelib/textview.py": {
           "bytes": 6808,
           "sha256": "eace58159e9636bb1456885c21f5ed474e203090139e5dd3457ac72ad5552006"
-        },
-        "python/Lib/idlelib/TODO.txt": {
-          "bytes": 8478,
-          "sha256": "f88e0fb30fa0ab5d0dc3030442ed92713f34170336c4dd2623723dc34829df89"
         },
         "python/Lib/idlelib/tooltip.py": {
           "bytes": 6471,
@@ -2047,6 +2195,14 @@
         "python/Lib/keyword.py": {
           "bytes": 1061,
           "sha256": "afbe73afb68d32fa998e5ff3d081090deec457152470f5331cc2bd430a0e9d2a"
+        },
+        "python/Lib/lib2to3/Grammar.txt": {
+          "bytes": 8696,
+          "sha256": "508e62e787dd756eb0a4eb1b8d128320ca02cd246ab14cc8ce0a476dc88cc5b6"
+        },
+        "python/Lib/lib2to3/PatternGrammar.txt": {
+          "bytes": 793,
+          "sha256": "ee5ba5db3b6722a0e2fbe2560ebc1c883e72328ef9c3b4da1c7c5d1cc649bce3"
         },
         "python/Lib/lib2to3/__init__.py": {
           "bytes": 156,
@@ -2284,10 +2440,6 @@
           "bytes": 1289,
           "sha256": "55ce115556c7513dd967364dc6a40c39210c874e8168cf090ddd6dc606df34cb"
         },
-        "python/Lib/lib2to3/Grammar.txt": {
-          "bytes": 8696,
-          "sha256": "508e62e787dd756eb0a4eb1b8d128320ca02cd246ab14cc8ce0a476dc88cc5b6"
-        },
         "python/Lib/lib2to3/main.py": {
           "bytes": 11854,
           "sha256": "8f5dfa77b8c8b375daba8bb88aaa195395674311e2513b29575a70821e3aa0b8"
@@ -2295,10 +2447,6 @@
         "python/Lib/lib2to3/patcomp.py": {
           "bytes": 7054,
           "sha256": "a033a3eb91a39f96747d4300aa3394965e529c71896cd6503dd27e6b685eede5"
-        },
-        "python/Lib/lib2to3/PatternGrammar.txt": {
-          "bytes": 793,
-          "sha256": "ee5ba5db3b6722a0e2fbe2560ebc1c883e72328ef9c3b4da1c7c5d1cc649bce3"
         },
         "python/Lib/lib2to3/pgen2/__init__.py": {
           "bytes": 143,
@@ -2692,17 +2840,45 @@
           "bytes": 5914,
           "sha256": "b5d8fbeb52efee81689fd4105c04e2b878b820b920d88ffeb3156bbb197b3266"
         },
-        "python/Lib/site-packages/_soundfile_data/__init__.py": {
-          "bytes": 125,
-          "sha256": "3723e81d0145341d5ae3c67a745373192a70c7f672ad028f76c95129339aafe9"
-        },
         "python/Lib/site-packages/_soundfile_data/COPYING": {
           "bytes": 26518,
           "sha256": "ad01ea5cd2755f6048383c8d54c88459cd6fcb17757c5c8892f8c5ea060f6140"
         },
+        "python/Lib/site-packages/_soundfile_data/__init__.py": {
+          "bytes": 125,
+          "sha256": "3723e81d0145341d5ae3c67a745373192a70c7f672ad028f76c95129339aafe9"
+        },
         "python/Lib/site-packages/_soundfile_data/libsndfile_x64.dll": {
-          "bytes": 2364416,
-          "sha256": "22518c16f9d13eda5ae5adf999c4740d7d16cc2d6b178b36dd4ac2f759a38559"
+          "bytes": 2379776,
+          "sha256": "c344decffbf3b691e691326db8aba85f722f1ed65c01171e9521ec48b71f41b0"
+        },
+        "python/Lib/site-packages/cffi-2.1.1.dist-info/INSTALLER": {
+          "bytes": 4,
+          "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
+        },
+        "python/Lib/site-packages/cffi-2.1.1.dist-info/METADATA": {
+          "bytes": 2594,
+          "sha256": "67b6a7595df7ede2195016a05d285faa7d362a8f57c238984edb8bb674b5770d"
+        },
+        "python/Lib/site-packages/cffi-2.1.1.dist-info/RECORD": {
+          "bytes": 3511,
+          "sha256": "5858c128647293d5830bac0b946b1b4ec2486d594f962922fd5e48a9191d0fe7"
+        },
+        "python/Lib/site-packages/cffi-2.1.1.dist-info/WHEEL": {
+          "bytes": 101,
+          "sha256": "0b81650649feb673233bd9f4ddac78c902452a1d8bf79cf7362558225eedf1c6"
+        },
+        "python/Lib/site-packages/cffi-2.1.1.dist-info/entry_points.txt": {
+          "bytes": 132,
+          "sha256": "a6b6108011f8e27050fe5269bba88c8051b414697880d3b0b6fbe3a03a0b001c"
+        },
+        "python/Lib/site-packages/cffi-2.1.1.dist-info/licenses/LICENSE": {
+          "bytes": 1123,
+          "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+        },
+        "python/Lib/site-packages/cffi-2.1.1.dist-info/top_level.txt": {
+          "bytes": 19,
+          "sha256": "ac4ed6477ad97cd2b1588f7e8e7ea1b0708097b303901f859ae41bc568c57a14"
         },
         "python/Lib/site-packages/cffi/__init__.py": {
           "bytes": 511,
@@ -2800,33 +2976,105 @@
           "bytes": 11154,
           "sha256": "c48cd5f220cc859d7eaa15f74515f80d6a36934ed6a5c271761840157023ae66"
         },
-        "python/Lib/site-packages/cffi-2.1.1.dist-info/entry_points.txt": {
-          "bytes": 132,
-          "sha256": "a6b6108011f8e27050fe5269bba88c8051b414697880d3b0b6fbe3a03a0b001c"
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/DELVEWHEEL": {
+          "bytes": 462,
+          "sha256": "0399822db132f754a7e3ba5eac8e564e4049b30df55d53bfeba6d38b812de58d"
         },
-        "python/Lib/site-packages/cffi-2.1.1.dist-info/INSTALLER": {
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/INSTALLER": {
           "bytes": 4,
           "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
         },
-        "python/Lib/site-packages/cffi-2.1.1.dist-info/licenses/LICENSE": {
-          "bytes": 1123,
-          "sha256": "5ba24ddc57067f9249add644c3afc41a5d6dc37e23433ef759d95df370b0af63"
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/METADATA": {
+          "bytes": 6608,
+          "sha256": "b082c52ccbe3b880bae177c35171b52ed6c947f3ad71e3762f2723f60a411de0"
         },
-        "python/Lib/site-packages/cffi-2.1.1.dist-info/METADATA": {
-          "bytes": 2594,
-          "sha256": "67b6a7595df7ede2195016a05d285faa7d362a8f57c238984edb8bb674b5770d"
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/RECORD": {
+          "bytes": 129259,
+          "sha256": "06ea88c5c43ae2646a70992dc0886749230933a71d9f905249e41b07ac4e5d22"
         },
-        "python/Lib/site-packages/cffi-2.1.1.dist-info/RECORD": {
-          "bytes": 3511,
-          "sha256": "5858c128647293d5830bac0b946b1b4ec2486d594f962922fd5e48a9191d0fe7"
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/WHEEL": {
+          "bytes": 85,
+          "sha256": "25d2d35a173bde827e96a4c16068225689edaffbe1cf0cdba403a29ffd9bc532"
         },
-        "python/Lib/site-packages/cffi-2.1.1.dist-info/top_level.txt": {
-          "bytes": 19,
-          "sha256": "ac4ed6477ad97cd2b1588f7e8e7ea1b0708097b303901f859ae41bc568c57a14"
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/entry_points.txt": {
+          "bytes": 220,
+          "sha256": "ec26fade0c8bdac211a6c1dd003a65eb16885b925395423e93fcaa115af4052c"
         },
-        "python/Lib/site-packages/cffi-2.1.1.dist-info/WHEEL": {
-          "bytes": 101,
-          "sha256": "0b81650649feb673233bd9f4ddac78c902452a1d8bf79cf7362558225eedf1c6"
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/LICENSE.txt": {
+          "bytes": 45831,
+          "sha256": "a804dff0ead9fadc5293456410bcbfc32bf024be9c4513459663fb7b442d2341"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/include/numpy/libdivide/LICENSE.txt": {
+          "bytes": 1039,
+          "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/common/pythoncapi-compat/COPYING": {
+          "bytes": 704,
+          "sha256": "aea41976c720f91bd19725c16916a1ace40eb1ea42620d340e587a5de4bbcea0"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/highway/LICENSE": {
+          "bytes": 21155,
+          "sha256": "d208152e2777ffd0126eacc1bd21c0320d69e4e6b622d21a2a12a47e8ef73763"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/multiarray/dragon4_LICENSE.txt": {
+          "bytes": 1441,
+          "sha256": "b0fd592d4ead563148e3977e7b589169d46a5ef2ff133c755a81af880a3fc919"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/npysort/x86-simd-sort/LICENSE.md": {
+          "bytes": 1542,
+          "sha256": "a732977853530066790c42817087f4829b518dd98d340c916acbfd227e39d3cb"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/umath/svml/LICENSE": {
+          "bytes": 1573,
+          "sha256": "585483905b13d4b42f800c55ba99e89d6e2e33ccd5f503e201c07531d148ff41"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/fft/pocketfft/LICENSE.md": {
+          "bytes": 1523,
+          "sha256": "8db000e158c162e7249787852d8c69764706502ccee725c06641b31c1e95c8af"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/linalg/lapack_lite/LICENSE.txt": {
+          "bytes": 2314,
+          "sha256": "19060ef465e1797d682ee0fc3081bd25ab1395e995e43d25c9d13c95d9a3cd6b"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/ma/LICENSE": {
+          "bytes": 1616,
+          "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/LICENSE.md": {
+          "bytes": 3582,
+          "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/distributions/LICENSE.md": {
+          "bytes": 2805,
+          "sha256": "cf5619f25b112d5ce7c896efffc8e610bcb345dfadcc19f2c1460aa48fff2c9e"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/mt19937/LICENSE.md": {
+          "bytes": 2986,
+          "sha256": "92c10699884321f1c2947fe2a70ab23b0fbf1507f756d89dd08f38c61fc3d4fa"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/pcg64/LICENSE.md": {
+          "bytes": 1176,
+          "sha256": "41190663b77bee5302386495a07b7eabfbfa571aa0ae2f11da6764162062fc4f"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/philox/LICENSE.md": {
+          "bytes": 1540,
+          "sha256": "322ac46d870c8aeead6c53adcccc839296fb3c8e456eae155081297daf7f8013"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/sfc64/LICENSE.md": {
+          "bytes": 1253,
+          "sha256": "28cad82ce1379dc529df30da78ec012d7d0d1d576b03ddcb93388aee53659f59"
+        },
+        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.md": {
+          "bytes": 340,
+          "sha256": "454ec7350e478e037061850b67395753b425b1cb0a34bbc26290b020bf89d763"
+        },
+        "python/Lib/site-packages/numpy.libs/libscipy_openblas64_-63c857e738469261263c764a36be9436.dll": {
+          "bytes": 20415488,
+          "sha256": "63c857e738469261263c764a36be9436ebdeaa272e340a828f42047a97131080"
+        },
+        "python/Lib/site-packages/numpy.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll": {
+          "bytes": 575056,
+          "sha256": "a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde"
         },
         "python/Lib/site-packages/numpy/__config__.py": {
           "bytes": 5751,
@@ -3172,6 +3420,10 @@
           "bytes": 7651,
           "sha256": "d44b1d39556e65bd6d1fb622d543b4ab4cb266db8c46a32c9c8d2004584a34ba"
         },
+        "python/Lib/site-packages/numpy/_core/include/numpy/random/LICENSE.txt": {
+          "bytes": 1039,
+          "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150"
+        },
         "python/Lib/site-packages/numpy/_core/include/numpy/random/bitgen.h": {
           "bytes": 508,
           "sha256": "fc7d2e5ea9a7b9be0fc6725674c59a36a7e9c850eed8a074b247f6c1ce6f8d47"
@@ -3183,10 +3435,6 @@
         "python/Lib/site-packages/numpy/_core/include/numpy/random/libdivide.h": {
           "bytes": 82217,
           "sha256": "17d3cbc7a4dc3a4fac77474e6ded2758bcb3e0785b1efd8aeefa11fe4a25a465"
-        },
-        "python/Lib/site-packages/numpy/_core/include/numpy/random/LICENSE.txt": {
-          "bytes": 1039,
-          "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150"
         },
         "python/Lib/site-packages/numpy/_core/include/numpy/ufuncobject.h": {
           "bytes": 12123,
@@ -3304,6 +3552,10 @@
           "bytes": 8640,
           "sha256": "340d24962cf7d4594b9d8c6fde9a737abb8e36a35892e12fb6ce70cd711e21ce"
         },
+        "python/Lib/site-packages/numpy/_core/tests/data/umath-validation-set-README.txt": {
+          "bytes": 982,
+          "sha256": "19fae4994ff04e3a4b90e7ed583b866b2103755dd13e93761915505fad558162"
+        },
         "python/Lib/site-packages/numpy/_core/tests/data/umath-validation-set-arccos.csv": {
           "bytes": 62794,
           "sha256": "55475074a045ae95c72e53ed5f659820afeec24697824cbce4267868dbaf983e"
@@ -3367,10 +3619,6 @@
         "python/Lib/site-packages/numpy/_core/tests/data/umath-validation-set-log2.csv": {
           "bytes": 70546,
           "sha256": "69567b54c439bab18ec7930c30e52630a06114b144f94ef2e835424de5d07e8d"
-        },
-        "python/Lib/site-packages/numpy/_core/tests/data/umath-validation-set-README.txt": {
-          "bytes": 982,
-          "sha256": "19fae4994ff04e3a4b90e7ed583b866b2103755dd13e93761915505fad558162"
         },
         "python/Lib/site-packages/numpy/_core/tests/data/umath-validation-set-sin.csv": {
           "bytes": 59981,
@@ -5692,6 +5940,18 @@
           "bytes": 7237,
           "sha256": "6c6659507f5d6818f83240b1b26ae0736113bdde032f5472aac6185a6dd4c9bb"
         },
+        "python/Lib/site-packages/numpy/ma/API_CHANGES.txt": {
+          "bytes": 3540,
+          "sha256": "537f7303ceda33f38826110abc780bd5163596130965cd588f70c62f06cf6c5d"
+        },
+        "python/Lib/site-packages/numpy/ma/LICENSE": {
+          "bytes": 1616,
+          "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7"
+        },
+        "python/Lib/site-packages/numpy/ma/README.rst": {
+          "bytes": 10110,
+          "sha256": "fcc1eba874c4f0be3088926abda3a1d65fb14f189dc1d8a573f4999056e0b9b3"
+        },
         "python/Lib/site-packages/numpy/ma/__init__.py": {
           "bytes": 1459,
           "sha256": "661d878a5e2c74d3647fed1a250ae738f991911c11e2b380ce137e9f7447b1b5"
@@ -5699,10 +5959,6 @@
         "python/Lib/site-packages/numpy/ma/__init__.pyi": {
           "bytes": 7404,
           "sha256": "228aeb58310bac559373f59fa96342b5621c2f43eb444f5a1194b300004a324b"
-        },
-        "python/Lib/site-packages/numpy/ma/API_CHANGES.txt": {
-          "bytes": 3540,
-          "sha256": "537f7303ceda33f38826110abc780bd5163596130965cd588f70c62f06cf6c5d"
         },
         "python/Lib/site-packages/numpy/ma/core.py": {
           "bytes": 298184,
@@ -5720,10 +5976,6 @@
           "bytes": 9233,
           "sha256": "33753e6c19ecf1e8dffa665451d4dcb78a0c0917919a0ea0524379d3b48dee10"
         },
-        "python/Lib/site-packages/numpy/ma/LICENSE": {
-          "bytes": 1616,
-          "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7"
-        },
         "python/Lib/site-packages/numpy/ma/mrecords.py": {
           "bytes": 27248,
           "sha256": "c0a873242192f6d24aa2e6b438159ebb8d6eb3d8962e709fb9784c8de20a5938"
@@ -5731,10 +5983,6 @@
         "python/Lib/site-packages/numpy/ma/mrecords.pyi": {
           "bytes": 2169,
           "sha256": "b8a639411f258aec5a2f0f2d35f0e6f53057c4b753a17677b6e9ee7d571f3c89"
-        },
-        "python/Lib/site-packages/numpy/ma/README.rst": {
-          "bytes": 10110,
-          "sha256": "fcc1eba874c4f0be3088926abda3a1d65fb14f189dc1d8a573f4999056e0b9b3"
         },
         "python/Lib/site-packages/numpy/ma/tests/__init__.py": {
           "bytes": 0,
@@ -5960,6 +6208,10 @@
           "bytes": 0,
           "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
+        "python/Lib/site-packages/numpy/random/LICENSE.md": {
+          "bytes": 3582,
+          "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a"
+        },
         "python/Lib/site-packages/numpy/random/__init__.pxd": {
           "bytes": 445,
           "sha256": "83711a322df27e69ea4fe2845a3d1ca7a49623154df428458c461718e7ce89f1"
@@ -6123,10 +6375,6 @@
         "python/Lib/site-packages/numpy/random/lib/npyrandom.lib": {
           "bytes": 149644,
           "sha256": "cf714569312f67f7c8ff83c50c4988bb0c4b679279aa223ee4bae72f97a7d12c"
-        },
-        "python/Lib/site-packages/numpy/random/LICENSE.md": {
-          "bytes": 3582,
-          "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a"
         },
         "python/Lib/site-packages/numpy/random/mtrand.cp311-win_amd64.lib": {
           "bytes": 17122,
@@ -6976,105 +7224,29 @@
           "bytes": 278,
           "sha256": "f896e57875ffd7aa676e80b80e6ccfca6d97d44708fb0e5c4681f4bad8af237e"
         },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/DELVEWHEEL": {
-          "bytes": 462,
-          "sha256": "0399822db132f754a7e3ba5eac8e564e4049b30df55d53bfeba6d38b812de58d"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/entry_points.txt": {
-          "bytes": 220,
-          "sha256": "ec26fade0c8bdac211a6c1dd003a65eb16885b925395423e93fcaa115af4052c"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/INSTALLER": {
+        "python/Lib/site-packages/pycparser-3.0.dist-info/INSTALLER": {
           "bytes": 4,
           "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
         },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/LICENSE.txt": {
-          "bytes": 45831,
-          "sha256": "a804dff0ead9fadc5293456410bcbfc32bf024be9c4513459663fb7b442d2341"
+        "python/Lib/site-packages/pycparser-3.0.dist-info/METADATA": {
+          "bytes": 8229,
+          "sha256": "f547a60b0ab54cc2f242213d1f87960ad80df7dd5dfeb98d17a444d48bfb6b93"
         },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/include/numpy/libdivide/LICENSE.txt": {
-          "bytes": 1039,
-          "sha256": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150"
+        "python/Lib/site-packages/pycparser-3.0.dist-info/RECORD": {
+          "bytes": 1484,
+          "sha256": "422460c1a116078dd249b6fde592def7d049f04d33149ac8dbaf5425a185268f"
         },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/common/pythoncapi-compat/COPYING": {
-          "bytes": 704,
-          "sha256": "aea41976c720f91bd19725c16916a1ace40eb1ea42620d340e587a5de4bbcea0"
+        "python/Lib/site-packages/pycparser-3.0.dist-info/WHEEL": {
+          "bytes": 92,
+          "sha256": "a842dba36b35633977f599ab0226d70368e33cb5187e756150d4e5c85d6bab46"
         },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/highway/LICENSE": {
-          "bytes": 21155,
-          "sha256": "d208152e2777ffd0126eacc1bd21c0320d69e4e6b622d21a2a12a47e8ef73763"
+        "python/Lib/site-packages/pycparser-3.0.dist-info/licenses/LICENSE": {
+          "bytes": 1543,
+          "sha256": "0c846399369ea76ddd7b5c44fe6d16497415fcf015f5cbb508c24bf98b81c5b1"
         },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/multiarray/dragon4_LICENSE.txt": {
-          "bytes": 1441,
-          "sha256": "b0fd592d4ead563148e3977e7b589169d46a5ef2ff133c755a81af880a3fc919"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/npysort/x86-simd-sort/LICENSE.md": {
-          "bytes": 1542,
-          "sha256": "a732977853530066790c42817087f4829b518dd98d340c916acbfd227e39d3cb"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/_core/src/umath/svml/LICENSE": {
-          "bytes": 1573,
-          "sha256": "585483905b13d4b42f800c55ba99e89d6e2e33ccd5f503e201c07531d148ff41"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/fft/pocketfft/LICENSE.md": {
-          "bytes": 1523,
-          "sha256": "8db000e158c162e7249787852d8c69764706502ccee725c06641b31c1e95c8af"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/linalg/lapack_lite/LICENSE.txt": {
-          "bytes": 2314,
-          "sha256": "19060ef465e1797d682ee0fc3081bd25ab1395e995e43d25c9d13c95d9a3cd6b"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/ma/LICENSE": {
-          "bytes": 1616,
-          "sha256": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/LICENSE.md": {
-          "bytes": 3582,
-          "sha256": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/distributions/LICENSE.md": {
-          "bytes": 2805,
-          "sha256": "cf5619f25b112d5ce7c896efffc8e610bcb345dfadcc19f2c1460aa48fff2c9e"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/mt19937/LICENSE.md": {
-          "bytes": 2986,
-          "sha256": "92c10699884321f1c2947fe2a70ab23b0fbf1507f756d89dd08f38c61fc3d4fa"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/pcg64/LICENSE.md": {
-          "bytes": 1176,
-          "sha256": "41190663b77bee5302386495a07b7eabfbfa571aa0ae2f11da6764162062fc4f"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/philox/LICENSE.md": {
-          "bytes": 1540,
-          "sha256": "322ac46d870c8aeead6c53adcccc839296fb3c8e456eae155081297daf7f8013"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/sfc64/LICENSE.md": {
-          "bytes": 1253,
-          "sha256": "28cad82ce1379dc529df30da78ec012d7d0d1d576b03ddcb93388aee53659f59"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/licenses/numpy/random/src/splitmix64/LICENSE.md": {
-          "bytes": 340,
-          "sha256": "454ec7350e478e037061850b67395753b425b1cb0a34bbc26290b020bf89d763"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/METADATA": {
-          "bytes": 6608,
-          "sha256": "b082c52ccbe3b880bae177c35171b52ed6c947f3ad71e3762f2723f60a411de0"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/RECORD": {
-          "bytes": 129259,
-          "sha256": "06ea88c5c43ae2646a70992dc0886749230933a71d9f905249e41b07ac4e5d22"
-        },
-        "python/Lib/site-packages/numpy-2.4.6.dist-info/WHEEL": {
-          "bytes": 85,
-          "sha256": "25d2d35a173bde827e96a4c16068225689edaffbe1cf0cdba403a29ffd9bc532"
-        },
-        "python/Lib/site-packages/numpy.libs/libscipy_openblas64_-63c857e738469261263c764a36be9436.dll": {
-          "bytes": 20415488,
-          "sha256": "63c857e738469261263c764a36be9436ebdeaa272e340a828f42047a97131080"
-        },
-        "python/Lib/site-packages/numpy.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll": {
-          "bytes": 575056,
-          "sha256": "a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde"
+        "python/Lib/site-packages/pycparser-3.0.dist-info/top_level.txt": {
+          "bytes": 10,
+          "sha256": "73e94f712ef82fff0aa07ec813a3d0179a1fca2ad140d57856191b48520f7963"
         },
         "python/Lib/site-packages/pycparser/__init__.py": {
           "bytes": 2829,
@@ -7108,29 +7280,33 @@
           "bytes": 89798,
           "sha256": "dc504a18b8e3942deff1a7f00ff727311ebb226a18232ef76b858a411ea15fb8"
         },
-        "python/Lib/site-packages/pycparser-3.0.dist-info/INSTALLER": {
+        "python/Lib/site-packages/scipy-1.17.1.dist-info/DELVEWHEEL": {
+          "bytes": 577,
+          "sha256": "bfde4e6a348d78f3cfb5ac14c6af2d312ba63bbcb29f1cd16103dbb0a65d20a1"
+        },
+        "python/Lib/site-packages/scipy-1.17.1.dist-info/INSTALLER": {
           "bytes": 4,
           "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
         },
-        "python/Lib/site-packages/pycparser-3.0.dist-info/licenses/LICENSE": {
-          "bytes": 1543,
-          "sha256": "0c846399369ea76ddd7b5c44fe6d16497415fcf015f5cbb508c24bf98b81c5b1"
+        "python/Lib/site-packages/scipy-1.17.1.dist-info/LICENSE.txt": {
+          "bytes": 46756,
+          "sha256": "564d63dbef2ef3eb1dec94908966d3edf5f11c487ee2cf2baf8bf3faef01bdd9"
         },
-        "python/Lib/site-packages/pycparser-3.0.dist-info/METADATA": {
-          "bytes": 8229,
-          "sha256": "f547a60b0ab54cc2f242213d1f87960ad80df7dd5dfeb98d17a444d48bfb6b93"
+        "python/Lib/site-packages/scipy-1.17.1.dist-info/METADATA": {
+          "bytes": 60950,
+          "sha256": "3a61ac02d145c9ca53f53d3f6f58d09017727a317731d0af02909730d4403e32"
         },
-        "python/Lib/site-packages/pycparser-3.0.dist-info/RECORD": {
-          "bytes": 1484,
-          "sha256": "422460c1a116078dd249b6fde592def7d049f04d33149ac8dbaf5425a185268f"
+        "python/Lib/site-packages/scipy-1.17.1.dist-info/RECORD": {
+          "bytes": 208316,
+          "sha256": "043bd537f257737ca477503ec5e250542b3ea499884789429ba696b178deca14"
         },
-        "python/Lib/site-packages/pycparser-3.0.dist-info/top_level.txt": {
-          "bytes": 10,
-          "sha256": "73e94f712ef82fff0aa07ec813a3d0179a1fca2ad140d57856191b48520f7963"
+        "python/Lib/site-packages/scipy-1.17.1.dist-info/WHEEL": {
+          "bytes": 85,
+          "sha256": "25d2d35a173bde827e96a4c16068225689edaffbe1cf0cdba403a29ffd9bc532"
         },
-        "python/Lib/site-packages/pycparser-3.0.dist-info/WHEEL": {
-          "bytes": 92,
-          "sha256": "a842dba36b35633977f599ab0226d70368e33cb5187e756150d4e5c85d6bab46"
+        "python/Lib/site-packages/scipy.libs/libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll": {
+          "bytes": 20260864,
+          "sha256": "64eda39e79589aedb16f58e5547eb599f0b5855505d56b9d40022e2eee354a0b"
         },
         "python/Lib/site-packages/scipy/__config__.py": {
           "bytes": 6132,
@@ -7260,6 +7436,10 @@
           "bytes": 2460,
           "sha256": "afcb33f1d71f05888f018a2776fa461d5545076feb079b1a8e44de57582dd5fc"
         },
+        "python/Lib/site-packages/scipy/_lib/_uarray/LICENSE": {
+          "bytes": 1543,
+          "sha256": "e4c4acc31e8287066d7c995d26e3ef902ca1977ee187b260b11c278366503811"
+        },
         "python/Lib/site-packages/scipy/_lib/_uarray/__init__.py": {
           "bytes": 4609,
           "sha256": "a5ec7bdc6818ed85160115601f3630fcacb67dd007eccf4172e0cc89ffe19b7f"
@@ -7275,10 +7455,6 @@
         "python/Lib/site-packages/scipy/_lib/_uarray/_uarray.cp311-win_amd64.pyd": {
           "bytes": 233472,
           "sha256": "aa2420f8dc051793bd1a4a8d1903b459b34466e1b4da03f787715bee5577be4a"
-        },
-        "python/Lib/site-packages/scipy/_lib/_uarray/LICENSE": {
-          "bytes": 1543,
-          "sha256": "e4c4acc31e8287066d7c995d26e3ef902ca1977ee187b260b11c278366503811"
         },
         "python/Lib/site-packages/scipy/_lib/_util.py": {
           "bytes": 49981,
@@ -7880,6 +8056,10 @@
           "bytes": 11869,
           "sha256": "d6ccc18e6da3b670b08caf93790962419addc6fb77ef8c3f6141110e98479a4d"
         },
+        "python/Lib/site-packages/scipy/fft/_pocketfft/LICENSE.md": {
+          "bytes": 1523,
+          "sha256": "c04661685cff9d8035fe1c4c3ab357e7f7633cafc06a73e9d90c3c5fede8a86a"
+        },
         "python/Lib/site-packages/scipy/fft/_pocketfft/__init__.py": {
           "bytes": 216,
           "sha256": "58a5dbe7dc31f432bdcd7abd0f029c869fb38354ae248ca74d0fcf390ac55f1a"
@@ -7891,10 +8071,6 @@
         "python/Lib/site-packages/scipy/fft/_pocketfft/helper.py": {
           "bytes": 7211,
           "sha256": "bef0c761eee7376ebe6a7b56d777cce05537c0cb4889fd68878b44c1d2469e3a"
-        },
-        "python/Lib/site-packages/scipy/fft/_pocketfft/LICENSE.md": {
-          "bytes": 1523,
-          "sha256": "c04661685cff9d8035fe1c4c3ab357e7f7633cafc06a73e9d90c3c5fede8a86a"
         },
         "python/Lib/site-packages/scipy/fft/_pocketfft/pypocketfft.cp311-win_amd64.dll.a": {
           "bytes": 1592,
@@ -8043,6 +8219,10 @@
         "python/Lib/site-packages/scipy/fftpack/tests/test_real_transforms.py": {
           "bytes": 25296,
           "sha256": "087561850bd9e7f01f7fdc0e00d379305b8529d5b99ae3c22dad9cf574be0188"
+        },
+        "python/Lib/site-packages/scipy/integrate/LICENSE_DOP": {
+          "bytes": 3648,
+          "sha256": "6cc2ed6e35b8f376ff3d8f86aeef4e0c34c2309bd6f4a0565936d577839ba023"
         },
         "python/Lib/site-packages/scipy/integrate/__init__.py": {
           "bytes": 4495,
@@ -8195,10 +8375,6 @@
         "python/Lib/site-packages/scipy/integrate/dop.py": {
           "bytes": 437,
           "sha256": "5c50a404bc9485d36211bdf50c661d8a2c18be6912ec53b0502e074b6440fe0d"
-        },
-        "python/Lib/site-packages/scipy/integrate/LICENSE_DOP": {
-          "bytes": 3648,
-          "sha256": "6cc2ed6e35b8f376ff3d8f86aeef4e0c34c2309bd6f4a0565936d577839ba023"
         },
         "python/Lib/site-packages/scipy/integrate/lsoda.py": {
           "bytes": 453,
@@ -9212,6 +9388,10 @@
           "bytes": 0,
           "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
+        "python/Lib/site-packages/scipy/io/tests/data/Transparent Busy.ani": {
+          "bytes": 4362,
+          "sha256": "bf0a0adf2b18a3cefe4f0cef8deac78c58d23c81a9c3cde38e23035dc1cf5a30"
+        },
         "python/Lib/site-packages/scipy/io/tests/data/array_float32_1d.sav": {
           "bytes": 2628,
           "sha256": "03fc575a47d2d6c402c4fe0e35ecde119be52845f06754cf1b6ac208576604d3"
@@ -9551,10 +9731,6 @@
         "python/Lib/site-packages/scipy/io/tests/data/test-8000Hz-le-5ch-9S-5bit.wav": {
           "bytes": 89,
           "sha256": "4c9bc653b1a9817742addae3ccc943b6989e0cc9c32be95630caa55a34f6dc16"
-        },
-        "python/Lib/site-packages/scipy/io/tests/data/Transparent Busy.ani": {
-          "bytes": 4362,
-          "sha256": "bf0a0adf2b18a3cefe4f0cef8deac78c58d23c81a9c3cde38e23035dc1cf5a30"
         },
         "python/Lib/site-packages/scipy/io/tests/data/various_compressed.sav": {
           "bytes": 1015,
@@ -10644,6 +10820,10 @@
           "bytes": 576,
           "sha256": "08739e6bf6223a908d2796e5448e98aa8622782a2153de8c35857e6225800c67"
         },
+        "python/Lib/site-packages/scipy/optimize/cython_optimize.pxd": {
+          "bytes": 453,
+          "sha256": "16111e2346aafd8d8fd340698211ca39aed48e15bfbafe1eeda1335dd4be4235"
+        },
         "python/Lib/site-packages/scipy/optimize/cython_optimize/__init__.py": {
           "bytes": 5020,
           "sha256": "2c4c94719fed51f44d318832141614b077f3b6e8b5e53be22652c2b1b656ac3c"
@@ -10663,10 +10843,6 @@
         "python/Lib/site-packages/scipy/optimize/cython_optimize/c_zeros.pxd": {
           "bytes": 1144,
           "sha256": "91b49db3481d3c33f8fa833a53601a68586cb848420d793395f678052f36b071"
-        },
-        "python/Lib/site-packages/scipy/optimize/cython_optimize.pxd": {
-          "bytes": 453,
-          "sha256": "16111e2346aafd8d8fd340698211ca39aed48e15bfbafe1eeda1335dd4be4235"
         },
         "python/Lib/site-packages/scipy/optimize/elementwise.py": {
           "bytes": 1228,
@@ -13004,10 +13180,6 @@
           "bytes": 4064,
           "sha256": "254d2dee4a4d547b9331c60243c6fcfcaffd26c8b104d08d4f6045a7645b3bba"
         },
-        "python/Lib/site-packages/scipy/stats/tests/data/levy_stable/stable-loc-scale-sample-data.npy": {
-          "bytes": 9328,
-          "sha256": "f3c719edd5431fb9e7b9ecb6d19e3ca7a9095298bd19f226685b0fca40f0c073"
-        },
         "python/Lib/site-packages/scipy/stats/tests/data/levy_stable/stable-Z1-cdf-sample-data.npy": {
           "bytes": 183728,
           "sha256": "cf18c1f2d65a232bf2c7121282df31bf2a8be827afafc4ed810ed37457ee898a"
@@ -13015,6 +13187,10 @@
         "python/Lib/site-packages/scipy/stats/tests/data/levy_stable/stable-Z1-pdf-sample-data.npy": {
           "bytes": 183688,
           "sha256": "fee99512bab4ccc6569b47b924e4b034e1cdbab5624fafc7e120648bd5f7a128"
+        },
+        "python/Lib/site-packages/scipy/stats/tests/data/levy_stable/stable-loc-scale-sample-data.npy": {
+          "bytes": 9328,
+          "sha256": "f3c719edd5431fb9e7b9ecb6d19e3ca7a9095298bd19f226685b0fca40f0c073"
         },
         "python/Lib/site-packages/scipy/stats/tests/data/nist_anova/AtmWtAg.dat": {
           "bytes": 3171,
@@ -13232,34 +13408,6 @@
           "bytes": 330,
           "sha256": "85e53d54e0704283be6442ff05737bfc817acb17d256c8375339941d069032c6"
         },
-        "python/Lib/site-packages/scipy-1.17.1.dist-info/DELVEWHEEL": {
-          "bytes": 577,
-          "sha256": "bfde4e6a348d78f3cfb5ac14c6af2d312ba63bbcb29f1cd16103dbb0a65d20a1"
-        },
-        "python/Lib/site-packages/scipy-1.17.1.dist-info/INSTALLER": {
-          "bytes": 4,
-          "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
-        },
-        "python/Lib/site-packages/scipy-1.17.1.dist-info/LICENSE.txt": {
-          "bytes": 46756,
-          "sha256": "564d63dbef2ef3eb1dec94908966d3edf5f11c487ee2cf2baf8bf3faef01bdd9"
-        },
-        "python/Lib/site-packages/scipy-1.17.1.dist-info/METADATA": {
-          "bytes": 60950,
-          "sha256": "3a61ac02d145c9ca53f53d3f6f58d09017727a317731d0af02909730d4403e32"
-        },
-        "python/Lib/site-packages/scipy-1.17.1.dist-info/RECORD": {
-          "bytes": 208316,
-          "sha256": "043bd537f257737ca477503ec5e250542b3ea499884789429ba696b178deca14"
-        },
-        "python/Lib/site-packages/scipy-1.17.1.dist-info/WHEEL": {
-          "bytes": 85,
-          "sha256": "25d2d35a173bde827e96a4c16068225689edaffbe1cf0cdba403a29ffd9bc532"
-        },
-        "python/Lib/site-packages/scipy.libs/libscipy_openblas-64eda39e79589aedb16f58e5547eb599.dll": {
-          "bytes": 20260864,
-          "sha256": "64eda39e79589aedb16f58e5547eb599f0b5855505d56b9d40022e2eee354a0b"
-        },
         "python/Lib/site-packages/soundfile-0.14.0.dist-info/INSTALLER": {
           "bytes": 4,
           "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
@@ -13276,13 +13424,13 @@
           "bytes": 1125,
           "sha256": "1ad95f96c6fcae8f5eaf55c11762399cac46a397de414b33f811994f6c499b64"
         },
-        "python/Lib/site-packages/soundfile-0.14.0.dist-info/top_level.txt": {
-          "bytes": 47,
-          "sha256": "6696d4a217f1f3b47d364998bf395d898fa5cfd2fb42ce65cbc32291717de792"
-        },
         "python/Lib/site-packages/soundfile-0.14.0.dist-info/WHEEL": {
           "bytes": 122,
           "sha256": "022707bbcd63608854e4e6ee90529464e3a29f37600cdc05d397cf5bda032f06"
+        },
+        "python/Lib/site-packages/soundfile-0.14.0.dist-info/top_level.txt": {
+          "bytes": 47,
+          "sha256": "6696d4a217f1f3b47d364998bf395d898fa5cfd2fb42ce65cbc32291717de792"
         },
         "python/Lib/site-packages/soundfile.py": {
           "bytes": 67278,
@@ -13291,10 +13439,6 @@
         "python/Lib/site-packages/typing_extensions-4.16.0.dist-info/INSTALLER": {
           "bytes": 4,
           "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508"
-        },
-        "python/Lib/site-packages/typing_extensions-4.16.0.dist-info/licenses/LICENSE": {
-          "bytes": 13936,
-          "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
         },
         "python/Lib/site-packages/typing_extensions-4.16.0.dist-info/METADATA": {
           "bytes": 3310,
@@ -13307,6 +13451,10 @@
         "python/Lib/site-packages/typing_extensions-4.16.0.dist-info/WHEEL": {
           "bytes": 82,
           "sha256": "1b68144734c4b66791f27add5d425f3620775585718a03d0f9b110ba3a4d88db"
+        },
+        "python/Lib/site-packages/typing_extensions-4.16.0.dist-info/licenses/LICENSE": {
+          "bytes": 13936,
+          "sha256": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf"
         },
         "python/Lib/site-packages/typing_extensions.py": {
           "bytes": 165012,
@@ -13720,13 +13868,13 @@
           "bytes": 145,
           "sha256": "722537c68c0622f8293d39bb6ab1288f3637d8dc45d6f9aae96e49af8145ca36"
         },
-        "python/Lib/venv/scripts/common/activate": {
-          "bytes": 1709,
-          "sha256": "3fcfc8c48cb6210e2e73d69d0d758c87e5b44d0aba6ad422b458d001bdb8d263"
-        },
         "python/Lib/venv/scripts/common/Activate.ps1": {
           "bytes": 9033,
           "sha256": "3795a060dea7d621320d6d841deb37591fadf7f5592c5cb2286f9867af0e91df"
+        },
+        "python/Lib/venv/scripts/common/activate": {
+          "bytes": 1709,
+          "sha256": "3fcfc8c48cb6210e2e73d69d0d758c87e5b44d0aba6ad422b458d001bdb8d263"
         },
         "python/Lib/venv/scripts/nt/activate.bat": {
           "bytes": 1013,
@@ -13804,6 +13952,10 @@
           "bytes": 557,
           "sha256": "34296f728e7fe68cccb97a9f6edbf3bf3a686f44044c744fe85f207a92ed4811"
         },
+        "python/Lib/xml/dom/NodeFilter.py": {
+          "bytes": 936,
+          "sha256": "9bfacbbb64e239a75591a7260b3ed86748eeb4366e6c40f3542753e79bace9a7"
+        },
         "python/Lib/xml/dom/__init__.py": {
           "bytes": 4019,
           "sha256": "b415a6f3d3663c3ac332ee4a0f4213eadad9281508dc97410e258a03633b063a"
@@ -13824,10 +13976,6 @@
           "bytes": 67982,
           "sha256": "ceb557c3bc32e2a734d947dffb2452676cfb2f6d83d6b490b9e2d9f700f45d33"
         },
-        "python/Lib/xml/dom/NodeFilter.py": {
-          "bytes": 936,
-          "sha256": "9bfacbbb64e239a75591a7260b3ed86748eeb4366e6c40f3542753e79bace9a7"
-        },
         "python/Lib/xml/dom/pulldom.py": {
           "bytes": 11637,
           "sha256": "614b88673d496a360e6b10efe8d733c7c0826fb214470ff12f24a1e597699870"
@@ -13835,14 +13983,6 @@
         "python/Lib/xml/dom/xmlbuilder.py": {
           "bytes": 12387,
           "sha256": "d4f33a8f018755626b64557953a91c6bba21ff613da46f7558a2874aa5d08ebf"
-        },
-        "python/Lib/xml/etree/__init__.py": {
-          "bytes": 1605,
-          "sha256": "91950edfb196c105d93886f8af7ea3c0a79e06a6b63be3e5a4ea09804e8672a6"
-        },
-        "python/Lib/xml/etree/cElementTree.py": {
-          "bytes": 82,
-          "sha256": "d0f57acab07fe4f9c116c3392d85946bac8e78608f409cea70005f16ea019b57"
         },
         "python/Lib/xml/etree/ElementInclude.py": {
           "bytes": 6882,
@@ -13855,6 +13995,14 @@
         "python/Lib/xml/etree/ElementTree.py": {
           "bytes": 74399,
           "sha256": "86c7890d6903d9fe37687633617afac35fc53b0d6bab4ee0a334ea3ffd0c31c4"
+        },
+        "python/Lib/xml/etree/__init__.py": {
+          "bytes": 1605,
+          "sha256": "91950edfb196c105d93886f8af7ea3c0a79e06a6b63be3e5a4ea09804e8672a6"
+        },
+        "python/Lib/xml/etree/cElementTree.py": {
+          "bytes": 82,
+          "sha256": "d0f57acab07fe4f9c116c3392d85946bac8e78608f409cea70005f16ea019b57"
         },
         "python/Lib/xml/parsers/__init__.py": {
           "bytes": 167,
@@ -13928,10 +14076,6 @@
           "bytes": 24674,
           "sha256": "ebb9b679519a23252eb90541003a2fdbb3f2d7bc36713fd70672baa575dcdcb6"
         },
-        "python/LICENSE.txt": {
-          "bytes": 25066,
-          "sha256": "886a0ead2d89030ee62dbff52b04e47ab91998341295bb9c56fb952b4e081c7a"
-        },
         "python/python.exe": {
           "bytes": 91648,
           "sha256": "be6d205937b71ca0732474ebc0d7a211d73d1111270d44978eecedf0c2e1aef7"
@@ -13967,50 +14111,10 @@
         "vc/vcruntime140_1.dll": {
           "bytes": 50112,
           "sha256": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e"
-        },
-        "licenses/python-vendor/LICENSE.bzip2.txt": {
-          "bytes": 1780,
-          "sha256": "bd5628cc76fb0ebf9c657d1dd4d1a240a1a7b216c31663e7bbf1131c0b70a910"
-        },
-        "licenses/python-vendor/LICENSE.cpython.txt": {
-          "bytes": 36935,
-          "sha256": "8fe98bf9822926d854f56ffd8d97877d8b942617aa44eb7ea77fd99e22f2537e"
-        },
-        "licenses/python-vendor/LICENSE.expat.txt": {
-          "bytes": 1165,
-          "sha256": "8a9cfe4b5924f4b25881aa0c9f5e4561c5f31065d0c4a13cdcdbcf917edf39aa"
-        },
-        "licenses/python-vendor/LICENSE.libffi.txt": {
-          "bytes": 1153,
-          "sha256": "9afb8970cd29fc1031fa647278e4bef613399e2e3468a1e3a397f4d158c6101c"
-        },
-        "licenses/python-vendor/LICENSE.liblzma.txt": {
-          "bytes": 673,
-          "sha256": "d87d218dd908b3243ec4cbc72af400e5b7437513ea9d9229291d0812b8464fec"
-        },
-        "licenses/python-vendor/LICENSE.mpdecimal.txt": {
-          "bytes": 1308,
-          "sha256": "f094277cd46e1f6e4d87916cc4b51e22f613d45eb81f48231c3cb7caf8fc8a6a"
-        },
-        "licenses/python-vendor/LICENSE.openssl-3.txt": {
-          "bytes": 10352,
-          "sha256": "ed72ce2b51ee58f117e5a021e2e04af158857f40269fbc03491f0b2a99dbcc96"
-        },
-        "licenses/python-vendor/LICENSE.sqlite.txt": {
-          "bytes": 1504,
-          "sha256": "d8eb9aba7ef6b5ed06cb3ec19a7242316af2e5933c638eb67fb781c13884e01d"
-        },
-        "licenses/python-vendor/LICENSE.zlib.txt": {
-          "bytes": 1016,
-          "sha256": "365e36720db366054863235aea5d6f440142ab968834bfaf81fa9d187c99b9b8"
-        },
-        "licenses/python-vendor/provenance-python-vendor.json": {
-          "bytes": 157658,
-          "sha256": "2494e6b4e51a0178f4ce8162dd2cdf73f1cb4502d219a4fb38fdb3583b3a5041"
         }
       },
       "provenance": {
-        "kind": "approved-existing-runtime",
+        "kind": "verified-existing-python-with-fixed-source-libsndfile",
         "pythonVersion": "3.11.15",
         "pythonBuild": "20260504",
         "dependencies": {
@@ -14024,7 +14128,7 @@
         "publicReleaseProvenancePending": true,
         "licenseNoticesIncluded": true,
         "typingExtensionsMetadata": "typing_extensions-4.16.0.dist-info",
-        "licenseNoticeScope": "Python vendor notices and selected package/source notices; public compliance review pending",
+        "licenseNoticeScope": "Python/package/vendor notices plus exact libsndfile and statically linked codec source notices; contract and public distribution review remains pending",
         "licenseReviewComplete": false,
         "pythonOrigin": {
           "build": "20260504",
@@ -14033,17 +14137,120 @@
           "matchedVendorBytes": 36740504,
           "licenseMetadataArchiveSha256": "24bfcb9851806e946c842f1bc5781877cc3bcd5646dcdc0bbc1c2e7ed406f2a7",
           "provenanceFile": "licenses/python-vendor/provenance-python-vendor.json"
+        },
+        "libsndfileOrigin": {
+          "schemaVersion": 1,
+          "library": "libsndfile",
+          "version": "1.2.2",
+          "dll": {
+            "bytes": 2379776,
+            "sha256": "c344decffbf3b691e691326db8aba85f722f1ed65c01171e9521ec48b71f41b0"
+          },
+          "sourceArtifacts": [
+            {
+              "port": "libsndfile",
+              "version": "1.2.2",
+              "portVersion": 0,
+              "url": "https://github.com/libsndfile/libsndfile/archive/1.2.2.tar.gz",
+              "bytes": 684875,
+              "sha256": "ffe12ef8add3eaca876f04087734e6e8e029350082f3251f565fa9da55b52121",
+              "sha512": "fb8b4d367240a8ac9d55be6f053cb19419890691c56a8552d1600d666257992b6e8e41a413a444c9f2d6c5d71406013222c92a3bfa67228944a26475444240a1"
+            },
+            {
+              "port": "libogg",
+              "version": "1.3.5",
+              "portVersion": 1,
+              "url": "https://gitlab.xiph.org/xiph/ogg/-/archive/v1.3.5/ogg-v1.3.5.tar.gz",
+              "bytes": 251771,
+              "sha256": "769ed632a71bfa8bdd3439ac7c712b74e12affdaeae2852c6a859bbbba424e68",
+              "sha512": "72bfad534a459bfca534eae9b209fa630ac20364a82e82f2707b210a40deaf9a7dc9031532a8b27120a9dd66f804655ddce79875758ef14b109bf869e57fb747"
+            },
+            {
+              "port": "libvorbis",
+              "version": "1.3.7",
+              "portVersion": 3,
+              "url": "https://github.com/xiph/vorbis/archive/v1.3.7.tar.gz",
+              "bytes": 1234573,
+              "sha256": "270c76933d0934e42c5ee0a54a36280e2d87af1de3cc3e584806357e237afd13",
+              "sha512": "bfb6f5dbfd49ed38b2b08b3667c06d02e68f649068a050f21a3cc7e1e56b27afd546aaa3199c4f6448f03f6e66a82f9a9dc2241c826d3d1d4acbd38339b9e9fb"
+            },
+            {
+              "port": "libflac",
+              "version": "1.4.3",
+              "portVersion": 2,
+              "url": "https://github.com/xiph/flac/archive/1.4.3.tar.gz",
+              "bytes": 914427,
+              "sha256": "0a4bb82a30609b606650d538a804a7b40205366ce8fc98871b0ecf3fbb0611ee",
+              "sha512": "3571467a1d557bc03eade2ae9bb1a72fd94a89222e6ad9563078d646aac0b65ed1c3d829fb45dd3a6cdca806f7ba3b6393f0ce6571b43651959acaa1c2106396"
+            },
+            {
+              "port": "opus",
+              "version": "1.5.2",
+              "portVersion": 0,
+              "url": "https://github.com/xiph/opus/archive/v1.5.2.tar.gz",
+              "bytes": 4183352,
+              "sha256": "9480e329e989f70d69886ded470c7f8cfe6c0667cc4196d4837ac9e668fb7404",
+              "sha512": "4ffefd9c035671024f9720c5129bfe395dea04f0d6b730041c2804e89b1db6e4d19633ad1ae58855afc355034233537361e707f26dc53adac916554830038fab"
+            },
+            {
+              "port": "mpg123",
+              "version": "1.32.9",
+              "portVersion": 1,
+              "url": "https://downloads.sourceforge.net/project/mpg123/mpg123/1.32.9/mpg123-1.32.9.tar.bz2",
+              "bytes": 1118388,
+              "sha256": "03b61e4004e960bacf2acdada03ed94d376e6aab27a601447bd4908d8407b291",
+              "sha512": "dccb640b0845061811cb41bf145587e7093556d686d49a748232b079659b46284b6cc40db42d14febceac11277c58edf2b69d1b4c46c223829a3d15478e2e26c"
+            },
+            {
+              "port": "mp3lame",
+              "version": "3.100",
+              "portVersion": 15,
+              "url": "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+              "bytes": 1524133,
+              "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+              "sha512": "0844b9eadb4aacf8000444621451277de365041cc1d97b7f7a589da0b7a23899310afd4e4d81114b9912aa97832621d20588034715573d417b2923948c08634b"
+            }
+          ],
+          "vcpkgCommit": "b322364f06308bdd24823f9d8f03fe0cc86fd46f",
+          "vcpkgToolCommit": "1005b78fa1bf1dde1a20c2734cba4ea61ca94d9a",
+          "toolchain": {
+            "visualStudioVersion": "17.5.33424.131",
+            "msvc": "14.35.32215",
+            "windowsSdk": "10.0.22000.0",
+            "cmake": "3.30.1",
+            "ninja": "1.11.1"
+          },
+          "linkage": {
+            "libsndfile": "dynamic",
+            "codecs": "static",
+            "crt": "dynamic"
+          },
+          "features": [
+            "core",
+            "external-libs",
+            "mpeg"
+          ],
+          "buildPrograms": false,
+          "buildTesting": false,
+          "buildRegtest": false,
+          "sourceModifications": [
+            "mpg123 YASM acquisition uses the pinned standalone tool; codec algorithms unchanged"
+          ],
+          "correspondingSourceCompanion": "daemonlet-0.8.4-runtime-rebuild-source.zip",
+          "relinkInstructions": "licenses/codecs/RELINK.md",
+          "modifiedDllTest": "Independent marker DLL and 5-format I/O passed; final application-path result is separate",
+          "contractAcceptedByAgent": false
         }
       }
     },
     "cuda-redist": {
       "id": "cuda-redist",
       "archive": {
-        "name": "cuda-redist-win32-x64.zip",
-        "bytes": 400359398,
-        "sha256": "f6c7798132ede4d1c722984de3b7131d1e4e1c18fd969787c50f66cfe4caa616",
+        "name": "cuda-redist-win32-x64-v2.zip",
+        "bytes": 400359169,
+        "sha256": "89071de56c9902b75f99e9547b6831877f066127a54369d9cf95e86146430a89",
         "format": "zip",
-        "bundledPath": "cuda-redist-win32-x64.zip"
+        "bundledPath": "cuda-redist-win32-x64-v2.zip"
       },
       "files": {
         "cuda/cublas64_13.dll": {
@@ -14055,15 +14262,22 @@
           "sha256": "e1c26671801ecd435baf97c6e9cfe28196cf55005c2039356b48030b09ce5dd5"
         },
         "licenses/CUDA-13.0-EULA.txt": {
-          "bytes": 69587,
-          "sha256": "f0bd2eb0a82e7db5353a1c32084c53171b6e6792f79a4bd44515457498be74a0"
+          "bytes": 67875,
+          "sha256": "f176e5fd245a4ff1d7aee743e345e14b29c4b724f150e4858c4c6a313966d1fb"
         }
       },
       "provenance": {
         "kind": "NVIDIA-CUDA-13.0-redistributable-subset",
         "redistributionTerms": "https://docs.nvidia.com/cuda/eula/index.html",
         "driverIncluded": false,
-        "toolkitIncluded": false
+        "toolkitIncluded": false,
+        "licenseDocument": {
+          "source": "NVIDIA official libcublas 13.0.0.19 redistributable archive",
+          "bytes": 67875,
+          "sha256": "f176e5fd245a4ff1d7aee743e345e14b29c4b724f150e4858c4c6a313966d1fb",
+          "sourceArchiveSha256": "c8fb12715b9639f51983315cc4b195e272128c675aa3766b13c4f470b892e6c8"
+        },
+        "publicContractConfirmationPending": true
       }
     },
     "qwen-cuda": {
