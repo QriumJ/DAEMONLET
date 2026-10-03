@@ -38,9 +38,13 @@ it('seed management rejects stale context while queued without interrupting curr
 it.each([true,'42',null,0,2147483648,1.5])('settings seed IPC rejects invalid numeric value %s',async value=>{const f=await fixture();await expect(f.manage({type:'seedSettings',value:{mode:'fixed',fixedSeed:value}})).rejects.toThrow('VOICE_SEED_INVALID');expect(f.controller.service.snapshot().seedSettings?.mode).toBe('random-per-reply')})
 
 it('both settings and chat IPC activation respect unsupported-platform service guard',async()=>{
+ const platform=Object.getOwnPropertyDescriptor(process,'platform')!
+ Object.defineProperty(process,'platform',{value:'linux'})
+ try{
  const f=await fixture();(f.controller.service as any).state.availableProfiles=[]
  await f.manage({type:'enabled',value:true});expect(f.controller.service.snapshot()).toMatchObject({enabled:false,error:'UNSUPPORTED_DEVICE'})
  const state=await f.action({type:'enabled',value:true});expect(state).toMatchObject({enabled:false,error:'UNSUPPORTED_DEVICE'})
  await f.manage({type:'enabled',value:false});expect(f.controller.service.snapshot()).toMatchObject({enabled:false,error:null})
  expect(await f.action({type:'snapshot'})).toMatchObject({enabled:false})
+ }finally{Object.defineProperty(process,'platform',platform)}
 })

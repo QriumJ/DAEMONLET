@@ -10,7 +10,7 @@ it('bubble menu contains exactly character and current-character saved conversat
  const html=renderToStaticMarkup(createElement(ChatQuickSwitch,{state,act:()=>{},close:()=>{}}));expect(html.match(/<select/g)).toHaveLength(2);expect(html).toContain('캐릭터');expect(html).toContain('저장된 대화');expect(html).not.toContain('do not show');for(const text of ['<button','음성','모델','기억','설치','삭제'])expect(html).not.toContain(text)
 })
 it('settings form keeps cancellation available while preparing and never owns a player',()=>{
- const html=renderToStaticMarkup(createElement(VoiceSettings,{state:voice,characterId:'belle',act:()=>{},playbackReady:false,busy:true}));expect(html).toMatch(/<button>설치 중단<\/button>/);expect(html).toMatch(/<button>음성만 중단<\/button>/);expect(html).toMatch(/<button disabled="">시험 재생<\/button>/);expect(html).toContain('음성 설치·고급 설정')
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:voice,characterId:'belle',act:()=>{},playbackReady:false,busy:true}));expect(html).toMatch(/<button>설치 중단<\/button>/);expect(html).toMatch(/<button>음성만 중단<\/button>/);expect(html).toMatch(/<button disabled="">시험 재생<\/button>/);expect(html).toContain('고급 설정·보유한 파일 연결')
 })
 it('base installation and two Metal modes remain available in the management form',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,baseInstall:{...voice.baseInstall,phase:'idle'}},characterId:'belle',act:()=>{},playbackReady:true}));expect(html).toContain('기본 음성 설치');expect(html).toContain('Metal · 청크 재생');expect(html).toContain('Metal · 완성 후 재생');expect(html).not.toContain('MPS')
@@ -27,12 +27,13 @@ it('supported idle voice settings keep activation available without an unsupport
  expect(html).toContain('<input type="checkbox"/>음성 사용');expect(html).not.toContain('voice-platform-support')
 })
 
-it('everyday voice controls precede collapsed WAV import and synthesis options',()=>{
+it('voice setup orders engine, files, voice and playback before collapsed synthesis options',()=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...voice,baseInstall:{...voice.baseInstall,installed:true,phase:'idle'}},characterId:'belle',act:()=>{},playbackReady:true}))
  const index=(text:string)=>html.indexOf(text)
  expect(index('aria-label="캐릭터 음성"')).toBeLessThan(index('WAV로 새 음성 추가'))
- expect(index('aria-label="음량"')).toBeLessThan(index('WAV로 새 음성 추가'))
- expect(index('>시험 재생</button>')).toBeLessThan(index('WAV로 새 음성 추가'))
+ expect(index('필요한 파일 받기·연결')).toBeLessThan(index('목소리 선택·추가'))
+ expect(index('목소리 선택·추가')).toBeLessThan(index('시험 재생·적용'))
+ expect(index('>시험 재생</button>')).toBeLessThan(index('고급 설정·보유한 파일 연결'))
  expect(html).toContain('<details class="voice-reference-import"><summary>WAV로 새 음성 추가</summary>')
  expect(index('WAV로 새 음성 추가')).toBeLessThan(index('새 음성의 시드'))
 })

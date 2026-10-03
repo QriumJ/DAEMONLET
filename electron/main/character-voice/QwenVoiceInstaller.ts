@@ -12,9 +12,10 @@ import {digestFile} from '../character-chat/ModelManager'
 import {safeRelative} from './VoicePackage'
 import {extractQwenPython} from './QwenArchive'
 import type {QwenInstallState} from '../../shared/character-voice-contract'
+import {managedModelRemoval,trashManagedModel,type ManagedModelManifest,type ManagedVoiceModelRemoval} from './ManagedVoiceModelRemoval'
 
 export type QwenConnection={python:string;model:string}
-export interface QwenInstallation {snapshot():QwenInstallState;initialize():Promise<void>;install(reuseModel?:string):Promise<QwenConnection|null>;cancel():Promise<void>;applying(value:boolean):void}
+export interface QwenInstallation {snapshot():QwenInstallState;initialize():Promise<void>;install(reuseModel?:string):Promise<QwenConnection|null>;cancel():Promise<void>;applying(value:boolean):void;modelRemoval?():Promise<ManagedVoiceModelRemoval|null>;removeModel?(expectedPlanId:string,trashItem:(path:string)=>Promise<void>):Promise<void>}
 type ModelPolicy={engine:string;model:string;revision:string;license:string;totalBytes:number;files:Record<string,{bytes:number;sha256?:string;gitSha1?:string}>}
 type InstallLock={schemaVersion:number;platform:string;python:PinnedVoiceFile & {filename:string;version:string;license:string};minimumFreeBytes:number;modelSha256:Record<string,string>;wheels:Array<PinnedVoiceFile & {name:string;version:string;filename:string;license:unknown}>}
 type Options={platform?:string;policy?:ModelPolicy;lock?:InstallLock;fetch?:typeof fetch;freeBytes?:()=>Promise<number>;run?:(command:string,args:string[],signal:AbortSignal)=>Promise<string>}
@@ -28,6 +29,7 @@ export class QwenVoiceInstaller implements QwenInstallation {
  private fingerprint:string
  private operation:Promise<QwenConnection|null>|null=null
  private controller:AbortController|null=null
+ private removing:Promise<void>|null=null
  private lastUpdate=0
  private state:QwenInstallState
  constructor(readonly root:string,private resources:string,private changed:()=>void,private options:Options={}){
@@ -99,6 +101,7 @@ export class QwenVoiceInstaller implements QwenInstallation {
  }
  async initialize(){if(!this.state.supported)return;try{this.canonicalRoot=await this.directory(this.root);await this.check(this.target,new AbortController().signal,false);this.state.installed=true}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')Object.assign(this.state,{repairNeeded:true,error:'QWEN_INSTALL_CHANGED'})}}
  install(reuseModel?:string):Promise<QwenConnection|null>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
   if(this.operation)return this.operation
   if(!this.state.supported)return Promise.reject(Error('QWEN_INSTALL_UNSUPPORTED'))
   const controller=this.controller=new AbortController()
@@ -114,6 +117,26 @@ export class QwenVoiceInstaller implements QwenInstallation {
   this.operation=task;Object.assign(this.state,{phase:'preparing',bytes:0,error:null});return task
  }
  async cancel(){this.controller?.abort();await this.operation?.catch(()=>{})}
+ private removalManifest():ManagedModelManifest{
+  const model=join(this.target,'model'),files=Object.keys(this.policy.files)
+  return {root:this.rootPath,id:'qwen3-tts-06b',engine:'qwen3-tts-06b',modelId:this.policy.model,revision:this.policy.revision,
+   ownership:[{path:join(this.target,'install-receipt.json'),whenPresent:model,matches:receipt=>receipt?.schemaVersion===1&&receipt.fingerprint===this.fingerprint&&receipt.model===this.policy.model&&receipt.revision===this.policy.revision}],
+   directories:[{path:model,files},{path:join(this.rootPath,'downloads',this.fingerprint,'model'),files}]}
+ }
+ modelRemoval(){if(this.removing||this.operation)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'));return managedModelRemoval(this.removalManifest())}
+ removeModel(expectedPlanId:string,trashItem:(path:string)=>Promise<void>):Promise<void>{
+  if(this.removing)return Promise.reject(Error('VOICE_MODEL_REMOVAL_BUSY'))
+  const task=Promise.resolve().then(async()=>{
+   await this.cancel();await trashManagedModel(this.removalManifest(),expectedPlanId,trashItem)
+   this.update({installed:false,repairNeeded:false,bytes:0,error:null})
+  }).catch(async e=>{
+   // Trash can succeed for one copy and fail for another. Reflect what remains
+   // without running Python, inference, or implicitly repairing the install.
+   this.state.installed=false;this.state.repairNeeded=false;await this.initialize().catch(()=>{})
+   this.update({error:e instanceof Error&&/^VOICE_MODEL_REMOVAL_[A-Z_]+$/.test(e.message)?e.message:'VOICE_MODEL_REMOVAL_FAILED'});throw e
+  }).finally(()=>{if(this.removing===task)this.removing=null})
+  this.removing=task;return task
+ }
  private async prepare(signal:AbortSignal,reuseModel?:string){
   this.canonicalRoot=await this.directory(this.root,true);signal.throwIfAborted();const disk=await statfs(this.root),free=this.options.freeBytes?await this.options.freeBytes():disk.bavail*disk.bsize;if(free<this.lock.minimumFreeBytes)throw Error('VOICE_DISK_SPACE')
   const downloads=join(this.rootPath,'downloads',this.fingerprint);await this.directory(downloads,true)

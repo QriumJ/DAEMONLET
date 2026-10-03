@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "platform": "win32-x64",
+  "status": "cuda-vulkan-built-awaiting-inference-validation",
+  "sourceCommit": "873056743b74e1a4ce5dcf7290e2298428e214db",
+  "originalRuntimeSha256": "877cdf6819268877669bfbf6837ed2fe85f009fb80b0bae502c35bb962d1e174",
+  "cachedRuntimeSha256": "a3727b630e399387637d8b4c5ecbc697f9ac3fbe54f86af1598c8270614e25d6",
+  "nativeSourceSha256": "8e959c4b978f3b9ada3eefe0a048b6bb68918a012712b28e834f61d6f77523b1",
+  "buildDriverSha256": "75be2721897cf1c8f2dc09fb3fe2c8970fcc66f008ca502c26e0959eb043b4ad",
+  "cmakeSourceSha256": "b0fdffbe653aed29b163e2f1bf496d8940cd8b53551e85d4be72e68226737284",
+  "seedContractSha256": "1e9736fddb2dcac03b936425936f7ba710e409a0e7d9a6fd66bc0de74095c470",
+  "nativeProfiles": {
+    "gguf-cuda-f16": {
+      "nativeFiles": {
+        "daemonlet-voxcpm2-engine.exe": {
+          "bytes": 377344,
+          "sha256": "4efed361a7638686d85b292f10e3a6bd0178f49ff9ea668c5af33a65173349ea"
+        },
+        "ggml-base.dll": {
+          "bytes": 629760,
+          "sha256": "160937b23bea518eb9ee59c980892db158debbeb4b57f2afef74783fae1bf21e"
+        },
+        "ggml-cpu.dll": {
+          "bytes": 867328,
+          "sha256": "993dfc8b9cbd49a778053ea0939e40525d5232d57d32ec6b9b0b1b2d98373615"
+        },
+        "ggml-cuda.dll": {
+          "bytes": 53515264,
+          "sha256": "e501484767490a2acd84637c6b7851d606a3d3968895a89e44c17ec975fb0113"
+        },
+        "ggml.dll": {
+          "bytes": 57344,
+          "sha256": "d9350dbad8749890163eb425a9d75c002afb040700d26f3e81e0a919401ff40b"
+        },
+        "llama-common.dll": {
+          "bytes": 3632640,
+          "sha256": "8fdc0921aee7a34320c020ef0a8b7cc9e95c0a306058396ccbd5dd617c418e32"
+        },
+        "llama.dll": {
+          "bytes": 2014720,
+          "sha256": "f8309b7a8ca0ae54bfafb58e531c924174a127a30b2816fa8a9aa4fb08fcc85f"
+        }
+      },
+      "allowedModes": [
+        "reference",
+        "base"
+      ]
+    },
+    "gguf-vulkan-f16": {
+      "nativeFiles": {
+        "daemonlet-voxcpm2-engine.exe": {
+          "bytes": 376832,
+          "sha256": "3c9da1319b24f00889d4da2bfec568d78ff4c6930af321b317e966e1dadc1616"
+        },
+        "ggml-base.dll": {
+          "bytes": 629760,
+          "sha256": "699cdbbd906a39515389c9d8c84cf1ccea62dc3c98626a148627858f55ac4a9d"
+        },
+        "ggml-cpu.dll": {
+          "bytes": 867328,
+          "sha256": "48a51c96b55f8acfee09df76108a80c653d86feebb7e39893345d67aa8abebff"
+        },
+        "ggml-vulkan.dll": {
+          "bytes": 58294272,
+          "sha256": "39cd409cc2d26c63d36ed5f5a08c1a4332f2942e1e97dc00e8bb98ebaed72941"
+        },
+        "ggml.dll": {
+          "bytes": 57344,
+          "sha256": "14cb56a531584e0bd922414214bc0e2a7d1258ff0cfba90d5cb6ae8b60515708"
+        },
+        "llama-common.dll": {
+          "bytes": 3632640,
+          "sha256": "04c2c255470ce42b32cf267142675123ec0d226500550850909e24553edac274"
+        },
+        "llama.dll": {
+          "bytes": 2014720,
+          "sha256": "0157b1eeccafb6de1369ef214f3a77b0b54970f5bb54787eec0862d1ae29470b"
+        }
+      },
+      "allowedModes": [
+        "reference",
+        "base"
+      ]
+    }
+  },
+  "derivatives": {
+    "1a7d036f437b611307dbdceca564af75424efa27f77f761a01c015de24005f4f": {
+      "adapterSha256": "e7d8b3b99af702c3df135ef194596c2b13cf99bb00b8e7204f684c435be50eb2",
+      "originalBaseSha256": "f7f964cfa9da23653baec6e6f7750719977ad944ed9f95fe52fe3a620506891d",
+      "conversionSha256": "911d973443819dedd6187b1f398d339710770d045b180b84554c68a34bac51de",
+      "ggufFiles": {
+        "VoxCPM2-BaseLM-F16.gguf": {
+          "bytes": 3247980544,
+          "sha256": "9cec912d8961f0fe9a43187e6cc6b717eb5e3adf0be6ad5921e531f47e50213d"
+        },
+        "VoxCPM2-Acoustic-F16.gguf": {
+          "bytes": 1825096352,
+          "sha256": "38cdeef9dbf11bd48090ec862cf725a99475afdf5d7f1727bbe28381fef6d09d"
+        }
+      }
+    }
+  },
+  "publicModel": {
+    "repo": "DennisHuang648/VoxCPM2-GGUF",
+    "revision": "169f64d8b98bbaab1761e4ca3a83e6af653456cc",
+    "license": "Apache-2.0",
+    "files": {
+      "VoxCPM2-BaseLM-F16.gguf": {
+        "bytes": 3247980544,
+        "sha256": "8be62e899f8f32b3c2109c99950b46671135a8f40b27b1df720f6823d36cc59e"
+      },
+      "VoxCPM2-Acoustic-F16.gguf": {
+        "bytes": 1825096352,
+        "sha256": "5bde898488ad635ff55d24da53543768fa33d5e5cdc538ce190e5ef831038e85"
+      }
+    }
+  },
+  "baseVoiceDefaultsSha256": "7ad951d19313151cb9e040d3e392da92a3c0a0da9cd6d09fb28f2ca435f20bce",
+  "managedModelReceipt": {
+    "schemaVersion": 1,
+    "owner": "daemonlet-managed-public-gguf-model",
+    "scope": "public-base",
+    "id": "voxcpm2-gguf-f16",
+    "fingerprint": "953a3cb3bb6ad9dd4379d2c061853ba45413dad038d5494b48d6b488c599ac4b",
+    "repository": "DennisHuang648/VoxCPM2-GGUF",
+    "revision": "169f64d8b98bbaab1761e4ca3a83e6af653456cc",
+    "files": [
+      {
+        "name": "VoxCPM2-BaseLM-F16.gguf",
+        "bytes": 3247980544,
+        "sha256": "8be62e899f8f32b3c2109c99950b46671135a8f40b27b1df720f6823d36cc59e"
+      },
+      {
+        "name": "VoxCPM2-Acoustic-F16.gguf",
+        "bytes": 1825096352,
+        "sha256": "5bde898488ad635ff55d24da53543768fa33d5e5cdc538ce190e5ef831038e85"
+      }
+    ]
+  },
+  "managedRuntimeCatalog": {
+    "filename": "managed-gguf-runtime-catalog.json",
+    "bytes": 693831,
+    "sha256": "5487a3d3b42fa58e4dcf9ebf19c3540296c93c3075510b115319a9641df5186e"
+  }
+}

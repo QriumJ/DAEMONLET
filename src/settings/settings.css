@@ -266,3 +266,33 @@ select { padding: 8px 30px 8px 11px; border: 1px solid #dfe4d9; border-radius: 7
 .voice-qwen-install .voice-model-name { overflow-wrap:anywhere; }
 .voice-qwen-progress { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; }
 .voice-qwen-progress [role="status"] { flex-basis:100%; }
+
+/* Voice setup follows the same four steps on every supported platform. */
+.voice-setup-step { flex-basis:100%; min-width:0; padding:18px 0; border-top:1px solid var(--line); }
+.voice-setup-step h3 { display:flex; align-items:center; gap:10px; margin:0 0 10px; font-size:15px; }
+.voice-setup-step h3 > span { display:grid; place-items:center; width:26px; height:26px; border-radius:50%; background:#e3eee7; color:#216b58; font-size:12px; }
+.voice-setup-step > p { font-size:12px; margin-bottom:14px; }
+.voice-setup-step > label { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:12px 0; font-size:13px; }
+.voice-setup-step > label:has(input[type="checkbox"]) { justify-content:flex-start; }
+.voice-setup-step details { margin-top:14px; }
+.voice-engine-options { display:grid; gap:10px; }
+.voice-engine-card { display:flex; gap:12px; align-items:flex-start; padding:14px; border:1px solid var(--line); border-radius:10px; cursor:pointer; background:#fff; }
+.voice-engine-card:has(input:checked) { border-color:#79a591; background:#f0f7f2; }
+.voice-engine-card input { margin-top:5px; accent-color:var(--accent); }
+.voice-engine-card span { min-width:0; }
+.voice-recommended { display:inline-block; padding:1px 7px; margin-left:6px; border-radius:9px; background:#d7eadc; font-size:10px; color:#285b3d; }
+.voice-legacy { padding:13px; border:1px solid var(--line); border-radius:10px; }
+.voice-legacy > p { font-size:12px; margin-bottom:12px; }
+.voice-legacy .voice-engine-card { margin-top:8px; }
+.voice-files-preparation { padding:15px; border-radius:10px; background:#eaf3ec; }
+.voice-files-preparation p { font-size:12px; margin-bottom:12px; }
+.voice-files-preparation span[role="status"] { display:block; margin:10px 0; font-size:12px; }
+.voice-runtime-terms { margin:14px 0; padding:14px; border:1px solid var(--line); border-radius:8px; background:var(--surface,#fff); }
+.voice-runtime-terms label { display:flex; align-items:flex-start; gap:10px; font-size:12px; line-height:1.6; }
+.voice-runtime-terms input[type="checkbox"] { flex-shrink:0; margin-top:3px; }
+.voice-runtime-terms li, .voice-runtime-terms small { overflow-wrap:anywhere; }
+.voice-settings .voice-files-preparation .primary { background:var(--accent); color:white; }
+.voice-loading { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
+.voice-loading progress { max-width:240px; }
+.voice-settings .voice-install small { overflow-wrap:anywhere; }
+@media(max-width:640px) { .voice-setup-step > label { flex-wrap:wrap; } .voice-settings select { max-width:100%; width:100%; } }

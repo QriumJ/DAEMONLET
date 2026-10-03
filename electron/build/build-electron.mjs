@@ -6,11 +6,15 @@ import { requireElectronRuntime } from "../../scripts/release/electron-runtime.m
 import { copyFile, mkdir, readFile, rm, writeFile, cp } from "node:fs/promises"
 import { resolve } from "node:path"
 import { writeLicenseBundle } from "../../scripts/release/licenses.mjs"
+import { stageManagedRuntimeArchives } from "../../scripts/release/managed-runtime-assets.mjs"
+import {verifyRuntimeTermsDocuments} from '../../scripts/release/runtime-terms.mjs'
 
 const root = resolve(import.meta.dirname, "../..")
 await requireElectronRuntime(root)
 const outdir = resolve(root, "dist-electron")
 const production = process.argv.includes("--production")
+const sourceOnlyRuntime = process.argv.includes("--source-only-runtime")
+if (sourceOnlyRuntime && (!production || process.argv.includes("--setup-smoke"))) throw Error('Source runtime CI requires a production build')
 const source = await sourceIdentity(root)
 if (production) assertSameSource(source, JSON.parse(await readFile(resolve(root, "dist/build-source.json"), "utf8")))
 const setupSmoke = process.argv.includes("--setup-smoke")
@@ -20,8 +24,17 @@ await mkdir(resolve(outdir, "voice"), { recursive: true })
 await copyFile(resolve(root, "electron/voice/worker.py"), resolve(outdir, "voice/worker.py"))
 await copyFile(resolve(root, "electron/voice/engine.py"), resolve(outdir, "voice/engine.py"))
 await copyFile(resolve(root, "electron/voice/control.py"), resolve(outdir, "voice/control.py"))
+// Model weights remain external. Fixed, reviewed Windows runtime archives are
+// bundled separately from ASAR; installation only extracts and checks data.
+for(const file of ['qwen_gguf_worker.py','qwen_gguf_abi.py','runtime-qwen-gguf-windows.json','voxcpm_windows_gguf_worker.py','voxcpm_windows_gguf_runtime.py','runtime-gguf-windows-voxcpm2.json','managed_gguf_runtime.py','managed-gguf-runtime-catalog.json'])await copyFile(resolve(root,'electron/voice',file),resolve(outdir,'voice',file))
+await cp(resolve(root,'electron/voice/runtime-terms'),resolve(outdir,'voice/runtime-terms'),{recursive:true})
+await copyFile(resolve(root,'electron/voice/managed-runtime-terms.json'),resolve(outdir,'voice/managed-runtime-terms.json'))
+await verifyRuntimeTermsDocuments(resolve(outdir,'voice'))
 for (const file of ['install_qwen.py','install-qwen-darwin-arm64.json','install-qwen-win32-x64.json','windows_model_check.py','qwen_mlx_worker.py', 'qwen_audio.py', 'qwen-mlx-policy.json', 'qwen_worker.py','qwen_memory.py','qwen-policy.json','base-voice-defaults.json','reference-policy.json','reference_condition.py','seed_contract.py','backend.py','macos_runtime.py','runtime-macos.json','gguf_worker.py','gguf_runtime.py','gguf_cache.py','gguf_prepare.py','voice_package.py','runtime-gguf-macos.json','windows_base_worker.py','runtime-windows-base.json','install-windows-base.json','install_windows_base.py']) await copyFile(resolve(root, 'electron/voice', file), resolve(outdir, 'voice', file))
 const chatTarget = runtimeTarget(process.env.PET_BUILD_PLATFORM || process.platform, process.env.PET_BUILD_ARCH || process.arch)
+const managedRuntimeBuild = await stageManagedRuntimeArchives(root, resolve(outdir, 'voice'), { target: chatTarget, production, sourceOnlyRuntime })
+await writeFile(resolve(outdir, 'managed-gguf-runtime-build.json'), JSON.stringify(managedRuntimeBuild) + '\n')
+if (managedRuntimeBuild.status === 'source-only-runtime-unavailable') console.warn('Windows GGUF runtime archives are missing: source-only build; installer preparation is incomplete')
 const baseRuntime=resolve(root,'.generated/voice-base-runtime',chatTarget)
 if(existsSync(baseRuntime)){const trusted=JSON.parse(await (await import('node:fs/promises')).readFile(resolve(root,'electron/voice/runtime-base-macos.json'),'utf8'));await verifyRuntime(baseRuntime,chatTarget,{trusted});await cp(baseRuntime,resolve(outdir,'voice/base-native'),{recursive:true})}
 const chatRuntime = resolve(root, '.generated/character-chat-runtime-package', chatTarget)

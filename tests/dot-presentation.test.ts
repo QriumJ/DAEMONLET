@@ -56,3 +56,15 @@ it('a renderer/device failure reports failure; resolved speech without any valid
  f.speak.mockResolvedValueOnce();await f.service.present({type:'present',text:'no ACK',speak:true});await vi.advanceTimersByTimeAsync(0);expect(f.service.snapshot()?.voiceError).toBe('failed')
 })
 it('muted speech still uses the acceptance-time display budget and never prepares audio',async()=>{vi.useFakeTimers();const f=fixture();await f.service.present({type:'present',text:'silent',speak:true,durationMs:1000});expect(f.service.snapshot()?.text).toBe('silent');expect(f.speak).not.toHaveBeenCalled();await vi.advanceTimersByTimeAsync(1000);expect(f.service.snapshot()).toBeNull()})
+it('idle mute reaches model cleanup and unmute only changes the voice gate',async()=>{
+ const muteVoice=vi.fn(async()=>{}),speak=vi.fn(async()=>{}),service=new DotPresentationService(()=>({characterId:'c',revision:'r',definition:emptyChat()}),()=>{},speak,async()=>{},()=>{},()=>false,muteVoice);clean.push(()=>service.close())
+ await service.setMuted(false);await service.setMuted(true)
+ expect(muteVoice.mock.calls).toEqual([[false],[true]]);expect(speak).not.toHaveBeenCalled();expect(service.snapshot()).toBeNull()
+})
+it('mute/unmute during old cleanup preserves the newest gate and presentation',async()=>{
+ let release!:()=>void;const muteVoice=vi.fn(async(value:boolean)=>{if(value)await new Promise<void>(r=>release=r)}),speak=vi.fn(()=>new Promise<void>(()=>{})),service=new DotPresentationService(()=>({characterId:'c',revision:'r',definition:emptyChat()}),()=>{},speak,async()=>{},()=>{},()=>false,muteVoice)
+ await service.setMuted(false);await service.present({type:'present',text:'old',speak:true});const old=speak.mock.calls[0] as unknown as [string,AbortSignal,Function]
+ const muting=service.setMuted(true);await service.setMuted(false);await service.present({type:'present',text:'new',speak:true});release();await muting
+ old[2](0);expect(old[1].aborted).toBe(true);expect(service.muted).toBe(false);expect(service.snapshot()?.voicePhase).toBe('preparing');expect(speak).toHaveBeenCalledTimes(2)
+ muteVoice.mockImplementation(async()=>{});await service.close()
+})

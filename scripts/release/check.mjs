@@ -7,9 +7,20 @@ import {assertSameSource} from './validation.mjs'
 import { runtimeAssetPaths } from './runtime-assets.mjs'
 import { requiredNotices } from './licenses.mjs'
 import { verifyArtwork, digest } from './artwork.mjs'
+import { verifyManagedRuntimeBuildReport, managedRuntimeArchivesName, managedRuntimeCatalogName } from './managed-runtime-assets.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 export async function checkCandidate(asar) {
+  return checkProduction(asar, false)
+}
+
+// Source CI has no installer acceptance authority. Candidate/installer callers
+// continue to use the strict checkCandidate entry point above.
+export async function checkProductionSources(asar) {
+  return checkProduction(asar, true)
+}
+
+async function checkProduction(asar, sourceOnlyRuntime) {
   await verifyArtwork(root)
   const files = listPackage(asar).map(p => p.replaceAll('\\', '/').replace(/^\//, ''))
   // @electron/asar resolves member components with the host path separator.
@@ -25,6 +36,11 @@ export async function checkCandidate(asar) {
   const graph = json('dist-electron/bundle-inputs.json')
   if (graph.production !== true || !Array.isArray(graph.inputs) || !graph.inputs.includes('electron/main/side-chat/SideChatBackend.ts')
     || graph.inputs.some(path => typeof path !== 'string' || /(?:Smoke|fixture|tests\/|scripts\/side-chat|runtime-patches)/i.test(path))) throw new Error('Unverified production input graph')
+  for (const name of ['managed_gguf_runtime.py', managedRuntimeCatalogName]) {
+    if (!extract('dist-electron/voice/' + name).equals(await readFile(resolve(root, 'electron/voice', name)))) throw Error('Managed GGUF runtime resource differs from source: ' + name)
+  }
+  const managedRuntimeBuild = json('dist-electron/managed-gguf-runtime-build.json')
+  verifyManagedRuntimeBuildReport(managedRuntimeBuild, extract('dist-electron/voice/' + managedRuntimeCatalogName), { sourceOnlyRuntime })
   const update = json('dist-electron/app-update.yml')
   if (JSON.stringify(update) !== JSON.stringify({ provider: 'github', owner: 'ddol2ya', repo: 'DAEMONLET', private: false, updaterCacheDirName: 'daemonlet-for-codex-updater' }) || !graph.inputs.includes('electron/main/updates/OfficialUpdater.ts')) throw Error('Unverified updater configuration')
   const main = extract('dist-electron/main.cjs').toString('utf8')
@@ -42,6 +58,7 @@ export async function checkCandidate(asar) {
   }))
   for (const path of files) {
     if (!/^(package\.json|dist(?:\/|$)|dist-electron(?:\/|$))/.test(path)) throw new Error(`Unexpected app content: ${path}`)
+    if (path === 'dist-electron/voice/' + managedRuntimeArchivesName || path.startsWith('dist-electron/voice/' + managedRuntimeArchivesName + '/')) throw Error('Managed GGUF runtime archives must remain outside ASAR')
     if (/\.(map|pyc|safetensors|ckpt|pt|pth|onnx|gguf)$|(^|\/)(node_modules|outputs|__pycache__)(\/|$)/i.test(path)) throw new Error(`Development artifact shipped: ${path}`)
     if (path.startsWith('dist/characters/') && !allowedAssets.has(path)) throw new Error(`Unreferenced artwork shipped: ${path}`)
   }
@@ -64,7 +81,8 @@ export async function checkCandidate(asar) {
       packages.push(`${pkg.name}@${pkg.version}`)
     }
   }
-  return { status: 'structure-verified', characters: expected, runtimeFiles: needed.length, packages: [...new Set(packages)].sort(), developmentAssets: 0, productionInputs: graph.inputs.length, sideChatQaExcluded: true }
+  return { status: sourceOnlyRuntime ? 'production-sources-verified' : 'structure-verified', characters: expected, runtimeFiles: needed.length, packages: [...new Set(packages)].sort(), developmentAssets: 0, productionInputs: graph.inputs.length, sideChatQaExcluded: true,
+    ...(sourceOnlyRuntime ? { validationScope: 'production-sources', installerAcceptance: 'NOT RUN', managedRuntime: managedRuntimeBuild } : {}) }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

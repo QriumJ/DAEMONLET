@@ -18,7 +18,7 @@ async function fixture(ref=true){
  const store={initialize:async()=>{},list:()=>ref?[reference]:[],close:async()=>{}} as any
  const chat={character:{id:'character'},epoch:1} as any
  const service=new CharacterVoiceService(root,'/worker',()=>chat,s=>states.push(s),e=>events.push(e),runtime,undefined,undefined,undefined,store)
- service.attachQwenInstaller(installer);await service.initialize()
+ service.attachQwenInstaller(installer);await service.initialize();await service.engine('voxcpm2')
  const owner=service as any;owner.state.enabled=true;owner.state.autoRead=true;owner.state.volume=.25;owner.config={python:'/existing-vox/python',model:'/existing-vox/model'};if(ref)owner.state.bindings.character='wav-owned@1'
  await service.volume(.25);const before=await readFile(join(root,'settings.json'),'utf8')
  clean.push(async()=>{pending.resolve(null);await service.close();await rm(root,{recursive:true,force:true})})

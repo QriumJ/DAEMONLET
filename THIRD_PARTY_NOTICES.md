@@ -74,3 +74,96 @@ These external packages and model weights are not bundled in the app.
 Pinned snapshots, distribution source hashes, and installation license receipts
 are documented in `docs/character-chat-voice-qwen-ab.md` and the Qwen policies.
 No dots-voice source code or bundled voice is incorporated.
+
+### Optional Windows Qwen GGUF bridge
+
+The ABI definitions used by `qwen_gguf_abi.py` follow qwentts.cpp commit
+`6fae92914045cd83364d2845ceaa0f7969727319` (MIT; The omnivoice.cpp authors).
+The external runtime uses ServeurpersoCom/ggml commit
+`40e16e4a814f7fe851a0c486fb9e8c722e957830` (MIT; The ggml authors).
+Their full notices are included in `distribution/licenses/qwentts-cpp-MIT.txt`
+and `distribution/licenses/qwentts-ggml-MIT.txt`. This community runtime is
+independent from Qwen's official PyTorch runtime.
+
+Serveurperso/Qwen3-TTS-GGUF revision
+`b7ee2e8c7459c3bea99da23e3d178125a7d1713c` declares Apache-2.0 for the
+Base Q8 model and codec. Model weights are downloaded separately and are not
+included in the application package. The Windows x64 release includes fixed
+Qwen GGUF native engines, Python packages, and a CUDA redistributable subset in
+the managed runtime archives described below. The full CUDA Toolkit and GPU
+driver are not included. See `docs/voice-qwen-gguf-windows.md` for the fixed
+versions and admission checks.
+
+### Optional Windows VoxCPM2 GGUF and public model downloads
+
+The external Windows Vox engine uses tc-mb/llama.cpp-omni commit
+`873056743b74e1a4ce5dcf7290e2298428e214db` (MIT; the llama.cpp authors).
+The license is preserved in `distribution/licenses/voxcpm-llama-cpp-omni-MIT.txt`.
+The Windows x64 release includes the separately built GGUF engines in managed
+runtime archives. The full GPU SDK/toolkit and GPU driver are not included.
+VoxCPM2's original OpenBMB weights and the DennisHuang648/VoxCPM2-GGUF
+public conversion declare Apache-2.0. The public F16 pair revision is
+`169f64d8b98bbaab1761e4ca3a83e6af653456cc`; DennisHuang648 is the conversion
+publisher, rather than a claim of direct OpenBMB distribution.
+Qwen Base Q8 and its codec are published by Serveurperso at revision
+`b7ee2e8c7459c3bea99da23e3d178125a7d1713c`, with Apache-2.0 declared.
+The model-only download action requires an explicit model selection and does
+not install a Python/native runtime. The combined file preparation action also
+checks and connects the selected managed runtime. User-trained voice packs and
+their private merged GGUF derivatives are excluded from the public model catalog.
+
+### Bundled Windows x64 managed voice runtimes in the 0.8.4 candidate
+
+The 0.8.4 Windows candidate installer and portable package include six fixed archives outside
+`app.asar`, under `resources/voice/managed-gguf-runtime-archives`. Their complete
+file inventories and byte hashes are recorded in
+`resources/voice/managed-gguf-runtime-catalog.json` and checked against both voice
+worker policies. File preparation extracts the selected runtime into the app's
+managed voice directory, verifies it, and connects it to the current engine.
+Installing runtime files and model files does not by itself load a GPU model or
+select a different character voice.
+
+| Archive | Included components and notice locations inside the archive |
+| --- | --- |
+| `shared-win32-x64-v4.zip` | CPython 3.11.15, Python packages, libsndfile 1.2.2 and its linked codecs, and Microsoft Visual C++ runtime files. Python/package texts are in `python/LICENSE.txt` and package metadata; vendor and codec notices are in `licenses/python-vendor` and `licenses/codecs`. |
+| `cuda-redist-win32-x64-v2.zip` | The NVIDIA CUDA/cuBLAS redistributable subset; original terms and notices are in `licenses/CUDA-13.0-EULA.txt`. |
+| `qwen-cuda-win32-x64.zip` | qwentts.cpp and ggml CUDA engine; original MIT texts are in `licenses/qwentts-cpp-MIT.txt` and `licenses/qwentts-ggml-MIT.txt`. |
+| `qwen-vulkan-win32-x64.zip` | qwentts.cpp and ggml Vulkan engine; the same two original MIT texts accompany it. |
+| `vox-cuda-win32-x64.zip` | llama.cpp-omni CUDA engine; original MIT text is in `licenses/voxcpm-llama-cpp-omni-MIT.txt`. |
+| `vox-vulkan-win32-x64.zip` | llama.cpp-omni Vulkan engine; the same original MIT text accompanies it. |
+
+Project source code remains under the root MIT license. Third-party runtime
+components retain their own original terms; the project MIT grant does not
+replace those terms. Microsoft Visual C++ files retain Microsoft's applicable
+terms; their redistribution list is
+https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution .
+The build uses Visual Studio Community 2022, whose original terms are at
+https://visualstudio.microsoft.com/license-terms/vs2022-ga-community/ . The
+NVIDIA subset retains the original CUDA terms, also available at
+https://docs.nvidia.com/cuda/archive/13.0.0/eula/index.html . These references
+identify upstream terms and do not assert that redistribution requirements have
+been satisfied.
+
+The matching libsndfile and codec source, build recipes, modifications, and
+application rebuild instructions are prepared as
+`daemonlet-0.8.4-runtime-rebuild-source.zip` for distribution with the matching
+binary package. This description does not assert that either candidate has
+already been published. Instructions for replacing the
+library and regenerating managed runtime pins are also in
+`licenses/codecs/RELINK.md` inside the shared archive. The original LGPL and
+other upstream rights remain with their respective components.
+
+For the managed Windows voice runtime, the accompanying
+`voice/runtime-terms` directory and external `licenses` directory preserve the
+original Microsoft Visual C++ V14 (14.51) DOCX, Visual C++ 2015–2022 (14.40,
+NumPy vendor copy) English/Korean RTFs, and formatting-only text copies.
+`managed-runtime-terms.json` associates each original document hash with the
+exact covered DLL paths and hashes. The Microsoft runtime terms apply to those
+Microsoft files, not to the project's MIT source or separately licensed open
+source components. Original runtime terms are available at
+https://aka.ms/VCRedistLicense and
+https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/ .
+The application's explicit acceptance record gates managed voice installation
+and use; it does not grant redistribution rights or establish compliance of the
+NSIS, portable, update, or other distribution routes. The distributor's Visual
+Studio and NVIDIA redistribution conditions remain separate obligations.

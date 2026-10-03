@@ -16,6 +16,18 @@ it('pre-aborted admission never launches a process',async()=>{
  const controller=new AbortController();controller.abort()
  await expect(checkWindowsModel('/python','/model','/worker.py','voxcpm2',controller.signal)).rejects.toThrow('VOICE_MODEL_CHECK_CANCELLED');expect(exec).not.toHaveBeenCalled()
 })
+it('abort during full managed interpreter verification prevents the checker process from starting',async()=>{
+ let release!:()=>void,entered!:()=>void
+ const gate=new Promise<void>(resolve=>release=resolve),admitting=new Promise<void>(resolve=>entered=resolve),controller=new AbortController()
+ const pending=checkWindowsModel('/python','/model','/worker.py','qwen3-tts-06b-gguf',controller.signal,{managedRuntime:{root:'/runtime',receipt:'/active.json',runtimeId:'qwen-cuda'},beforeManagedSpawn:async()=>{entered();await gate}}).catch(error=>error.message)
+ await admitting;controller.abort();release();expect(await pending).toBe('VOICE_MODEL_CHECK_CANCELLED');expect(exec).not.toHaveBeenCalled()
+})
+it('managed model checks require interpreter verification and skip it for a pre-aborted request',async()=>{
+ const managedRuntime={root:'/runtime',receipt:'/active.json',runtimeId:'qwen-cuda' as const},controller=new AbortController(),verify=vi.fn(async()=>{})
+ await expect(checkWindowsModel('/python','/model','/worker.py','qwen3-tts-06b-gguf',controller.signal,{managedRuntime})).rejects.toThrow('GGUF_RUNTIME_ADMISSION')
+ controller.abort();await expect(checkWindowsModel('/python','/model','/worker.py','qwen3-tts-06b-gguf',controller.signal,{managedRuntime,beforeManagedSpawn:verify})).rejects.toThrow('VOICE_MODEL_CHECK_CANCELLED')
+ expect(verify).not.toHaveBeenCalled();expect(exec).not.toHaveBeenCalled()
+})
 it('Windows abort kills only its owned tree and drains close plus termination completion before a late PASS can settle',async()=>{
  const f=fixture();let settled=false;const task=f.promise.catch(e=>e.message).finally(()=>settled=true)
  f.controller.abort();expect(exec.mock.calls[1].slice(0,2)).toEqual(['taskkill.exe',['/PID','12345','/T','/F']]);expect(f.child.kill).not.toHaveBeenCalled()

@@ -1,20 +1,30 @@
 // GPU/signing-free production ASAR and user-readable notice verification.
 import {cp, mkdir, readFile, rm, writeFile} from 'node:fs/promises'
-import {resolve, join} from 'node:path'
+import {resolve, join, relative} from 'node:path'
 import {createPackage} from '@electron/asar'
-import {checkCandidate} from './check.mjs'
+import {checkCandidate, checkProductionSources} from './check.mjs'
+import forgeConfig from '../../forge.config.mjs'
 import {checkExternalNotices} from './check-notices.mjs'
 import {digest} from './artwork.mjs'
 import {createValidation, readBuildSource, recordCheck, saveValidation} from './validation.mjs'
 const root = resolve(import.meta.dirname, '../..'), output = resolve(root, 'outputs/release-verification')
+const sourceOnlyRuntime = process.argv.includes('--source-only-runtime')
+const check = sourceOnlyRuntime ? checkProductionSources : checkCandidate
 await mkdir(output, {recursive: true})
 const stage = join(output, 'stage')
 await rm(stage, {recursive: true, force: true}); await mkdir(stage)
-for (const path of ['package.json', 'dist', 'dist-electron']) await cp(join(root, path), join(stage, path), {recursive: true})
+for (const path of ['package.json', 'dist', 'dist-electron']) await cp(join(root, path), join(stage, path), {
+  recursive: true, filter: source => !forgeConfig.packagerConfig.ignore('/' + relative(root, source).replaceAll('\\', '/')),
+})
 const asar = join(output, 'app.asar')
 await createPackage(stage, asar)
 const validation = await createValidation({root: output, source: await readBuildSource(root), appVersion: JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version, artifacts: [{file: 'app.asar', kind: 'asar'}]})
-const checks = await checkCandidate(asar)
+const checks = await check(asar)
+let sourceOnlyCandidateRejected = false
+if (sourceOnlyRuntime && checks.managedRuntime.status === 'source-only-runtime-unavailable') {
+  try { await checkCandidate(asar) } catch (error) { sourceOnlyCandidateRejected = /GGUF_RUNTIME_PACKAGE_NOT_READY/.test(error.message) }
+  if (!sourceOnlyCandidateRejected) throw Error('Source-only Windows ASAR passed installer candidate verification')
+}
 await cp(join(root, 'dist-notices/licenses'), join(output, 'licenses'), {recursive: true})
 await checkExternalNotices(join(output, 'licenses'))
 const rejected = []
@@ -27,7 +37,7 @@ for (const [name, relative, mutate] of [
   await writeFile(path, mutate(original.toString('utf8')))
   const fixture = join(output, name + '.asar'); await createPackage(stage, fixture)
   let failure
-  try { await checkCandidate(fixture) } catch (error) { failure = error }
+  try { await check(fixture) } catch (error) { failure = error }
   await rm(fixture); await writeFile(path, original)
   if (!failure || !/input graph|QA or custom/.test(failure.message)) throw Error('QA artifact negative control was not rejected: ' + name)
   qaRejected.push(name)
@@ -36,7 +46,7 @@ const obsolete = join(stage, 'dist/side-chat.html'), obsoleteArchive = join(outp
 await writeFile(obsolete, '<!doctype html><title>Obsolete standalone chat</title>', {flag: 'wx'})
 await createPackage(stage, obsoleteArchive)
 let rejectedStandalone = false
-try { await checkCandidate(obsoleteArchive) } catch (error) { rejectedStandalone = /Standalone chat surface/.test(error.message) }
+try { await check(obsoleteArchive) } catch (error) { rejectedStandalone = /Standalone chat surface/.test(error.message) }
 await rm(obsolete); await rm(obsoleteArchive)
 if (!rejectedStandalone) throw Error('Standalone chat surface negative control was accepted')
 qaRejected.push('standalone-chat')
@@ -47,7 +57,7 @@ for (const mode of ['missing', 'empty', 'altered']) {
   else await writeFile(path, mode === 'empty' ? '' : 'altered legal text')
   const fixture = join(output, mode + '.asar'); await createPackage(stage, fixture)
   let failure
-  try { await checkCandidate(fixture) } catch (error) { failure = error }
+  try { await check(fixture) } catch (error) { failure = error }
   if (!failure || !/CC-BY-4.0/.test(failure.message)) throw Error('Notice negative fixture did not fail at the intended notice: ' + mode)
   rejected.push(mode); await rm(fixture); await writeFile(path, original)
 }
@@ -57,8 +67,9 @@ let rejectedExternal = false
 try { await checkExternalNotices(join(output, 'licenses')) } catch { rejectedExternal = true }
 await writeFile(external, bytes)
 if (!rejectedExternal) throw Error('Empty external notice was accepted')
-const result = {checks, asar, sha256: digest(await readFile(asar)), negativeFixturesRejected: rejected, qaNegativeFixturesRejected: qaRejected, externalNoticeNegativeRejected: rejectedExternal, nativeInstallation: 'NOT RUN'}
+const scope = sourceOnlyRuntime ? 'production-sources' : 'production-candidate-structure'
+const result = {validationScope: scope, checks, asar, sha256: digest(await readFile(asar)), negativeFixturesRejected: rejected, qaNegativeFixturesRejected: qaRejected, externalNoticeNegativeRejected: rejectedExternal, sourceOnlyCandidateRejected, nativeInstallation: 'NOT RUN'}
 await writeFile(join(output, 'result.json'), JSON.stringify(result, null, 2) + '\n')
-await recordCheck(validation, output, {kind: 'asar', status: 'PASS', procedure: 'npm run release:verify (production ASAR, scoped assets, external notices and negative fixtures)', evidence: ['result.json']})
+await recordCheck(validation, output, {kind: 'asar', status: 'PASS', procedure: `npm run release:verify${sourceOnlyRuntime ? ' -- --source-only-runtime' : ''} (${scope} ASAR, scoped assets, external notices and negative fixtures; native/installer acceptance NOT RUN)`, evidence: ['result.json']})
 await saveValidation(output, validation)
 console.log(JSON.stringify(result, null, 2))

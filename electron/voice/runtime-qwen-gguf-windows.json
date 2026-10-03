@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "id": "qwen-gguf-windows-cuda-q8",
+  "engine": "qwen3-tts-06b-gguf",
+  "platform": "win32",
+  "architecture": "x64",
+  "pythonMajorMinor": "3.11",
+  "backend": "CUDA0",
+  "sourceRepository": "https://github.com/ServeurpersoCom/qwentts.cpp",
+  "sourceCommit": "6fae92914045cd83364d2845ceaa0f7969727319",
+  "sourceLicense": "MIT",
+  "ggmlRepository": "https://github.com/ServeurpersoCom/ggml",
+  "ggmlCommit": "40e16e4a814f7fe851a0c486fb9e8c722e957830",
+  "ggmlLicense": "MIT",
+  "modelRepository": "Serveurperso/Qwen3-TTS-GGUF",
+  "modelRevision": "b7ee2e8c7459c3bea99da23e3d178125a7d1713c",
+  "modelLicense": "Apache-2.0",
+  "modelType": "base",
+  "abiVersion": 5,
+  "dependencies": {
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "soundfile": "0.14.0"
+  },
+  "cudaVersion": "13.0",
+  "models": {
+    "qwen-talker-0.6b-base-Q8_0.gguf": {
+      "bytes": 992615488,
+      "sha256": "d54dbaf10591421fa764ed630d764efa717ae40cd959bd48c66d4eb1af226426"
+    },
+    "qwen-tokenizer-12hz-Q8_0.gguf": {
+      "bytes": 291150624,
+      "sha256": "1883beeed99348fc35e23dd225e9082f93f6f8c109330a33d935baa8acdbfd94"
+    }
+  },
+  "binaries": {
+    "ggml-base.dll": {
+      "bytes": 655872,
+      "sha256": "f5a881ebd14042ed9f83ef3df12263502ddba9c0aa9ebb8f6ca96d179c5be431"
+    },
+    "ggml-cpu.dll": {
+      "bytes": 863232,
+      "sha256": "3870cde230d090b845c817d62243153267361c4c6fed61e98e339bb6e2aedf38"
+    },
+    "ggml-cuda.dll": {
+      "bytes": 51713024,
+      "sha256": "caf3f479c5efef5e5f36ea2e1187c1c5be8cc5afaadaa6c8781dd20a4e5b6e25"
+    },
+    "ggml.dll": {
+      "bytes": 52736,
+      "sha256": "90cb580bac9e57c33398bc4693463f6d1579e741d019181b04384db0501fb142"
+    },
+    "qwen.dll": {
+      "bytes": 309760,
+      "sha256": "cc1d71fe19e319d487f1a68f0b25aed62b6db9b619769eb2f33bd98078f09734"
+    }
+  },
+  "abiLayout": {
+    "Init": {
+      "size": 40,
+      "offsets": {
+        "abi_version": 0,
+        "talker_path": 8,
+        "codec_path": 16,
+        "use_fa": 24,
+        "clamp_fp16": 25,
+        "max_batch": 28,
+        "codec_chunk_sec": 32
+      }
+    },
+    "Audio": {
+      "size": 24,
+      "offsets": {
+        "samples": 0,
+        "n_samples": 8,
+        "sample_rate": 12,
+        "channels": 16
+      }
+    },
+    "Ref": {
+      "size": 32,
+      "offsets": {
+        "ref_spk_emb": 0,
+        "ref_spk_dim": 8,
+        "ref_codes": 16,
+        "ref_T": 24,
+        "num_codebooks": 28
+      }
+    },
+    "Params": {
+      "size": 176,
+      "offsets": {
+        "abi_version": 0,
+        "text": 8,
+        "lang": 16,
+        "instruct": 24,
+        "speaker": 32,
+        "ref_audio_24k": 40,
+        "ref_n_samples": 48,
+        "ref_text": 56,
+        "seed": 64,
+        "max_new_tokens": 72,
+        "temperature": 76,
+        "top_k": 80,
+        "top_p": 84,
+        "repetition_penalty": 88,
+        "subtalker_temperature": 92,
+        "subtalker_top_k": 96,
+        "subtalker_top_p": 100,
+        "dump_dir": 104,
+        "cancel": 112,
+        "cancel_user_data": 120,
+        "on_chunk": 128,
+        "on_chunk_user_data": 136,
+        "ref_spk_emb": 144,
+        "ref_spk_dim": 152,
+        "ref_codes": 160,
+        "ref_T": 168
+      }
+    }
+  },
+  "build": {
+    "generator": "Visual Studio 17 2022",
+    "toolset": "MSVC 14.35.32215",
+    "cmake": "3.25.1",
+    "cuda": "13.0.48",
+    "cudaArchitectures": "89",
+    "GGML_CUDA": true,
+    "GGML_CUDA_GRAPHS": true,
+    "GGML_CUDA_CUB_3DOT2": false,
+    "GGML_CUDA_NCCL": false,
+    "QWEN_SHARED": true
+  },
+  "sampling": {
+    "maxNewTokens": 720,
+    "temperature": 0.9,
+    "topK": 50,
+    "topP": 1,
+    "repetitionPenalty": 1.05
+  },
+  "python": "3.11.15",
+  "backends": {
+    "cuda": {
+      "device": "CUDA0",
+      "backend": "cuda:0",
+      "binaries": {
+        "ggml-base.dll": {
+          "bytes": 655872,
+          "sha256": "f5a881ebd14042ed9f83ef3df12263502ddba9c0aa9ebb8f6ca96d179c5be431"
+        },
+        "ggml-cpu.dll": {
+          "bytes": 863232,
+          "sha256": "3870cde230d090b845c817d62243153267361c4c6fed61e98e339bb6e2aedf38"
+        },
+        "ggml-cuda.dll": {
+          "bytes": 51713024,
+          "sha256": "caf3f479c5efef5e5f36ea2e1187c1c5be8cc5afaadaa6c8781dd20a4e5b6e25"
+        },
+        "ggml.dll": {
+          "bytes": 52736,
+          "sha256": "90cb580bac9e57c33398bc4693463f6d1579e741d019181b04384db0501fb142"
+        },
+        "qwen.dll": {
+          "bytes": 309760,
+          "sha256": "cc1d71fe19e319d487f1a68f0b25aed62b6db9b619769eb2f33bd98078f09734"
+        }
+      },
+      "build": {
+        "generator": "Visual Studio 17 2022",
+        "toolset": "MSVC 14.35.32215",
+        "cmake": "3.25.1",
+        "cuda": "13.0.48",
+        "cudaArchitectures": "89",
+        "GGML_CUDA": true,
+        "GGML_CUDA_GRAPHS": true,
+        "GGML_CUDA_CUB_3DOT2": false,
+        "GGML_CUDA_NCCL": false,
+        "QWEN_SHARED": true
+      }
+    },
+    "vulkan": {
+      "device": "Vulkan0",
+      "backend": "vulkan:0",
+      "sourceCommit": "6fae92914045cd83364d2845ceaa0f7969727319",
+      "ggmlCommit": "40e16e4a814f7fe851a0c486fb9e8c722e957830",
+      "binaries": {
+        "ggml-base.dll": {
+          "bytes": 655872,
+          "sha256": "6a64652a1cb63e3811e6994dfb466715434adb1be5d61bde681c7e0bbf510e63"
+        },
+        "ggml-cpu.dll": {
+          "bytes": 863232,
+          "sha256": "998981864d23a1a6c54b489c0c82fdeae3377c035d9a2a72d70aa90bbcd7d3ca"
+        },
+        "ggml-vulkan.dll": {
+          "bytes": 44283392,
+          "sha256": "357080fb560cbc88ff58964d05370d3bd561943c239bcc668afe2044468c42e1"
+        },
+        "ggml.dll": {
+          "bytes": 52736,
+          "sha256": "edc2896c8d2f857ecf523ac322ccdbdd16f633463ede1c08d98781676549db98"
+        },
+        "qwen.dll": {
+          "bytes": 309760,
+          "sha256": "9770869b832d901c1a2eca6d587af56289ed22385a49725bdef809d1355fa1c2"
+        }
+      },
+      "build": {
+        "generator": "Visual Studio 17 2022",
+        "architecture": "x64",
+        "configuration": "Release",
+        "toolset": "MSVC 14.35.32215",
+        "cmake": "3.25.1",
+        "windowsSdk": "10.0.22000.0",
+        "GGML_VULKAN": true,
+        "GGML_CUDA": false,
+        "GGML_METAL": false,
+        "QWEN_SHARED": true,
+        "ggmlSource": "explicit pre-staged pinned source directory",
+        "targets": [
+          "qwen",
+          "qwen-tts",
+          "test-abi-c"
+        ],
+        "parallel": 4,
+        "shaderCompiler": "SDK Bin/glslc.exe",
+        "sdk": {
+          "vendor": "LunarG, Inc.",
+          "version": "1.4.363.0",
+          "installer": {
+            "name": "vulkansdk-windows-X64-1.4.363.0.exe",
+            "url": "https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/vulkansdk-windows-X64-1.4.363.0.exe",
+            "bytes": 303082720,
+            "sha256": "94a82d378f7a5e3e54c9db7d2fb7016af136e14ac0a18dbf0f2f67a36352d141"
+          },
+          "authenticodeSignature": "Valid LunarG, Inc.",
+          "installation": "core install copy_only=1; no persistent PATH or VULKAN_SDK change"
+        },
+        "runtimeLoader": "installed Windows Vulkan loader and vendor driver; SDK runtime is not installed by the worker"
+      }
+    }
+  },
+  "nativeVerificationScope": "Only the selected backend DLL set is admitted for loading; adjacent EXEs and build tools are never executed or certified by this worker.",
+  "managedModelReceipt": {
+    "schemaVersion": 1,
+    "owner": "daemonlet-managed-public-gguf-model",
+    "scope": "public-base",
+    "id": "qwen3-tts-06b-gguf",
+    "fingerprint": "cfaec89cdb4222b1d8c896e0efba34956790392604d76de3acc1e353c03e80bf",
+    "repository": "Serveurperso/Qwen3-TTS-GGUF",
+    "revision": "b7ee2e8c7459c3bea99da23e3d178125a7d1713c",
+    "files": [
+      {
+        "name": "qwen-talker-0.6b-base-Q8_0.gguf",
+        "bytes": 992615488,
+        "sha256": "d54dbaf10591421fa764ed630d764efa717ae40cd959bd48c66d4eb1af226426"
+      },
+      {
+        "name": "qwen-tokenizer-12hz-Q8_0.gguf",
+        "bytes": 291150624,
+        "sha256": "1883beeed99348fc35e23dd225e9082f93f6f8c109330a33d935baa8acdbfd94"
+      }
+    ]
+  },
+  "managedRuntimeCatalog": {
+    "filename": "managed-gguf-runtime-catalog.json",
+    "bytes": 693831,
+    "sha256": "5487a3d3b42fa58e4dcf9ebf19c3540296c93c3075510b115319a9641df5186e"
+  }
+}

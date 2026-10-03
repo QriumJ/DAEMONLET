@@ -19,6 +19,12 @@ it('pet cannot enable or configure voice through presentation acknowledgements',
 it('rejects untrusted senders and unowned audio; volume projects no settings',async()=>{const f=await fixture();expect(()=>f.handler(DOT_IPC.audio)({} as any,'a'.repeat(36),1)).toThrow('UNTRUSTED_AUDIO');expect(await f.handler(DOT_IPC.volume)({} as any)).toBe(.8);vi.mocked(isTrustedSender).mockReturnValue(false);expect(()=>f.handler(DOT_IPC.volume)({} as any)).toThrow('UNTRUSTED_SENDER')})
 it('voice notifications to pet expose only volume and its own audio events',async()=>{const f=await fixture();(f.controller as any).presentationOutput=true;(f.controller as any).send(VOICE_IPC.changed,{volume:.35,bindings:{private:'secret'},results:{private:'history'}});expect(f.send).toHaveBeenLastCalledWith(DOT_IPC.volumeChanged,.35);(f.controller as any).send(VOICE_IPC.event,{type:'stop',epoch:2});expect(f.send).toHaveBeenLastCalledWith(DOT_IPC.voiceEvent,{type:'stop',epoch:2})})
 it('cancel without dot ownership never stops unrelated local speech',async()=>{const f=await fixture(),stop=vi.spyOn(f.controller.service,'stop');await f.controller.stopPresentation();expect(stop).not.toHaveBeenCalled()})
+it('mute revokes Dots IPC before late acknowledgements; unmute never prepares',async()=>{
+ const f=await fixture(),c=f.controller as any,prepare=vi.spyOn(c.service,'prepare');c.presentationOutput=true;c.presentationPlayback={generation:c.presentationGeneration}
+ await c.setPresentationMuted(true);expect(c.presentationOutput).toBe(false);expect(c.presentationPlayback).toBeNull();expect(c.service.presentationVoiceMuted).toBe(true)
+ await expect(f.handler(DOT_IPC.voiceAction)({} as any,{type:'scheduled',audioId:'a'.repeat(36),epoch:1,delayMs:0,gapMs:0})).rejects.toThrow('UNTRUSTED_SENDER')
+ await c.setPresentationMuted(false);expect(c.service.presentationVoiceMuted).toBe(false);expect(prepare).not.toHaveBeenCalled()
+})
 
 it('worker cleanup failure still revokes the pet audio output lease',async()=>{const f=await fixture();(f.controller as any).presentationOutput=true;vi.spyOn(f.controller.service,'stop').mockRejectedValueOnce(Error('worker failed'));vi.spyOn(f.controller.service,'setOutputReady').mockImplementation(()=>{});await expect(f.controller.stopPresentation()).rejects.toThrow('worker failed');expect((f.controller as any).presentationOutput).toBe(false)})
 

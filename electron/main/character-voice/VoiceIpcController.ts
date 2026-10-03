@@ -1,4 +1,11 @@
 import {QwenVoiceInstaller} from './QwenVoiceInstaller'
+import {WindowsGgufModelInstaller} from './WindowsGgufModelInstaller'
+import {WindowsGgufRuntimeInstaller} from './WindowsGgufRuntimeInstaller'
+import {ManagedRuntimeTerms} from './ManagedRuntimeTerms'
+import type {GgufRuntimeCatalog} from '../../shared/windows-gguf-runtime-catalog'
+import qwenWindowsPolicy from '../../voice/runtime-qwen-gguf-windows.json'
+import {readFileSync} from 'node:fs'
+import {createHash} from 'node:crypto'
 import {VOICE_MOUTH_IPC,validVoiceMouth,type VoiceMouthInput} from '../../shared/voice-mouth'
 import {DOT_IPC} from '../../shared/dot-presentation'
 import {appText,appLanguage} from '../AppLanguage'
@@ -7,9 +14,9 @@ import {join,dirname} from 'node:path'
 import {preparationMetrics} from './VoicePreparationMetrics'
 import {WindowsVoiceInstaller} from './WindowsVoiceInstaller'
 import {VoiceBaseInstaller} from './VoiceBaseInstaller'
-import {dialog,ipcMain,type BrowserWindow} from 'electron'
+import {dialog,ipcMain,shell,type BrowserWindow} from 'electron'
 import {isTrustedSender} from '../SecurityPolicy'
-import {isReferenceProfile,VOICE_IPC,type VoiceAction} from '../../shared/character-voice-contract'
+import {isManagedVoice,isReferenceProfile,VOICE_IPC,type VoiceAction} from '../../shared/character-voice-contract'
 import type {CharacterChatService} from '../character-chat/CharacterChatService'
 import {CharacterVoiceService} from './CharacterVoiceService'
 
@@ -44,12 +51,18 @@ export class VoiceIpcController {
  }
 
  presentationReady(value:boolean){this.petReady=value;if(!value&&this.presentationOutput){this.presentationOutput=false;this.service.setOutputReady(false)}}
- presentationVoiceIssue(){const s=this.service.snapshot();return !this.petReady||!s.enabled||!s.runtimeConfigured||s.seedError||!s.availableProfiles?.length||!!s.error}
+ presentationVoiceIssue(){const s=this.service.snapshot();return this.service.presentationVoiceMuted||!this.petReady||!s.enabled||!s.runtimeConfigured||s.seedError||!s.availableProfiles?.length||!!s.error}
+ async setPresentationMuted(value:boolean){
+  if(!value&&!this.service.presentationVoiceMuted)return
+  const generation=++this.presentationGeneration,pending=this.service.setPresentationMuted(value)
+  if(value){this.presentationOutput=false;this.presentationPlayback=null}
+  try{await pending}finally{if(value&&generation===this.presentationGeneration)this.updateOutput()}
+ }
  async speakPresentation(text:string,signal:AbortSignal,scheduled:(delayMs:number)=>void=()=>{}){
   if(this.playbackReady||!this.petOutput||this.petOutput.isDestroyed()||!this.petOutput.isVisible()||this.presentationVoiceIssue())throw Error('VOICE_PRESENTATION_UNAVAILABLE')
   const generation=++this.presentationGeneration;this.presentationOutput=true
   this.presentationPlayback={generation,signal,epoch:null,announced:new Set(),claimed:new Set(),started:false,scheduled}
-  this.service.setOutputReady(true,false)
+  this.service.setOutputReady(true,false,'presentation')
   let outcome:'completed'|'cancelled'|'failed'='cancelled',failure:unknown
   try{await this.service.speakPresentation(text,signal);outcome=signal.aborted?'cancelled':'completed'}
   catch(e){failure=e;outcome=e instanceof Error&&e.message==='VOICE_CANCELLED'?'cancelled':'failed';throw e}
@@ -88,6 +101,21 @@ export class VoiceIpcController {
   const metrics=process.platform==='win32'?preparationMetrics(root):undefined
   this.service=new CharacterVoiceService(root,worker,()=>chat.snapshot(),s=>this.send(VOICE_IPC.changed,s),e=>this.send(VOICE_IPC.event,e),undefined,value=>{console.info('[voice]',JSON.stringify(value));metrics?.(value)},process.platform==='win32'?new WindowsVoiceInstaller(join(root,'windows-base'),dirname(worker),()=>this.service.refreshBase()):new VoiceBaseInstaller(join(root,'base-model'),join(dirname(worker),'base-native'),()=>this.service.refreshBase()))
   this.service.attachQwenInstaller(new QwenVoiceInstaller(join(root,'qwen-managed'),dirname(worker),()=>this.service.refreshBase()))
+  this.service.attachGgufInstaller(new WindowsGgufModelInstaller(join(root,'gguf-models'),()=>this.service.refreshBase()))
+  if(process.platform==='win32'&&process.arch==='x64'){
+   this.service.requireManagedRuntimeTerms()
+   try{
+    const pin=(qwenWindowsPolicy as unknown as {managedRuntimeCatalog?:{filename:string;bytes:number;sha256:string}}).managedRuntimeCatalog
+    if(!pin)throw Error('GGUF_RUNTIME_ARTIFACT_PENDING')
+    if(pin.filename!=='managed-gguf-runtime-catalog.json'||!Number.isSafeInteger(pin.bytes)||pin.bytes<=0||!/^[a-f0-9]{64}$/.test(pin.sha256))throw Error('GGUF_RUNTIME_CHANGED')
+    const bytes=readFileSync(join(dirname(worker),pin.filename))
+    if(bytes.length!==pin.bytes||createHash('sha256').update(bytes).digest('hex')!==pin.sha256)throw Error('GGUF_RUNTIME_CHANGED')
+    const catalog=JSON.parse(bytes.toString('utf8')) as GgufRuntimeCatalog
+    this.service.attachManagedRuntimeTerms(new ManagedRuntimeTerms(root,join(dirname(worker),'runtime-terms'),catalog))
+    this.service.attachGgufRuntimeInstaller(new WindowsGgufRuntimeInstaller(join(root,'rt',pin.sha256.slice(0,16)),()=>this.service.refreshBase(),{catalog,catalogSha256:pin.sha256,layout:'compact-v1',bundledRoot:join(dirname(worker),'managed-gguf-runtime-archives')}),catalog)
+   }catch(error){this.service.runtimeSetupUnavailable(error instanceof Error&&error.message==='GGUF_RUNTIME_ARTIFACT_PENDING'?'GGUF_RUNTIME_ARTIFACT_PENDING':'GGUF_RUNTIME_CHANGED')}
+  }
+  this.service.attachModelTrash(path=>shell.trashItem(path))
   ipcMain.handle(DOT_IPC.volume,event=>{if(this.closing||!this.petOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl))throw Error('UNTRUSTED_SENDER');return this.service.snapshot().volume})
   ipcMain.handle(DOT_IPC.voiceAction,async(event,v:VoiceAction)=>{
    if(this.closing||!this.petOutput||!isTrustedSender(event,this.petOutput,'pet',this.devServerUrl)||!v||!['played','scheduled','outputStopped'].includes(v.type)||!this.presentationOutput)throw Error('UNTRUSTED_SENDER')
@@ -167,17 +195,53 @@ export class VoiceIpcController {
   switch(v.type){
    case 'ready':this.rendererReady=true;this.updateOutput();return
    case 'snapshot':return
+   case 'acceptGgufRuntimeTerms':return this.service.acceptManagedRuntimeTerms(v.fingerprint,contextCurrent)
+   case 'viewGgufRuntimeTerms':{
+    if(!contextCurrent())throw Error('CHAT_SETTINGS_EXPIRED')
+    const path=await this.service.runtimeTermsDocument(v.id,v.view)
+    if(!contextCurrent())throw Error('CHAT_SETTINGS_EXPIRED')
+    if(await shell.openPath(path))throw Error('GGUF_RUNTIME_TERMS_OPEN_FAILED')
+    return
+   }
    case 'stop':return this.presentationOutput?this.stopPresentation():this.service.stop(true,false)
    case 'installQwen':return this.service.installQwen(contextCurrent)
    case 'cancelInstallQwen':return this.service.cancelInstallQwen()
+   case 'installGgufRuntime':case 'repairGgufRuntime':case 'verifyGgufRuntime':{
+    if(!['qwen-cuda','qwen-vulkan','vox-cuda','vox-vulkan'].includes(v.id))throw Error('VOICE_ACTION')
+    return this.service.setupGgufRuntime(v.id,v.type==='installGgufRuntime'?'install':v.type==='repairGgufRuntime'?'repair':'verify',contextCurrent)
+   }
+   case 'cancelInstallGgufRuntime':return this.service.cancelInstallGgufRuntime()
    case 'installBase':return this.service.installBase()
    case 'cancelInstallBase':return this.service.cancelInstallBase()
    case 'cancelReferenceImport':if(this.referencePicker)this.referencePicker.cancelled=true;return this.service.cancelReferenceImport()
+   case 'prepareVoiceFiles':return this.service.prepareVoiceFiles(contextCurrent)
+   case 'cancelPrepareVoiceFiles':return this.service.cancelPrepareVoiceFiles()
+   case 'selectVoicePath':return this.service.selectVoicePath(v.id,contextCurrent)
    case 'engine':return this.service.engine(v.value,contextCurrent)
    case 'qwenClone':return this.service.qwenClone(v.value,contextCurrent)
    case 'modelVerification':return this.service.modelVerificationPolicy(v.value,contextCurrent)
    case 'checkModel':return this.service.checkModel(contextCurrent)
    case 'cancelModelCheck':return this.service.cancelModelCheck()
+   case 'installGgufModel':case 'verifyGgufModel':if(!['qwen3-tts-06b-gguf','voxcpm2-gguf-f16'].includes(v.id))throw Error('VOICE_ACTION');return v.type==='installGgufModel'?this.service.installGgufModel(v.id,contextCurrent):this.service.verifyGgufModel(v.id,contextCurrent)
+   case 'cancelInstallGgufModel':return this.service.cancelInstallGgufModel()
+   case 'refreshManagedModels':return this.service.refreshManagedModels(contextCurrent)
+   case 'removeManagedModel':{
+    if(!['voxcpm2-base','qwen3-tts-06b','qwen3-tts-06b-gguf','voxcpm2-gguf-f16'].includes(v.id))throw Error('VOICE_ACTION')
+    const win=owner;if(!win||win.isDestroyed()||this.picking)return
+    this.picking=true
+    const selection=this.service.modelRemovalContext()
+    const current=()=>!this.closing&&contextCurrent()&&!win.isDestroyed()&&this.service.modelRemovalContext()===selection
+    try{
+     if(!current())return
+     const plan=await this.service.inspectManagedModelRemoval(v.id,current)
+     if(!plan||!current())return
+     const bytes=(value:number)=>value.toLocaleString(appLanguage()==='en'?'en-US':'ko-KR')+' bytes'
+     const detail=[appText('모델')+': '+plan.modelId,appText('고정 버전')+': '+plan.revision,appText('삭제 용량')+': '+bytes(plan.totalBytes),...plan.directories.map(directory=>directory.path+'\n'+bytes(directory.bytes)),appText(this.service.modelRemovalImpact(plan)?'현재 목소리가 이 모델을 사용합니다. 삭제 후에는 필요한 모델을 다시 받고 연결해야 합니다.':'현재 선택한 목소리는 이 모델을 사용하지 않습니다.'),appText('휴지통을 비우기 전까지 저장 공간을 계속 사용합니다. 복원 후 다시 연결할 수 있습니다.'),appText('현재 음성과 해당 모델 다운로드를 중단합니다. 모델 파일과 모델 다운로드 캐시만 휴지통으로 옮깁니다. Python·실행 환경, 캐릭터 목소리 선택, 학습팩, 기준 WAV와 외부 모델은 보존됩니다.')].join('\n\n')
+     const result=await dialog.showMessageBox(win,{type:'warning',buttons:[appText('취소'),appText('휴지통으로 이동')],defaultId:0,cancelId:0,message:appText('앱이 관리하는 음성 모델을 휴지통으로 옮길까요?'),detail})
+     if(result.response===1&&current())await this.service.removeManagedModel(v.id,plan.planId,current)
+    }finally{this.picking=false}
+    return
+   }
    case 'prepare':return this.service.prepare()
    case 'executionProfile':if(!this.service.snapshot().availableProfiles?.includes(v.value))throw Error('VOICE_ACTION');return this.service.executionProfile(v.value)
    case 'enabled':case 'auto':if(typeof v.value!=='boolean')throw Error('VOICE_ACTION');return v.type==='enabled'?this.service.enabled(v.value):this.service.auto(v.value)
@@ -212,6 +276,44 @@ export class VoiceIpcController {
    case 'played':if(!this.presentationOutput&&v.epoch===this.localAudioEpoch){this.localAudioClaims.delete(v.audioId);if(!this.localAudioClaims.size)this.publishMouth(null)}if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||v.error!==undefined&&typeof v.error!=='boolean')throw Error('VOICE_ACTION');return this.service.played(v.audioId,v.epoch,v.error)
    case 'scheduled':if(typeof v.audioId!=='string'||v.audioId.length!==36||!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.delayMs)||v.delayMs<0||v.delayMs>6000||!Number.isFinite(v.gapMs)||v.gapMs<0||v.gapMs>180_000)throw Error('VOICE_ACTION');return this.service.scheduled(v.audioId,v.epoch,v.delayMs,v.gapMs)
    case 'outputStopped':if(!Number.isSafeInteger(v.epoch)||!Number.isFinite(v.elapsedMs)||v.elapsedMs<0||v.elapsedMs>180_000)throw Error('VOICE_ACTION');return this.service.outputStopped(v.epoch,v.elapsedMs)
+   case 'configureQwenGguf':{
+    if(process.platform!=='win32'||process.arch!=='x64')throw Error('QWEN_GGUF_UNSUPPORTED')
+    const win=owner;if(!win||win.isDestroyed()||this.picking)return
+    this.picking=true
+    const current=()=>!this.closing&&contextCurrent()&&!win.isDestroyed()
+    try{
+     if(!current())return
+     const python=await dialog.showOpenDialog(win,{title:appText('Qwen GGUF 환경의 Python 선택'),properties:['openFile']})
+     if(!current()||python.canceled||python.filePaths.length!==1||!python.filePaths[0])return
+     const runtime=await dialog.showOpenDialog(win,{title:appText(this.service.snapshot().executionProfile?.startsWith('qwen-gguf-vulkan')?'검증된 Qwen GGUF Vulkan DLL 폴더 선택':'검증된 Qwen GGUF CUDA DLL 폴더 선택'),properties:['openDirectory']})
+     if(!current()||runtime.canceled||runtime.filePaths.length!==1||!runtime.filePaths[0])return
+     const model=await dialog.showOpenDialog(win,{title:appText('Qwen 0.6B Base Q8·codec Q8 모델 폴더 선택'),properties:['openDirectory']})
+     if(!current()||model.canceled||model.filePaths.length!==1||!model.filePaths[0])return
+     await this.service.configureQwenGguf(python.filePaths[0],model.filePaths[0],runtime.filePaths[0],current)
+    }finally{this.picking=false}
+    return
+   }
+   case 'configureVoxGguf':{
+    if(process.platform!=='win32'||process.arch!=='x64')throw Error('VOX_GGUF_UNSUPPORTED')
+    const win=owner;if(!win||win.isDestroyed()||this.picking)return
+    this.picking=true
+    const current=()=>!this.closing&&contextCurrent()&&!win.isDestroyed()
+    const state=this.service.snapshot(),key=state.bindings[character?.id||'']||state.defaultProfile,publicBase=isManagedVoice(state.profiles.find(profile=>profile.id+'@'+profile.version===key))
+    const pick=async(options:Electron.OpenDialogOptions)=>{
+     if(!current())return null
+     const result=await dialog.showOpenDialog(win,options)
+     return current()&&!result.canceled&&result.filePaths.length===1&&result.filePaths[0]?result.filePaths[0]:null
+    }
+    try{
+     const python=await pick({title:appText('VoxCPM2 Windows GGUF 환경의 Python 선택'),properties:['openFile']});if(!python)return
+     const model=await pick({title:appText(publicBase?'공개 VoxCPM2 F16 GGUF 모델 폴더 선택':'고정 원본 VoxCPM2 모델 폴더 선택'),properties:['openDirectory']});if(!model)return
+     const runtimeDir=await pick({title:appText('검증된 VoxCPM2 Windows EXE·DLL 폴더 선택'),properties:['openDirectory']});if(!runtimeDir)return
+     const derivativeDir=publicBase?model:await pick({title:appText('변환 기록과 BaseLM·Acoustic F16 GGUF 폴더 선택'),properties:['openDirectory']});if(!derivativeDir)return
+     const receipt=await pick({title:appText('VoxCPM2 Windows GGUF 실행 승인 기록 선택'),filters:[{name:'JSON',extensions:['json']}],properties:['openFile']});if(!receipt)return
+     await (publicBase?this.service.configureVoxPublicGguf(python,model,{runtimeDir,derivativeDir,receipt},current):this.service.configureVoxGguf(python,model,{runtimeDir,derivativeDir,receipt},current))
+    }finally{this.picking=false}
+    return
+   }
    case 'import':case 'configure':case 'configureQwen':{
     const win=owner;if(!win||win.isDestroyed()||this.picking)return
     this.picking=true
