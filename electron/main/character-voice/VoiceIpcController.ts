@@ -1,6 +1,7 @@
 import {QwenVoiceInstaller} from './QwenVoiceInstaller'
 import {WindowsGgufModelInstaller} from './WindowsGgufModelInstaller'
 import {WindowsGgufRuntimeInstaller} from './WindowsGgufRuntimeInstaller'
+import {ManagedRuntimeTerms} from './ManagedRuntimeTerms'
 import type {GgufRuntimeCatalog} from '../../shared/windows-gguf-runtime-catalog'
 import qwenWindowsPolicy from '../../voice/runtime-qwen-gguf-windows.json'
 import {readFileSync} from 'node:fs'
@@ -102,6 +103,7 @@ export class VoiceIpcController {
   this.service.attachQwenInstaller(new QwenVoiceInstaller(join(root,'qwen-managed'),dirname(worker),()=>this.service.refreshBase()))
   this.service.attachGgufInstaller(new WindowsGgufModelInstaller(join(root,'gguf-models'),()=>this.service.refreshBase()))
   if(process.platform==='win32'&&process.arch==='x64'){
+   this.service.requireManagedRuntimeTerms()
    try{
     const pin=(qwenWindowsPolicy as unknown as {managedRuntimeCatalog?:{filename:string;bytes:number;sha256:string}}).managedRuntimeCatalog
     if(!pin)throw Error('GGUF_RUNTIME_ARTIFACT_PENDING')
@@ -109,6 +111,7 @@ export class VoiceIpcController {
     const bytes=readFileSync(join(dirname(worker),pin.filename))
     if(bytes.length!==pin.bytes||createHash('sha256').update(bytes).digest('hex')!==pin.sha256)throw Error('GGUF_RUNTIME_CHANGED')
     const catalog=JSON.parse(bytes.toString('utf8')) as GgufRuntimeCatalog
+    this.service.attachManagedRuntimeTerms(new ManagedRuntimeTerms(root,join(dirname(worker),'runtime-terms'),catalog))
     this.service.attachGgufRuntimeInstaller(new WindowsGgufRuntimeInstaller(join(root,'rt',pin.sha256.slice(0,16)),()=>this.service.refreshBase(),{catalog,catalogSha256:pin.sha256,layout:'compact-v1',bundledRoot:join(dirname(worker),'managed-gguf-runtime-archives')}),catalog)
    }catch(error){this.service.runtimeSetupUnavailable(error instanceof Error&&error.message==='GGUF_RUNTIME_ARTIFACT_PENDING'?'GGUF_RUNTIME_ARTIFACT_PENDING':'GGUF_RUNTIME_CHANGED')}
   }
@@ -192,6 +195,14 @@ export class VoiceIpcController {
   switch(v.type){
    case 'ready':this.rendererReady=true;this.updateOutput();return
    case 'snapshot':return
+   case 'acceptGgufRuntimeTerms':return this.service.acceptManagedRuntimeTerms(v.fingerprint,contextCurrent)
+   case 'viewGgufRuntimeTerms':{
+    if(!contextCurrent())throw Error('CHAT_SETTINGS_EXPIRED')
+    const path=await this.service.runtimeTermsDocument(v.id,v.view)
+    if(!contextCurrent())throw Error('CHAT_SETTINGS_EXPIRED')
+    if(await shell.openPath(path))throw Error('GGUF_RUNTIME_TERMS_OPEN_FAILED')
+    return
+   }
    case 'stop':return this.presentationOutput?this.stopPresentation():this.service.stop(true,false)
    case 'installQwen':return this.service.installQwen(contextCurrent)
    case 'cancelInstallQwen':return this.service.cancelInstallQwen()

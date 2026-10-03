@@ -91,3 +91,18 @@ it.each([
 ])('GGUF diagnostic %s gives actionable setup guidance', (error,message)=>{
  const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,error},act:()=>{},playbackReady:true}));expect(html).toContain(message)
 })
+
+it('shows Microsoft acceptance only for the managed runtime scope, without preselecting it',()=>{
+ const terms={fingerprint:'fixture-fingerprint',accepted:false,error:null,documents:[{id:'vc-test',title:'Microsoft runtime fixture',version:'fixture',files:['vc/msvcp140.dll'],originalSha256:'0'.repeat(64)}],cudaNotice:{id:'cuda-test',title:'CUDA fixture'}}
+ const available={id:'qwen-cuda' as const,supported:true,available:true,installed:true,verified:true,phase:'idle' as const,bytes:0,total:1,error:null}
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,ggufRuntimeTerms:terms,ggufRuntimeInstall:[available]},act:()=>{},playbackReady:true}))
+ expect(html).toContain('Microsoft 음성 실행 파일 이용 조건');expect(html).toContain('LGPL 등 각 오픈소스');expect(html).toContain('NVIDIA CUDA 구성요소 안내')
+ expect(html).toMatch(/<input type="checkbox"\/>/);expect(html).toContain('<button disabled="">Microsoft 조건 수락</button>');expect(html).toMatch(/<button[^>]*disabled=""[^>]*>필요한 파일 받기·연결<\/button>/)
+ const accepted=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,ggufRuntimeTerms:{...terms,accepted:true},ggufRuntimeInstall:[available]},act:()=>{},playbackReady:true}))
+ expect(accepted).toContain('이 버전의 Microsoft 음성 실행 파일 이용 조건을 수락했습니다.');expect(accepted).not.toContain('>Microsoft 조건 수락</button>')
+ const legacy=renderToStaticMarkup(createElement(VoiceSettings,{state,act:()=>{},playbackReady:true}));expect(legacy).not.toContain('Microsoft 음성 실행 파일 이용 조건')
+})
+it('offers the existing-file preparation button for managed missing connections',()=>{
+ const html=renderToStaticMarkup(createElement(VoiceSettings,{state:{...gguf,error:'QWEN_GGUF_RUNTIME_MISSING',ggufRuntimeInstall:[{id:'qwen-cuda',supported:true,available:true,installed:true,verified:true,phase:'idle',bytes:0,total:1,error:null}]},act:()=>{},playbackReady:true}))
+ expect(html).toContain('필요한 파일 받기·연결을 눌러 받은 파일을 검사하고 현재 엔진에 연결해 주세요.')
+})

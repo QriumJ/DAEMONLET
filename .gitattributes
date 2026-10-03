@@ -17,3 +17,6 @@
 electron/voice/managed-gguf-runtime-catalog.json -text
 electron/voice/runtime-qwen-gguf-windows.json -text
 electron/voice/runtime-gguf-windows-voxcpm2.json -text
+# Runtime terms retain their upstream bytes, including original formatting.
+electron/voice/runtime-terms/* -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol
+electron/voice/managed-runtime-terms.json -text

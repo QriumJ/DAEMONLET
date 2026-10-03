@@ -287,6 +287,10 @@ select { padding: 8px 30px 8px 11px; border: 1px solid #dfe4d9; border-radius: 7
 .voice-files-preparation { padding:15px; border-radius:10px; background:#eaf3ec; }
 .voice-files-preparation p { font-size:12px; margin-bottom:12px; }
 .voice-files-preparation span[role="status"] { display:block; margin:10px 0; font-size:12px; }
+.voice-runtime-terms { margin:14px 0; padding:14px; border:1px solid var(--line); border-radius:8px; background:var(--surface,#fff); }
+.voice-runtime-terms label { display:flex; align-items:flex-start; gap:10px; font-size:12px; line-height:1.6; }
+.voice-runtime-terms input[type="checkbox"] { flex-shrink:0; margin-top:3px; }
+.voice-runtime-terms li, .voice-runtime-terms small { overflow-wrap:anywhere; }
 .voice-settings .voice-files-preparation .primary { background:var(--accent); color:white; }
 .voice-loading { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:12px; }
 .voice-loading progress { max-width:240px; }

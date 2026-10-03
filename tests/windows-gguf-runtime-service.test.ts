@@ -1,3 +1,6 @@
+import {ManagedRuntimeTerms} from '../electron/main/character-voice/ManagedRuntimeTerms'
+import termsPolicy from '../electron/voice/managed-runtime-terms.json'
+import {resolve} from 'node:path'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
 import {mkdtemp,mkdir,readFile,rm,writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
@@ -39,7 +42,7 @@ async function fixture(installed=true){
  cleanup.push(async()=>{for(const s of services)await s.close();await rm(root,{recursive:true,force:true})})
  const selectQwen=async()=>{await service.engine('qwen3-tts-06b-gguf');await service.bind('gpichan','wav-fixture@1')}
  const saved=async()=>JSON.parse(await readFile(join(root,'settings.json'),'utf8'))
- return{root,worker,python,dependency,qwenModel,voxModel,connections,installer,models,modelStates,service,make,runtimes,selectQwen,saved,create}
+ return{root,catalog,worker,python,dependency,qwenModel,voxModel,connections,installer,models,modelStates,service,make,runtimes,selectQwen,saved,create}
 }
 it('connects the current backend with verified managed model paths without enabling voice or changing the engine',async()=>{
  const f=await fixture();await f.selectQwen();await f.service.setupGgufRuntime('qwen-cuda','install')
@@ -172,4 +175,45 @@ it.each(['cancel','close'] as const)('runtime-stage %s drains the chain and prev
  await (boundary==='close'?f.service.close():f.service.cancelPrepareVoiceFiles());await preparing
  expect(f.service.snapshot()).toMatchObject({qwenGgufConfigured:false,filePreparation:{busy:false,phase:'cancelled'}})
  expect(f.make).not.toHaveBeenCalled()
+})
+
+async function requireTerms(f:Awaited<ReturnType<typeof fixture>>){
+ f.catalog.components.shared.files=Object.assign({},...termsPolicy.groups.map(group=>group.files))
+ const terms=new ManagedRuntimeTerms(f.root,resolve('electron/voice/runtime-terms'),f.catalog)
+ f.service.attachManagedRuntimeTerms(terms);await terms.initialize();return terms
+}
+it('does not auto-accept an existing user or install any files before explicit Microsoft acceptance',async()=>{
+ const f=await fixture();await f.selectQwen();await f.service.setupGgufRuntime('qwen-cuda','install');await f.service.enabled(true);const settings=await f.saved();f.installer.install.mockClear();f.models.install.mockClear();f.installer.verify.mockClear()
+ const terms=await requireTerms(f);expect(f.service.snapshot()).toMatchObject({ggufRuntimeTerms:{accepted:false},status:'unavailable',error:'GGUF_RUNTIME_TERMS_REQUIRED'})
+ expect(()=>f.service.prepareVoiceFiles()).toThrow('GGUF_RUNTIME_TERMS_REQUIRED')
+ await expect(f.service.setupGgufRuntime('qwen-cuda','install')).rejects.toThrow('GGUF_RUNTIME_TERMS_REQUIRED')
+ await f.service.prepare();await expect(f.service.prepare(true)).rejects.toThrow('GGUF_RUNTIME_TERMS_REQUIRED');await expect(f.service.checkModel()).rejects.toThrow('GGUF_RUNTIME_TERMS_REQUIRED')
+ expect(f.installer.install).not.toHaveBeenCalled();expect(f.installer.verify).not.toHaveBeenCalled();expect(f.models.install).not.toHaveBeenCalled();expect(f.make).not.toHaveBeenCalled();expect(await f.saved()).toEqual(settings)
+ await expect(f.service.acceptManagedRuntimeTerms(terms.fingerprint,()=>false)).rejects.toThrow('CHAT_SETTINGS_EXPIRED');expect(f.service.snapshot().ggufRuntimeTerms?.accepted).toBe(false)
+})
+it('keeps model-only actions usable, then verifies existing files and connects with one preparation action after acceptance',async()=>{
+ const f=await fixture();await f.selectQwen();const terms=await requireTerms(f),settings=await f.saved()
+ await f.service.installGgufModel('qwen3-tts-06b-gguf');await f.service.verifyGgufModel('qwen3-tts-06b-gguf');expect(f.service.snapshot().ggufRuntimeTerms?.accepted).toBe(false);expect(f.installer.install).not.toHaveBeenCalled()
+ await f.service.acceptManagedRuntimeTerms(terms.fingerprint);expect(await f.saved()).toEqual(settings);expect(f.make).not.toHaveBeenCalled()
+ await f.service.prepareVoiceFiles();expect(f.service.snapshot()).toMatchObject({ggufRuntimeTerms:{accepted:true},filePreparation:{phase:'connected',busy:false},qwenGgufConfigured:true,enabled:false});expect(f.make).not.toHaveBeenCalled()
+ await f.service.enabled(true);await f.service.prepare(true);expect(f.runtimes[0].running).toBe(true)
+ await f.service.close();const reopened=f.create(),fresh=new ManagedRuntimeTerms(f.root,resolve('electron/voice/runtime-terms'),f.catalog);reopened.attachManagedRuntimeTerms(fresh);await reopened.initialize();expect(reopened.snapshot().ggufRuntimeTerms?.accepted).toBe(true)
+})
+it('fails closed at the worker admission point when no terms provider can be initialized',async()=>{
+ const f=await fixture();await f.selectQwen();await f.service.setupGgufRuntime('qwen-cuda','install');await f.service.enabled(true);await f.service.prepare(true);const admission=f.runtimes[0].config.beforeManagedSpawn
+ f.service.requireManagedRuntimeTerms();await expect(admission()).rejects.toThrow('GGUF_RUNTIME_TERMS_CHANGED')
+})
+it.each(['qwen3-tts-06b','voxcpm2'] as const)('gates managed-prefix interpreters even through the manual %s engine without a managed marker',async engine=>{
+ const f=await fixture();await f.selectQwen();const python=join(f.root,'rt','fixture','python.exe');await mkdir(dirname(python),{recursive:true});await writeFile(python,'inert fixture only; never executed')
+ await f.service.engine(engine)
+ if(engine==='qwen3-tts-06b')await f.service.configureQwen(python,f.qwenModel)
+ else{const trained={id:'trained-fixture',version:'1',name:'Fixture',fingerprint:'d'.repeat(64),adapterSha256:'e'.repeat(64)};(f.service as any).state.profiles.push(trained);await f.service.bind('gpichan','trained-fixture@1');await f.service.executionProfile('compiled');await f.service.configure(python,f.voxModel)}
+ f.service.requireManagedRuntimeTerms();await f.service.enabled(true)
+ await expect(f.service.prepare(true)).rejects.toThrow('GGUF_RUNTIME_TERMS_CHANGED');await expect(f.service.checkModel()).rejects.toThrow('GGUF_RUNTIME_TERMS_CHANGED');expect(f.make).not.toHaveBeenCalled()
+ const terms=await requireTerms(f);await expect(f.service.prepare(true)).rejects.toThrow('GGUF_RUNTIME_TERMS_REQUIRED');expect(f.make).not.toHaveBeenCalled();expect(terms.snapshot('qwen-cuda').accepted).toBe(false)
+})
+it('blocks an old marker-less GGUF manual connection under the managed prefix when catalog attachment fails',async()=>{
+ const f=await fixture();await f.selectQwen();const python=join(f.root,'rt','fixture','python.exe');await mkdir(dirname(python),{recursive:true});await writeFile(python,'inert fixture only')
+ await f.service.configureQwenGguf(python,f.qwenModel,f.connections['qwen-cuda'].runtimeDir);f.service.requireManagedRuntimeTerms();await f.service.enabled(true)
+ await f.service.prepare();await expect(f.service.prepare(true)).rejects.toThrow('GGUF_RUNTIME_TERMS_CHANGED');await expect(f.service.checkModel()).rejects.toThrow('GGUF_RUNTIME_TERMS_CHANGED');expect(f.make).not.toHaveBeenCalled()
 })

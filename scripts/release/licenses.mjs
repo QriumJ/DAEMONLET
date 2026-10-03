@@ -3,6 +3,15 @@ import { dirname, join, resolve } from 'node:path'
 import { verifyArtwork, digest } from './artwork.mjs'
 
 export const requiredNotices = {
+  'runtime-terms-README.md': 'electron/voice/runtime-terms/README.md',
+  'CUDA-13.0-EULA.txt': 'electron/voice/runtime-terms/CUDA-13.0-EULA.txt',
+  'VC-V14-2026-Original-ENU.docx': 'electron/voice/runtime-terms/VC-V14-2026-Original-ENU.docx',
+  'VC-V14-2026-Original-ENU.txt': 'electron/voice/runtime-terms/VC-V14-2026-Original-ENU.txt',
+  'vc-14.40.33810.0-license-en.rtf': 'electron/voice/runtime-terms/vc-14.40.33810.0-license-en.rtf',
+  'vc-14.40.33810.0-license-en.txt': 'electron/voice/runtime-terms/vc-14.40.33810.0-license-en.txt',
+  'vc-14.40.33810.0-license-ko.rtf': 'electron/voice/runtime-terms/vc-14.40.33810.0-license-ko.rtf',
+  'vc-14.40.33810.0-license-ko.txt': 'electron/voice/runtime-terms/vc-14.40.33810.0-license-ko.txt',
+  'managed-runtime-terms.json': 'electron/voice/managed-runtime-terms.json',
   'voxcpm-llama-cpp-omni-MIT.txt': 'distribution/licenses/voxcpm-llama-cpp-omni-MIT.txt',
   'qwentts-cpp-MIT.txt': 'distribution/licenses/qwentts-cpp-MIT.txt',
   'qwentts-ggml-MIT.txt': 'distribution/licenses/qwentts-ggml-MIT.txt',

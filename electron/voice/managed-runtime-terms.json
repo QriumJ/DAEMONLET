@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "component": "shared",
+  "groups": [
+    {
+      "id": "vc-v14-1451",
+      "title": "Microsoft Visual C++ V14 Redistributable and Runtime",
+      "version": "14.51.36247.0",
+      "sourceUrl": "https://aka.ms/VCRedistLicense",
+      "original": {
+        "file": "VC-V14-2026-Original-ENU.docx",
+        "bytes": 39553,
+        "sha256": "08651651a7602fc7c0e2763de0fde1ff9f868df2780597cd1775ee9d6441c783"
+      },
+      "text": {
+        "file": "VC-V14-2026-Original-ENU.txt",
+        "bytes": 11894,
+        "sha256": "923d8b11a03c277d59f3262727abc7e422158f5243a5565d67d5c270c6b05e3c"
+      },
+      "files": {
+        "python/vcruntime140.dll": {
+          "bytes": 178616,
+          "sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7"
+        },
+        "python/vcruntime140_1.dll": {
+          "bytes": 50112,
+          "sha256": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e"
+        },
+        "vc/msvcp140.dll": {
+          "bytes": 643512,
+          "sha256": "7c26614e1d733892c2deac7e245ce115504b1d80592dd0a01b08e3e5a55f89ca"
+        },
+        "vc/vcomp140.dll": {
+          "bytes": 212920,
+          "sha256": "95d4ce4a6802d1e18b5e0e1722cc30ea72ca7e033f83828f05c0b7b993fe7cbf"
+        },
+        "vc/vcruntime140.dll": {
+          "bytes": 178616,
+          "sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7"
+        },
+        "vc/vcruntime140_1.dll": {
+          "bytes": 50112,
+          "sha256": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e"
+        }
+      }
+    },
+    {
+      "id": "vc-2015-2022-1440",
+      "title": "Microsoft Visual C++ 2015–2022 Runtime",
+      "version": "14.40.33810.0 (NumPy)",
+      "sourceUrl": "https://visualstudio.microsoft.com/license-terms/vs2022-cruntime/",
+      "original": {
+        "file": "vc-14.40.33810.0-license-en.rtf",
+        "bytes": 9235,
+        "sha256": "8099dc3cf9502c335da829e5c755948a12e3e6de490eb492a99deb673d883d8b"
+      },
+      "text": {
+        "file": "vc-14.40.33810.0-license-en.txt",
+        "bytes": 6592,
+        "sha256": "5d7d60ce25f23875bfb5abf5583d3caa9305ba61c01d7f8cbfc06f8b0d2bab22"
+      },
+      "koreanOriginal": {
+        "file": "vc-14.40.33810.0-license-ko.rtf",
+        "bytes": 28393,
+        "sha256": "3d4e9c165cbeab829d608106f0e96450f839ffa8adbd755f0b51867e89da2ae0"
+      },
+      "koreanText": {
+        "file": "vc-14.40.33810.0-license-ko.txt",
+        "bytes": 8401,
+        "sha256": "e3765f6bafb097e4956b0ca5af7bd000b872aa22ab4113c5be2d174c2ded67df"
+      },
+      "files": {
+        "python/Lib/site-packages/numpy.libs/msvcp140-a4c2229bdc2a2a630acdc095b4d86008.dll": {
+          "bytes": 575056,
+          "sha256": "a4c2229bdc2a2a630acdc095b4d86008e5c3e3bc7773174354f3da4f5beb9cde"
+        }
+      }
+    }
+  ],
+  "cuda": {
+    "id": "cuda-13",
+    "title": "NVIDIA CUDA Toolkit 13.0 EULA",
+    "sourceUrl": "https://docs.nvidia.com/cuda/archive/13.0.0/eula/index.html",
+    "original": {
+      "file": "CUDA-13.0-EULA.txt",
+      "bytes": 67875,
+      "sha256": "f176e5fd245a4ff1d7aee743e345e14b29c4b724f150e4858c4c6a313966d1fb"
+    }
+  }
+}

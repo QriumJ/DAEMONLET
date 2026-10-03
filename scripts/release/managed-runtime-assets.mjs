@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
+import {verifyRuntimeTermsDocuments} from './runtime-terms.mjs'
 
 export const managedRuntimeCatalogName = 'managed-gguf-runtime-catalog.json'
 export const managedRuntimeArchivesName = 'managed-gguf-runtime-archives'
@@ -147,5 +148,7 @@ export async function verifyPackagedManagedRuntime(voiceDirectory, target, { tru
   const bytes = await readFile(join(voiceDirectory, managedRuntimeCatalogName))
   if (trustedCatalogPath && !bytes.equals(await readFile(trustedCatalogPath))) throw fail('packaged runtime catalog differs from source')
   await verifyWorkerCatalogPins(voiceDirectory, bytes)
-  return { status: 'bundled', ...await verifyManagedRuntimeArchives(join(voiceDirectory, managedRuntimeArchivesName), JSON.parse(bytes.toString('utf8'))) }
+  const catalog=JSON.parse(bytes.toString('utf8'))
+  if(Object.values(catalog.components).some(component=>Object.keys(component.files).some(path=>/(?:vcruntime140|msvcp140|vcomp140)/i.test(path))))await verifyRuntimeTermsDocuments(voiceDirectory)
+  return { status: 'bundled', ...await verifyManagedRuntimeArchives(join(voiceDirectory, managedRuntimeArchivesName), catalog) }
 }
