@@ -105,8 +105,8 @@ export async function verifyManagedRuntimeArchives(path, catalog) {
   return { archives: pins.length, bytes: pins.reduce((total, pin) => total + pin.bytes, 0) }
 }
 
-/** @param {string} root @param {string} voiceDirectory @param {{target?: string, production?: boolean}} options */
-export async function stageManagedRuntimeArchives(root, voiceDirectory, { target, production = false } = {}) {
+/** @param {string} root @param {string} voiceDirectory @param {{target?: string, production?: boolean, sourceOnlyRuntime?: boolean}} options */
+export async function stageManagedRuntimeArchives(root, voiceDirectory, { target, production = false, sourceOnlyRuntime = false } = {}) {
   const report = { schemaVersion: 1, target, status: 'not-required', archives: 0, bytes: 0, cleanHostVerified: false, publicReleaseApproved: false }
   if (!target?.startsWith('win32-')) return report
   if (target !== 'win32-x64') throw fail('unsupported Windows target: ' + target)
@@ -116,14 +116,21 @@ export async function stageManagedRuntimeArchives(root, voiceDirectory, { target
   report.catalogSha256 = createHash('sha256').update(catalogBytes).digest('hex')
   const pins = managedRuntimeArchivePins(catalog)
   const source = join(root, '.generated/voice-gguf-runtime/win32-x64/archives')
-  // Source-only compilation remains possible. A Windows production build and
-  // Forge package always require the complete pinned local artifact set.
-  if (!production) {
+  // Explicit source CI can compile the production graph without local archives.
+  // An existing archive directory must still pass every integrity check.
+  // The default production build and Forge package require all pinned archives.
+  if (!production || sourceOnlyRuntime) {
     try {
       await lstat(source)
     } catch (error) {
       if (!missing(error)) throw error
-      return { ...report, status: 'source-only-runtime-unavailable' }
+      // Missing descendants must not hide an existing linked parent directory.
+      for (let parent = dirname(source);; parent = dirname(parent)) {
+        try { await lstat(parent) } catch (parentError) { if (missing(parentError)) continue; throw parentError }
+        await directory(parent)
+        break
+      }
+      return { ...report, status: 'source-only-runtime-unavailable', ...(sourceOnlyRuntime ? { sourceOnlyRuntime: true } : {}) }
     }
   }
   await verifyManagedRuntimeArchives(source, catalog)
@@ -140,6 +147,18 @@ export async function stageManagedRuntimeArchives(root, voiceDirectory, { target
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
+}
+
+export function verifyManagedRuntimeBuildReport(report, catalogBytes, { sourceOnlyRuntime = false } = {}) {
+  if (report.target === 'win32-x64') {
+    const pins = managedRuntimeArchivePins(JSON.parse(catalogBytes.toString('utf8')))
+    const pinned = report.catalogSha256 === createHash('sha256').update(catalogBytes).digest('hex')
+    const bundled = report.status === 'bundled' && report.archives === pins.length &&
+      report.bytes === pins.reduce((total, pin) => total + pin.bytes, 0)
+    const unavailable = sourceOnlyRuntime && report.sourceOnlyRuntime === true &&
+      report.status === 'source-only-runtime-unavailable' && report.archives === 0 && report.bytes === 0
+    if (!pinned || !(bundled || unavailable)) throw fail('source-only build cannot become a Windows installer candidate')
+  } else if (report.target?.startsWith('win32-')) throw fail('unsupported Windows runtime target')
 }
 
 export async function verifyPackagedManagedRuntime(voiceDirectory, target, { trustedCatalogPath } = {}) {

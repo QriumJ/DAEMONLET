@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto'
 import {link,mkdir,mkdtemp,readFile,readdir,realpath,rm,symlink,writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {tmpdir} from 'node:os'
-import {managedRuntimeArchivePins,managedRuntimeArchivesName,managedRuntimeCatalogName,stageManagedRuntimeArchives,verifyManagedRuntimeArchives,verifyPackagedManagedRuntime} from '../scripts/release/managed-runtime-assets.mjs'
+import {managedRuntimeArchivePins,managedRuntimeArchivesName,managedRuntimeCatalogName,stageManagedRuntimeArchives,verifyManagedRuntimeArchives,verifyManagedRuntimeBuildReport,verifyPackagedManagedRuntime} from '../scripts/release/managed-runtime-assets.mjs'
 
 const roots:string[]=[]
 afterEach(async()=>{for(const root of roots.splice(0))await rm(root,{recursive:true,force:true})})
@@ -40,6 +40,33 @@ it('permits a clearly marked source-only Windows build while production requires
  expect(await f.stage(false)).toMatchObject({status:'source-only-runtime-unavailable',archives:0,bytes:0,cleanHostVerified:false})
  await expect(f.stage()).rejects.toThrow('GGUF_RUNTIME_PACKAGE_NOT_READY: missing archive')
  await expect(readdir(join(f.voice,managedRuntimeArchivesName))).rejects.toThrow()
+})
+it('permits explicit production source CI without letting its ASAR or voice output become a package candidate',async()=>{
+ const f=await fixture(false)
+ const result=await stageManagedRuntimeArchives(f.root,f.voice,{target:'win32-x64',production:true,sourceOnlyRuntime:true})
+ const bytes=await readFile(join(f.voice,managedRuntimeCatalogName))
+ expect(result).toMatchObject({status:'source-only-runtime-unavailable',sourceOnlyRuntime:true,archives:0,bytes:0,cleanHostVerified:false})
+ expect(()=>verifyManagedRuntimeBuildReport(result,bytes,{sourceOnlyRuntime:true})).not.toThrow()
+ expect(()=>verifyManagedRuntimeBuildReport(result,bytes)).toThrow('cannot become a Windows installer candidate')
+ await expect(verifyPackagedManagedRuntime(f.voice,'win32-x64')).rejects.toThrow('missing archive')
+ for(const patch of [{sourceOnlyRuntime:false},{archives:1},{bytes:1},{catalogSha256:'0'.repeat(64)},{status:'bundled'}]){
+  expect(()=>verifyManagedRuntimeBuildReport({...result,...patch},bytes,{sourceOnlyRuntime:true})).toThrow('GGUF_RUNTIME_PACKAGE_NOT_READY')
+ }
+})
+it.each(['missing','same-size-tamper','unlisted','hardlink','directory-alias'] as const)('production source CI still rejects an existing %s archive set',async kind=>{
+ const f=await fixture(),pin=f.pins[0],path=join(f.source,pin.name)
+ if(kind==='missing')await rm(path)
+ if(kind==='same-size-tamper')await writeFile(path,Buffer.alloc(pin.bytes))
+ if(kind==='unlisted')await writeFile(join(f.source,'extra.zip'),'unlisted')
+ if(kind==='hardlink'){const outside=join(f.root,'outside');await writeFile(outside,f.payload[pin.name]);await rm(path);await link(outside,path)}
+ if(kind==='directory-alias'){const actual=join(f.root,'actual-archives');await mkdir(actual);for(const [name,bytes] of Object.entries(f.payload))await writeFile(join(actual,name),bytes);await rm(f.source,{recursive:true});await symlink(actual,f.source,'junction')}
+ await expect(stageManagedRuntimeArchives(f.root,f.voice,{target:'win32-x64',production:true,sourceOnlyRuntime:true})).rejects.toThrow('GGUF_RUNTIME_PACKAGE_NOT_READY')
+ await expect(readdir(join(f.voice,managedRuntimeArchivesName))).rejects.toThrow()
+})
+it('does not treat absent archives under a linked parent as an unavailable source CI input',async()=>{
+ const f=await fixture(false),outside=join(f.root,'outside-generated')
+ await mkdir(outside);await symlink(outside,join(f.root,'.generated'),'junction')
+ await expect(stageManagedRuntimeArchives(f.root,f.voice,{target:'win32-x64',production:true,sourceOnlyRuntime:true})).rejects.toThrow('archive directory is linked')
 })
 it('does not require or bundle Windows native archives for a Mac build',async()=>{
  const f=await fixture(false);await rm(join(f.root,'electron/voice',managedRuntimeCatalogName))

@@ -36,8 +36,10 @@ jobs:
       - run: python -m unittest discover -s tests/creator -v
       - run: npm run creator:check
       - run: npm run build:renderer
-      - run: npm run build:electron:production
-      - run: npm run release:verify
+      - name: Compile production sources (native archives are external CI inputs)
+        run: npm run build:electron:production -- --source-only-runtime
+      - name: Verify production sources and negative controls (no installer acceptance)
+        run: npm run release:verify -- --source-only-runtime
       - run: npm run creator:package -- --output outputs/creator-ci
       - run: npm run creator:verify -- outputs/creator-ci/Daemonlet-creator-skill-$(node -p "require('./package.json').version").zip
   windows:
@@ -66,5 +68,7 @@ jobs:
       - name: WAV reference contract (no GPU or model)
         run: python -B scripts/test-voice-reference.py
       - run: npm run build:renderer
-      - run: npm run build:electron:production
-      - run: npm run release:verify
+      - name: Compile production sources (native archives are external CI inputs)
+        run: npm run build:electron:production -- --source-only-runtime
+      - name: Verify production sources and negative controls (no installer acceptance)
+        run: npm run release:verify -- --source-only-runtime
