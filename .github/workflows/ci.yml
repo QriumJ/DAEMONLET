@@ -29,6 +29,10 @@ jobs:
         run: python -B scripts/test-voice-reference.py
       - name: Voice worker protocol and device errors (no GPU or model)
         run: python -B scripts/test-voice-worker.py
+      - name: Mac GGUF validation reuse (synthetic files, no GPU or model)
+        run: python -B scripts/test-voice-gguf-validation.py
+      - name: GGUF derivative cache integrity (synthetic files, no GPU or model)
+        run: python -B scripts/test-voice-gguf-cache.py
       - run: python -m unittest discover -s tests/creator -v
       - run: npm run creator:check
       - run: npm run build:renderer

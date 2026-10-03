@@ -83,6 +83,14 @@ handles abrupt parent death, and the inherited lock protects abandoned-stage cle
 Removing a voice removes its derived cache under the same persisted removal tombstone.
 Shared base files and user import sources are preserved. No download/upload is involved.
 
+Within one trained-Metal validation request, the original `model.safetensors` is
+fully hashed once. Its digest must match both snapshot provenance and the independent
+runtime policy pin. The opened file's device, inode, size, nanosecond mtime/ctime
+and canonical path are checked during hashing and again at the policy check; changed
+or replaced assets fail validation. This result is local to that request. New loads
+still perform full hashing, and native/converter pins and signed derivative-cache
+content checks retain their existing scope.
+
 The existing supervisor controls the Python adapter and exact request-bound R2
 acknowledgments. The adapter owns one Metal child; it polls cancellation while
 waiting for each native patch, waits for VAE/KV cleanup, removes cancelled WAVs and
@@ -103,6 +111,8 @@ node scripts/voice.mjs stream --package '<SELECTED_PACKAGE>' \
   --data '<PRIVATE_RESULTS>' --profile gguf-metal-f16 --quick --repeats 1 \
   --cooperative-cancel
 python3 -B scripts/test-voice-gguf.py
+python3 -B scripts/test-voice-gguf-validation.py
+python3 -B scripts/test-voice-gguf-cache.py
 ```
 
 ## MPS fallback setup (historical functional port)
