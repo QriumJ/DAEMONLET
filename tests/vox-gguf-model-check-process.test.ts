@@ -1,5 +1,6 @@
 import {afterEach,expect,it,vi} from 'vitest'
 import {EventEmitter} from 'node:events'
+import {join} from 'node:path'
 import policy from '../electron/voice/runtime-gguf-windows-voxcpm2.json'
 import defaultVoice from '../electron/voice/base-voice-defaults.json'
 import type {ReferenceCondition} from '../electron/main/character-voice/ReferenceProfileStore'
@@ -22,7 +23,7 @@ function fixture(publicMode?:'base'|'wav-reference'){
 }
 it('runs only the isolated CPU verification CLI with explicit original/package/derivative/runtime/profile arguments',async()=>{
  const f=fixture()
- expect(exec.mock.calls[0].slice(0,2)).toEqual(['/python',['-I','-B','/voice/voxcpm_windows_gguf_runtime.py','--verify','--package','/trained-package','--model','/original-model','--runtime-dir','/runtime','--derivative-dir','/derivative','--receipt','/receipt.json','--execution-profile','gguf-vulkan-f16']])
+ expect(exec.mock.calls[0].slice(0,2)).toEqual(['/python',['-I','-B',join('/voice','voxcpm_windows_gguf_runtime.py'),'--verify','--package','/trained-package','--model','/original-model','--runtime-dir','/runtime','--derivative-dir','/derivative','--receipt','/receipt.json','--execution-profile','gguf-vulkan-f16']])
  expect(exec.mock.calls[0][2]).toMatchObject({windowsHide:true,env:{PYTHONNOUSERSITE:'1',PYTHONDONTWRITEBYTECODE:'1'}})
  let settled=false;const task=f.promise.then(()=>settled=true);f.complete();await Promise.resolve();expect(settled).toBe(false);f.child.emit('close');await task
 })
@@ -42,7 +43,7 @@ it.each([{...configured,derivativeDir:'relative'},{...configured,receipt:'relati
 })
 it.each(['base','wav-reference'] as const)('runs public %s CPU validation directly on the pinned pair without a trained package',async mode=>{
  const f=fixture(mode),args=exec.mock.calls[0][1] as string[]
- expect(args).toEqual(['-I','-B','/voice/voxcpm_windows_gguf_runtime.py','--verify','--package','','--model','/derivative','--runtime-dir','/runtime','--derivative-dir','/derivative','--receipt','/receipt.json','--execution-profile','gguf-vulkan-f16','--model-kind','public-base',...(mode==='wav-reference'?['--conditioning-json',JSON.stringify(reference)]:[])])
+ expect(args).toEqual(['-I','-B',join('/voice','voxcpm_windows_gguf_runtime.py'),'--verify','--package','','--model','/derivative','--runtime-dir','/runtime','--derivative-dir','/derivative','--receipt','/receipt.json','--execution-profile','gguf-vulkan-f16','--model-kind','public-base',...(mode==='wav-reference'?['--conditioning-json',JSON.stringify(reference)]:[])])
  f.complete();f.child.emit('close');await expect(f.promise).resolves.toBeUndefined()
 })
 it.each([{ggufModelKind:'trained'},{modelRepository:'OpenBMB/VoxCPM2'},{modelRevision:'other'},{publisher:'OpenBMB'},{modelFiles:{}},{modelFiles:{...policy.publicModel.files,'VoxCPM2-Acoustic-F16.gguf':{...policy.publicModel.files['VoxCPM2-Acoustic-F16.gguf'],sha256:'d'.repeat(64)}}},{packageSha256},{adapterSha256:derivative.adapterSha256},{originalModelVerification:'provenance-and-presence'},{nativeExecuted:true},{mode:'wav-reference'},{referenceContract:0},{referenceCacheBuilds:1},{referenceSha256:reference.sha256},{conditioningFingerprint:reference.fingerprint},{defaultVoice:null},{defaultVoice:{...defaultVoice,description:'other'}},{defaultVoice:{...defaultVoice,seed:7}},{defaultVoice:{...defaultVoice,adapter:'private'}}])('rejects a public CPU check that claims trained assets or mismatched provenance %j',async changed=>{

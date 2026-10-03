@@ -40,7 +40,9 @@ async function fixture(policy:SpeechPolicy='legacy-sentence-v1'){const root=awai
  const cancelSpeech=vi.fn(async()=>{await runtime.stop();return {keptWarm:false,elapsedMs:0}});Object.assign(runtime,{cancelSpeech})
  const events:VoiceEvent[]=[]
  const service=new CharacterVoiceService(root,'/worker',()=>chat,()=>{},e=>events.push(e),()=>runtime as unknown as TtsRuntimeSupervisor,undefined,undefined,policy);services.push(service)
- await service.initialize();
+ await service.initialize();await service.engine('voxcpm2')
+ // Select the Vox fixture explicitly; fresh Windows users default to Qwen GGUF.
+ ;(service as any).baseExecutionProfile='cuda-compiled'
  // Synthetic external runtime supports these modes independently of the test host.
  ;(service as any).state.availableProfiles=['baseline','cached','compiled'];(service as any).state.executionProfile='baseline';await service.configure('/python','/model');await service.enabled(true)
  ;(service as any).state.profiles=[{id:'voice',version:'1',name:'Synthetic',fingerprint:'fingerprint',adapterSha256:'adapter'}]
@@ -218,7 +220,9 @@ it('Windows builtin voice needs no package or manual runtime and keeps two compi
  const base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},executable:'/managed/python',path:'/managed/model',snapshot:()=>({supported:true,installed:true,phase:'idle' as const,bytes:1,total:1,error:null}),initialize:async()=>{},identity:async()=>"stable",cancelVerification:async()=>{},ready:async()=>'/managed/model',install:async()=>{},cancel:async()=>{}}
  const configs:any[]=[];const runtime={config:null as any,sessionId:'base-session',running:false,start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),retireSpeech:vi.fn(),cancelSpeech:vi.fn(async()=>({keptWarm:true,elapsedMs:0}))}
  const service=new CharacterVoiceService(root,'/worker',()=>({character:{id:'test',revision:'1'}}) as any,()=>{},()=>{},config=>{configs.push(config);runtime.config=config;return runtime as any},()=>{},base);services.push(service)
- await service.initialize();expect(service.snapshot()).toMatchObject({defaultProfile:'voxcpm2_default@base',runtimeConfigured:true,executionProfile:'cuda-compiled',availableProfiles:['cuda-compiled','cuda-compiled-complete']})
+ await service.initialize();await service.engine('voxcpm2');await service.executionProfile('cuda-compiled')
+ const ggufModes=process.platform==='win32'&&process.arch==='x64'?['gguf-cuda-f16','gguf-cuda-f16-complete','gguf-vulkan-f16','gguf-vulkan-f16-complete']:[]
+ expect(service.snapshot()).toMatchObject({defaultProfile:'voxcpm2_default@base',runtimeConfigured:true,executionProfile:'cuda-compiled',availableProfiles:['cuda-compiled','cuda-compiled-complete',...ggufModes]})
  await service.enabled(true);service.setOutputReady(true);await service.prepare();expect(configs[0]).toMatchObject({windowsBase:true,nativeBase:false,python:'/managed/python',model:'/managed/model',executionProfile:'cuda-compiled'})
  await service.executionProfile('cuda-compiled-complete');expect(service.snapshot().executionProfile).toBe('cuda-compiled-complete');expect(JSON.parse(await readFile(join(root,'settings.json'),'utf8')).baseExecutionProfile).toBe('cuda-compiled-complete')
  expect(configs.at(-1).executionProfile).toBe('cuda-compiled-complete')
@@ -227,7 +231,8 @@ it('Windows builtin voice needs no package or manual runtime and keeps two compi
 it.each(['baseline','cached','compiled'] as const)('F1: Windows installer cannot replace external %s or persist a different mode',async mode=>{
  const f=await fixture(),base={native:false,profile:{id:'voxcpm2_default',version:'base',name:'Default',fingerprint:'base',adapterSha256:'none'},snapshot:()=>({supported:true,installed:false}),cancelVerification:async()=>{},cancel:async()=>{}}
  ;(f.service as any).base=base;(f.service as any).state.executionProfile=mode
- expect(f.service.snapshot()).toMatchObject({executionProfile:mode,availableProfiles:['baseline','cached','compiled']})
+ const ggufModes=process.platform==='win32'&&process.arch==='x64'?['gguf-cuda-f16','gguf-cuda-f16-complete','gguf-vulkan-f16','gguf-vulkan-f16-complete']:[]
+ expect(f.service.snapshot()).toMatchObject({executionProfile:mode,availableProfiles:['baseline','cached','compiled',...ggufModes]})
  await f.service.volume(0.4)
  expect(JSON.parse(await readFile(join(f.root,'settings.json'),'utf8')).executionProfile).toBe(mode)
  await f.service.prepare();expect(f.runtime.start).toHaveBeenCalledTimes(mode==='baseline'?0:1)

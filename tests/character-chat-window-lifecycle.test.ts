@@ -21,6 +21,7 @@ it.each(['LLM_STOP_FAILED','CHAT_STORAGE_FAILED'])('Voice F3: %s cannot skip voi
 })
 it.each([['baseline',false],['baseline',true],['cached',false],['cached',true],['compiled',false],['compiled',true],['gguf-metal-f16',false],['gguf-metal-f16',true]] as const)('Voice F2: %s hide then show=%s denies late completed reply',async (profile,show)=>{
  const {window}=await savedFixture();mockWindows();await window.open()
+ await window.voice.service.engine('voxcpm2')
  const win=window.window as any;win.isVisible=()=>true;win.webContents.isDestroyed=()=>false
  const voice=window.voice.service as any,runtime={running:false,sessionId:'mock',retireSpeech:vi.fn(),start:vi.fn(async()=>{}),stop:vi.fn(async()=>{}),synthesize:vi.fn(async()=>({audioId:'mock',bytes:new Uint8Array(1),durationMs:1}))}
  Object.assign(runtime,{cancelSpeech:vi.fn(async()=>{await runtime.stop();return {keptWarm:false,elapsedMs:0}})})

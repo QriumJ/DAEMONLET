@@ -22,7 +22,7 @@ async function fixture(options:{catalog?:'valid'|'modified'}={}){
   await mkdir(join(root,'gguf-runtimes','previous-catalog'),{recursive:true});await writeFile(previousReceipt,'old owned fixture; preserve')
  }
  const chat:any={snapshot:()=>state,subscribeVoiceStart:()=>()=>{},subscribeVoice:()=>()=>{},subscribe:()=>()=>{}}
- const controller=new VoiceIpcController(root,worker,()=>window,chat);(controller.service as any).base=undefined;await controller.initialize()
+ const controller=new VoiceIpcController(root,worker,()=>window,chat);(controller.service as any).base=undefined;await controller.initialize();await controller.service.engine('voxcpm2')
  const service=controller.service as any,inspect=service.inspectManagedModelRemoval=vi.fn().mockResolvedValue(plan),remove=service.removeManagedModel=vi.fn().mockResolvedValue(undefined),install=service.installGgufModel=vi.fn().mockResolvedValue(undefined),verify=service.verifyGgufModel=vi.fn().mockResolvedValue(undefined),runtimeSetup=service.setupGgufRuntime=vi.fn().mockResolvedValue(undefined),runtimeCancel=service.cancelInstallGgufRuntime=vi.fn().mockResolvedValue(undefined)
  cleanup.push(async()=>{await controller.close();await rm(root,{recursive:true,force:true})});let valid=true
  return{root,previousReceipt,controller,state,inspect,remove,install,verify,runtimeSetup,runtimeCancel,expire:()=>{valid=false},manage:(action:any)=>controller.manage(action,window,()=>valid)}

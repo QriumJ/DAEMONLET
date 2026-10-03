@@ -17,7 +17,7 @@ async function fixture(){
  let nextSeed=100;const random=vi.fn(()=>++nextSeed),events:any[]=[],played:Buffer[]=[]
  const runtime:any={running:false,busy:false,sessionId:'worker-session',audit:{seedContract:1},get ready(){return this.running},retireSpeech:vi.fn(),start:vi.fn(async()=>{runtime.running=true}),stop:vi.fn(async()=>{runtime.running=false}),cancelSpeech:vi.fn(async()=>({keptWarm:true,elapsedMs:1})),stream:vi.fn(async(_text,binding,index,accept)=>{await accept({audioId:randomUUID(),bytes:wav(),durationMs:100,generationMs:1,rtf:.01,synthesisId:randomUUID(),chunkIndex:0,sampleOffset:0,sampleCount:4800,firstChunkReadyMs:1});return {totalSamples:4800,totalChunks:1,effectiveSeed:binding.effectiveSeed}})}
  const service=new CharacterVoiceService(root,'/worker',()=>chat,()=>{},e=>{events.push(e);if(e.type==='audio'&&capture)queueMicrotask(()=>{try{played.push(Buffer.from(service.audio(e.audioId,e.epoch)));service.played(e.audioId,e.epoch)}catch{}})},config=>{runtime.config=config;return runtime},()=>{},base,undefined,undefined,random)
- clean.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})});await service.initialize();await service.enabled(true);service.setOutputReady(true);await service.prepare()
+ clean.push(async()=>{await service.close();await rm(root,{recursive:true,force:true})});await service.initialize();await service.engine('voxcpm2');await service.executionProfile('cuda-compiled');await service.enabled(true);service.setOutputReady(true);await service.prepare()
  const read=(mode='read')=>(service as any).read(message,false,false,mode)
  return{service,message,chat,runtime,random,base,events,played,read,root,identity:(v:string)=>{identity=v},capture:(v:boolean)=>{capture=v}}
 }
