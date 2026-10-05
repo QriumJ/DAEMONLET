@@ -10,17 +10,25 @@ OpenAI의 공식 제품이나 제휴 제품이 아닙니다.
 
 <img src="docs/images/gpichan.png" width="360" alt="Daemonlet for Codex에서 실행 중인 지피쨩">
 
-## 다운로드 — v0.8.3
+## 다운로드 — v0.8.4
 
 | 환경 | 다운로드 | 안내 |
 |---|---|---|
-| macOS · Apple Silicon | [Mac ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/Daemonlet-for-Codex-0.8.3-macOS-arm64.zip) | macOS 13 이상 · Developer ID 서명·Apple 공증 완료 |
-| Windows · x64 | [설치 프로그램](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/Daemonlet-for-Codex-0.8.3-windows-x64-Setup.exe) | Windows 10 build 19045 이상 · 현재 사용자용 · 미서명 |
-| Windows · x64 | [압축판 ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/Daemonlet-for-Codex-0.8.3-windows-x64.zip) | 설치 없이 폴더 전체를 압축 해제 후 실행 · 미서명 |
+| macOS · Apple Silicon | [Mac ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-for-Codex-0.8.4-macOS-arm64.zip) | macOS 13 이상 · Developer ID 서명·Apple 공증 완료 |
+| Windows · x64 | [설치 프로그램](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-for-Codex-0.8.4-windows-x64-Setup.exe) | Windows 10 build 19045 이상 · 현재 사용자용 · 미서명 |
+| Windows · x64 | [압축판 ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-for-Codex-0.8.4-windows-x64.zip) | 설치 없이 폴더 전체를 압축 해제 후 실행 · 미서명 |
 
-[릴리즈 안내·검증 범위](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.3) · [파일 확인용 SHA-256](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/SHA256SUMS.txt) · [빌드 출처](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/SOURCE-PROVENANCE.json)
+[릴리즈 안내·검증 범위](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4) · [파일 확인용 SHA-256](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/SHA256SUMS.txt) · [빌드 출처](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/SOURCE-PROVENANCE.json)
 
-일반 앱 실행에는 별도 Node.js, Python, ComfyUI 또는 수동 서버 설치가 필요하지 않습니다. **로컬 캐릭터챗과 음성 TTS의 모델은 앱에서 각각 별도로 설치합니다.** Windows 기본 음성과 양쪽 Qwen 설치는 필요한 전용 실행 환경도 함께 준비합니다. 작업 상태 표시와 기존 클릭 반응에는 모델이 필요하지 않습니다. **Dots 연결만 별도 Node.js·공식 tunnel-client·계정 설정이 필요합니다.** Windows 파일은 게시자 서명을 검증할 수 없는 미서명 배포이며, SHA-256은 배포 파일의 일치 여부를 확인합니다.
+일반 앱 실행에는 별도 Node.js, Python, ComfyUI 또는 수동 서버 설치가 필요하지 않습니다. **로컬 캐릭터챗과 음성 TTS의 모델은 앱에서 각각 별도로 설치합니다.** Windows GGUF 실행 환경은 배포본에 포함되며, 선택한 모델은 별도로 다운로드합니다. Mac Qwen과 기존 Windows PyTorch 설치는 전용 Python 환경도 준비합니다. 작업 상태 표시와 기존 클릭 반응에는 모델이 필요하지 않습니다. **Dots 연결만 별도 Node.js·공식 tunnel-client·계정 설정이 필요합니다.** Windows 파일은 게시자 서명을 검증할 수 없는 미서명 배포이며, SHA-256은 배포 파일의 일치 여부를 확인합니다.
+
+## v0.8.4 주요 변경
+
+- **Windows GGUF 음성:** Qwen 0.6B Base Q8·VoxCPM2 F16을 CUDA/Vulkan 경로로 준비하며, 모델 다운로드·검사·취소·삭제를 지원합니다.
+- **음성 설정 4단계:** 엔진 선택, 필요한 파일 준비, 목소리 선택, 시험 재생 순서로 정리했습니다. 기존 PyTorch 연결은 레거시 관리에 보존합니다.
+- **반복 발화 준비 개선:** 정상 Dots 발화 후 준비된 음성 엔진을 재사용하고, Mac Vox 준비의 중복 파일 해시 읽기를 줄였습니다.
+
+[릴리즈 상세·검증 범위](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4)
 
 ## 빠르게 시작하기
 
@@ -30,7 +38,7 @@ OpenAI의 공식 제품이나 제휴 제품이 아닙니다.
 2. **Daemonlet for Codex**를 실행합니다. 기본 캐릭터 지피쨩이 표시됩니다.
 3. 원하는 기능을 선택합니다.
    - **로컬 대화:** 캐릭터 우클릭 또는 메뉴바·트레이에서 **로컬 캐릭터 대화**를 열고 **Daemonlet 설정 → 대화·음성**에서 모델을 설치한 뒤 질문합니다. Codex 로그인이나 부모 대화 선택은 필요하지 않습니다.
-   - **음성으로 듣기:** **설정 → 대화·음성 → 음성 설치·고급 설정**에서 **기본 음성 설치**를 누릅니다. 설치 후 캐릭터챗을 열고 **음성 사용**을 켜 **시험 재생**으로 확인합니다.
+   - **음성으로 듣기:** **설정 → 대화·음성 → 캐릭터 음성**에서 엔진을 선택하고 **필요한 파일 받기·연결**을 누릅니다. 목소리를 선택한 뒤 캐릭터챗을 열고 **음성 사용**을 켜 **시험 재생**으로 확인합니다. Qwen은 사용 권한이 있는 WAV가 필요합니다.
    - **작업 상태 표시:** 같은 사용자 계정의 **Codex 데스크톱 앱**에서 작업을 시작합니다.
    - **Dots 출력:** **설정 → Dots 연결 → Dots 연결 마법사 열기**에서 별도 연결을 준비합니다. 아래 [Dots 연결](#dots-연결--선택-사항)의 설치·권한·출력 시험을 확인하세요.
 
@@ -49,7 +57,7 @@ OpenAI의 공식 제품이나 제휴 제품이 아닙니다.
 
 - **로컬 캐릭터챗:** 캐릭터 옆 말풍선에서 대화하며 답변 스트리밍·중단·다시 답하기를 지원합니다.
 - **음성 TTS · 시험기능:** 답변 자동 읽기·다시 읽기·음성만 중단과 청크/완성 후 재생을 지원합니다.
-- **Vox·Qwen·WAV:** 기본 VoxCPM2, 선택적 Qwen 엔진과 사용 권한이 있는 WAV 기준 음성을 지원합니다.
+- **Vox·Qwen·WAV:** Windows GGUF CUDA/Vulkan, Mac Metal/MLX와 사용 권한이 있는 WAV 기준 음성·호환 Vox 학습팩을 지원합니다.
 - **Dots 연결:** 연결 마법사로 개인 터널을 준비하고 `present`·`cancel` 도구로 출력을 전달·중단합니다.
 - **오디오 립싱크:** 지원 팩의 입을 실제 재생 오디오 크기에 맞춰 움직입니다. Belle 1.2.3은 37포즈를 지원합니다.
 - **대화·음성 설정:** 로컬 모델, 음성 설치·연결, 재생 방식과 음량을 설정 창에서 관리합니다.
@@ -80,53 +88,59 @@ OpenAI의 공식 제품이나 제휴 제품이 아닙니다.
 | Mac · Apple Silicon | Metal |
 | Windows · x64 + NVIDIA GPU | CUDA |
 
-두 플랫폼에서 E4B·12B 런타임의 연속 대화·중단·복구를 확인했습니다. 이전 [0.8.2 검증](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.2)에는 Mac 공증본과 Windows 정식 설치 프로그램의 실제 업그레이드·설정·대화 보존·음성 동작이 포함됩니다. **최소 메모리·VRAM 사양은 확정하지 않았으며**, Intel Mac이나 Windows AMD/Intel GPU를 검증된 경로로 안내하지 않습니다. 최신 앱의 검증 범위와 남은 점은 [0.8.3 릴리즈 안내](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.3)를 확인하세요.
+두 플랫폼에서 E4B·12B 런타임의 연속 대화·중단·복구를 확인했습니다. 이전 [0.8.2 검증](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.2)에는 Mac 공증본과 Windows 정식 설치 프로그램의 실제 업그레이드·설정·대화 보존·음성 동작이 포함됩니다. **최소 메모리·VRAM 사양은 확정하지 않았으며**, Intel Mac이나 Windows AMD/Intel GPU를 검증된 경로로 안내하지 않습니다. 최신 앱의 검증 범위와 남은 점은 [0.8.4 릴리즈 안내](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4)를 확인하세요.
 
 캐릭터의 대화 이름·말투·감정 포즈는 팩의 선언을 사용합니다. 대화 설정이 없는 기존 팩도 기본 자세로 대화할 수 있습니다. 빠른 응답에서는 준비 포즈를 생략하고, 답변 후 자세는 다음 요청 전까지 유지합니다. 새 대화·중단·오류·캐릭터 또는 모델 변경 시에는 해당 상태를 해제합니다.
 
 [상세 사용법·모델·저장 방식](docs/local-character-chat.md) · [Windows 런타임 안내](docs/windows-character-chat.md)
 
-## 음성 TTS — v0.8.3 시험기능
+## 음성 TTS — v0.8.4 시험기능
 
-**설정 → 대화·음성**에서 음성 엔진, 기본·WAV·학습 음성, 재생 방식, 자동 읽기와 음량을 관리합니다. 기본 엔진은 **VoxCPM2**이며 Qwen은 선택 사항입니다. 시험 재생은 로컬 캐릭터 대화를 연 상태에서 사용할 수 있습니다.
+**설정 → 대화·음성 → 캐릭터 음성**에서 **① 음성 엔진 선택 → ② 필요한 파일 받기·연결 → ③ 목소리 선택·추가 → ④ 시험 재생·적용** 순서로 준비합니다. 새 Windows x64 설치는 **Qwen GGUF**, Apple Silicon은 **VoxCPM2 Metal**을 권장·기본 경로로 사용합니다. 기존 사용자의 엔진·모델·목소리 선택은 자동 변경하지 않습니다.
 
-1. **음성 설치·고급 설정 → 기본 음성 설치**를 누릅니다. 학습팩 없이 사용할 수 있으며, 별도 기준 녹음이나 LoRA가 필요하지 않습니다.
-2. 설치·검증을 마친 뒤 **음성 사용**을 켜고 **시험 재생**을 누릅니다. 기본 음성은 고정된 여성 음성 설명을 사용합니다. 새 합성은 답변마다 무작위 시드가 기본이며, 음성 설정에서 고정 시드를 선택할 수 있습니다. 보관된 음성 다시 듣기와 다른 시드 재생성은 [시드·재생 안내](docs/character-chat-voice-seeds.md)를 참고하세요.
-3. **새 답변 자동 읽기**를 켜거나 기존 답변의 **재생 / 다시 듣기**를 누릅니다. 답변의 **음성 옵션**에서 다른 시드·같은 조건·현재 설정으로 다시 합성할 수 있습니다. **음성만 중단**은 음성 출력을 멈추며, 대화창을 숨기거나 닫아도 발화를 중단합니다.
+1. **음성 엔진 선택**에서 사용할 엔진을 고릅니다. Windows는 Qwen·Vox GGUF를, Mac은 Vox Metal·Qwen MLX를 제공합니다. Windows의 기존 PyTorch 경로는 **레거시 엔진·모델 관리**에서 선택할 수 있습니다.
+2. **필요한 파일 받기·연결**을 누릅니다. 선택한 엔진에 필요한 모델과 앱 전용 실행 환경을 준비하고, 이미 받은 파일은 검사 후 재사용합니다. Windows 관리형 GGUF 실행 환경은 포함된 Microsoft 구성요소의 원문 이용 조건을 확인하고 직접 수락해야 합니다. **수락만으로 설치나 발화가 시작되지는 않습니다.**
+3. **목소리 선택·추가 → 캐릭터 음성**에서 기본 Vox 음성, 사용 권한이 있는 WAV 또는 호환 학습팩을 선택합니다. **Qwen에는 WAV 기준 음성이 필요합니다.**
+4. **음성 사용**을 켜고 로컬 캐릭터 대화를 연 뒤 **시험 재생**으로 확인합니다. **새 답변 자동 읽기**, 음량과 **고급 설정·보유한 파일 연결 → 음성 실행 모드**의 청크/완성 후 재생을 선택할 수 있습니다.
 
-| 환경 | 기본 음성 설치 | 재생 방식 |
+| 환경·엔진 | 모델·실행 환경 | 재생 방식 |
 |---|---|---|
-| Mac · Apple Silicon | 앱에 포함된 Metal 엔진 + GGUF 모델 약 5.1GB 다운로드 | Metal · 청크 / 완성 후 재생 |
-| Windows · x64 + BF16 지원 NVIDIA GPU | Python·PyTorch CUDA 실행 환경 + 기본 모델 약 8.6GB 다운로드, 여유 공간 30GB 필요 | CUDA · 청크 / 완성 후 재생 |
+| Mac · VoxCPM2 Metal | 앱에 포함된 Metal 엔진 + GGUF 모델 약 5.1GB 별도 다운로드 | 청크 / 완성 후 재생 |
+| Mac · Qwen MLX | mlx-community MLX 4bit 변환 + 전용 Python·MLX 환경 · 총 약 1.86GB · 여유 공간 8GiB | 청크 / 완성 후 재생 |
+| Windows · Qwen GGUF | 커뮤니티 변환 0.6B Base Q8 + codec Q8 모델 약 1.28GB · 앱에 포함된 전용 실행 환경을 별도 준비 | CUDA / Vulkan · 청크 / 완성 후 재생 |
+| Windows · VoxCPM2 GGUF | 커뮤니티 변환 BaseLM F16 + Acoustic F16 모델 약 5.07GB · 앱에 포함된 전용 실행 환경을 별도 준비 | CUDA / Vulkan · 청크 / 완성 후 재생 |
 
-설치는 버튼을 눌렀을 때만 시작하며 진행률·취소·이어받기·체크섬 검증을 제공합니다. 첫 준비에는 모델 로딩과 Windows 컴파일 시간이 걸릴 수 있습니다. 앱을 켜거나 음성을 활성화하는 것만으로 모델을 다운로드하지 않습니다.
+**Windows GGUF CUDA 빌드는 compute capability 8.9와 R580 이상 NVIDIA 드라이버가 필요합니다.** CUDA·Vulkan의 GPU 검증은 RTX 4090 개발 환경에 한정되며, AMD·Intel GPU나 다른 NVIDIA GPU의 정상 동작을 보장하지 않습니다. GGUF 음성 경로 추가가 로컬 캐릭터챗의 GPU 지원 범위를 넓히는 것은 아닙니다. 앱은 CUDA SDK나 GPU 드라이버를 자동 설치하지 않습니다.
 
-청크 모드는 생성된 음성을 순서대로 재생합니다. 완성 후 재생은 **각 발화 구간**의 합성이 끝나면 재생하며 구간 사이에 공백이 생길 수 있습니다. 짧은 표현은 이어 읽고 긴 대사는 전환 지점에서 나눕니다. 기기와 함께 실행하는 모델에 따라 속도·품질이 달라지는 시험기능입니다.
+모델은 버튼을 눌렀을 때만 다운로드하며 진행률·중단·이어받기·SHA-256 검증을 제공합니다. Windows GGUF 모델은 Qwen·OpenBMB가 직접 배포한 공식 GGUF가 아닌 **커뮤니티 변환본**입니다. 모델 다운로드만으로 엔진이나 목소리를 바꾸지 않습니다. 실행 환경 파일 검사, 모델 연결과 실제 GPU 모델 로딩은 별도 단계이며, 처음 로딩·기준 음성 분석에는 시간이 걸립니다.
 
-### Qwen 설치와 WAV 기준 음성
+청크 모드는 생성된 음성을 순서대로 재생합니다. 완성 후 재생은 **각 발화 구간**의 합성이 끝나면 재생하며 구간 사이에 공백이 생길 수 있습니다. 짧은 표현은 이어 읽고 긴 대사는 전환 지점에서 나눕니다. 새 합성은 답변마다 무작위 시드가 기본이며 고정 시드도 선택할 수 있습니다. 기존 답변의 **재생 / 다시 듣기**와 **음성 옵션**에서 저장된 음성을 듣거나 다른 시드·같은 조건·현재 설정으로 다시 합성합니다. **음성만 중단**으로 발화를 멈출 수 있으며, 대화창을 숨기거나 닫아도 발화를 중단합니다. [시드·재생 안내](docs/character-chat-voice-seeds.md)
 
-1. **설정 → 대화·음성 → 음성 설치·고급 설정 → Qwen 다운로드·설치 후 적용**을 누르면 모델과 전용 Python·실행 환경을 함께 준비하고 검증합니다. **성공하면 Qwen 엔진을 선택·적용**합니다. 실패·취소 시 기존 엔진·설정·기준 음성을 보존하며, 설치 중 다른 설정을 선택해 적용이 보류되면 **설치된 Qwen 적용**을 사용합니다.
-2. **WAV로 새 음성 추가**에서 음성 이름과 사용 권한을 확인하고, 한 명이 또렷하게 말한 **2~20초·20MiB 이하 WAV**를 가져옵니다. 지원 입력은 PCM16·PCM24·float32, 모노·스테레오입니다. 가져온 뒤 **캐릭터 음성**에서 직접 선택하세요. 가져오기만으로 기존 음성을 바꾸거나 모델을 다운로드하지 않습니다.
-3. Qwen에는 사용 권한이 있는 WAV 기준 음성이 필요합니다. Vox 기본 음성·LoRA를 Qwen 기준으로 사용할 수 없습니다. **X-vector**는 화자 임베딩을 사용하고, **ICL**은 기준 WAV에서 실제로 말한 정확한 문장도 입력해야 합니다. 설치만으로 대화를 열거나 말하지 않으며, **음성 사용**·자동 읽기·음량 설정은 유지합니다.
+### WAV 기준 음성과 학습팩
 
-| 환경 | Qwen 설치 | 재생 방식 |
-|---|---|---|
-| Mac · Apple Silicon | mlx-community의 MLX 4bit 변환 · 모델+환경 약 1.86GB · 여유 공간 8GiB | 청크 / 완성 후 재생 |
-| Windows · x64 + BF16 지원 NVIDIA GPU | 공식 Qwen3-TTS 0.6B + Python·PyTorch CUDA · 약 6.21GB · 여유 공간 30GiB | 완성 후 재생 |
+**목소리 선택·추가 → WAV로 새 음성 추가**에서 이름과 사용 권한을 확인하고, 한 명이 또렷하게 말한 **2~20초·20MiB 이하 WAV**를 가져옵니다. PCM16·PCM24·float32, 모노·스테레오를 지원합니다. 가져온 뒤 **캐릭터 음성**에서 직접 선택하세요. 가져오기만으로 현재 목소리를 바꾸거나 모델을 다운로드하지 않습니다.
 
-WAV 기준 음성은 Vox에서도 별도 학습·LoRA 없이 사용할 수 있습니다. 결과는 AI 합성 음성이며 동일한 목소리를 보장하지 않습니다. Vox와 Qwen의 속도·음질 우위를 단정하지 않습니다. [Qwen 설치·적용·복구](docs/character-chat-voice-qwen-managed-install.md) · [WAV 형식·저장·삭제](docs/character-chat-wav-cloning.md)
+- **Qwen:** WAV 기준 복제이며 VoxCPM2 LoRA 학습 가중치를 적용하지 않습니다. **X-vector**는 화자 임베딩을 사용하고, **ICL**은 기준 WAV에서 실제로 말한 정확한 문장도 필요합니다. 고급 설정에서 기준 음성 사용 방식을 선택합니다.
+- **Vox 기본·WAV:** 공개 기본 모델을 사용하며 개인 학습팩의 LoRA는 포함되지 않습니다. WAV만으로 별도 학습 없이 기준 음성을 사용할 수 있습니다.
+- **Vox 학습팩:** 해당 학습팩의 LoRA가 반영된 호환 F16 GGUF 또는 검증된 이전 실행 환경이 필요합니다. Qwen으로 전환해도 Vox 학습 가중치가 Qwen에 적용되지 않습니다. 원본 학습팩과 기준 WAV는 보존합니다.
 
-**음성 엔진 미리 준비**는 대화창 없이 설치된 엔진과 선택한 기준 음성을 준비하며, 대화를 만들거나 재생하지 않습니다. Dots 음소거·음량 0에서도 준비할 수 있습니다. 첫 모델 로딩·검증·Windows 컴파일에는 시간이 걸리고, 중단·창 닫기·엔진 변경 후 다시 준비할 수 있습니다. 준비 지연 개선은 [후속 이슈 #32](https://github.com/ddol2ya/DAEMONLET/issues/32)의 범위이며 즉시 발화를 보장하지 않습니다.
+결과는 AI 합성 음성이며 동일한 목소리를 보장하지 않습니다. 속도·음질은 기준 음성, 기기와 함께 실행하는 모델에 따라 달라집니다. [WAV 형식·저장·삭제](docs/character-chat-wav-cloning.md)
+
+### 준비된 엔진과 모델 관리
+
+**음성 엔진 미리 준비**는 대화창 없이 설치된 엔진과 선택한 목소리를 준비하며, 대화를 만들거나 재생하지 않습니다. 음성 사용은 켜야 하며 Dots 음소거·음량 0에서도 준비할 수 있습니다. 정상적인 Dots 발화 후에는 준비된 실행기를 다음 발화에 재사용합니다. 전체 음성 OFF·엔진 변경·앱 종료 시에는 준비된 실행기를 해제합니다. Dots 음소거는 Dots 전용 실행기를 정리하며 로컬챗이 사용하는 실행기는 유지합니다. 초기 준비시간이나 개선 배수를 보장하지 않습니다.
+
+**앱이 받은 음성 모델 관리**와 **레거시 엔진·모델 관리 → 레거시 모델 보관·삭제**에서 삭제 대상을 확인합니다. 앱이 받은 모델과 다운로드 캐시만 휴지통으로 옮기며, 외부 모델·개인 학습 GGUF·학습팩·기준 WAV는 포함하지 않습니다. 현재 사용하는 모델을 삭제하면 다시 준비해야 하고, 휴지통을 비우기 전까지 공간을 계속 사용합니다.
+
+기존 Windows PyTorch 방식은 Vox 약 8.6GB / Qwen 약 6.21GB 다운로드, 각각 여유 공간 30GiB와 BF16 지원 NVIDIA GPU가 필요합니다. 기존 연결을 보존하며 자동 전환·삭제하지 않습니다. [기존 Vox 설치](docs/character-chat-voice-base-install.md) · [기존 Qwen 설치·적용·복구](docs/character-chat-voice-qwen-managed-install.md)
 
 ### 학습 음성팩과 배포 방침
 
-학습 음성팩은 `.petchar`와 별개의 폴더입니다. `voice.json`, 전체 체크섬, LoRA 설정·가중치, 기준 음성·미리듣기, provenance 및 라이선스가 필요합니다. **음성 패키지 가져오기**로 폴더 전체를 선택하고 캐릭터에 연결합니다. LoRA 파일 하나만으로는 사용할 수 없습니다.
+학습 음성팩은 `.petchar`와 별개의 폴더입니다. `voice.json`, 전체 체크섬, LoRA 설정·가중치, 기준 음성·미리듣기, provenance 및 라이선스가 필요합니다. **고급 설정·보유한 파일 연결 → 음성 패키지 가져오기**로 폴더 전체를 선택하고 캐릭터에 연결합니다. LoRA 파일 하나만으로는 사용할 수 없습니다.
 
-학습팩에는 호환되는 독립 런타임과 고정 원본 VoxCPM2 모델도 필요합니다. 기본 음성 설치 버튼이 임의의 학습팩 환경까지 자동 구성하지는 않습니다. Mac은 첫 사용 시 선택 LoRA를 반영한 실행용 GGUF를 별도로 준비해 재사용하며 임시 여유 공간 30GB가 필요합니다. Windows 외부 학습팩은 현재 검증된 채택 패키지 계약으로 제한됩니다. **임의의 모델·LoRA가 모두 호환되는 기능은 아닙니다.** [필요 파일·플랫폼별 준비·불러오기 안내](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/VOICE-PACK-GUIDE.md)를 확인하세요.
+학습팩에는 호환되는 독립 런타임과 고정 원본 VoxCPM2 모델도 필요합니다. 공개 모델·실행 환경 준비가 임의의 학습팩까지 자동 변환하지는 않습니다. Mac은 첫 사용 시 선택 LoRA를 반영한 실행용 GGUF를 별도로 준비해 재사용하며 임시 여유 공간 30GB가 필요합니다. Windows는 해당 학습팩과 변환 결과가 검증된 계약으로 제한되며, 호환되는 Mac F16 변환 결과도 검증 후 재사용할 수 있습니다. **임의의 모델·LoRA가 모두 호환되는 기능은 아닙니다.** [필요 파일·플랫폼별 준비·불러오기 안내](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/VOICE-PACK-GUIDE.md)를 확인하세요.
 
-학습 음성팩은 특정인의 목소리를 재현할 수 있어 **프로젝트에서 별도로 배포할 계획은 없습니다.** 불러오기는 사용자가 직접 준비하고 사용 권한을 확보한 호환 팩을 연결하기 위한 기능입니다. 릴리즈에는 음성 모델 가중치, 학습 LoRA, 벨 음성팩, 외부 캐릭터팩이나 개인 대화·설정을 포함하지 않습니다. 기본 음성 모델은 앱 내 설치 기능으로 별도 내려받습니다.
-
-[기본 음성 설치·검증 상세](docs/character-chat-voice-base-install.md) · [대화·음성 설정 구조](docs/character-chat-settings-ui.md)
+학습 음성팩은 특정인의 목소리를 재현할 수 있어 **프로젝트에서 별도로 배포할 계획은 없습니다.** 불러오기는 사용자가 직접 준비하고 사용 권한을 확보한 호환 팩을 연결하기 위한 기능입니다. 릴리즈에는 음성 모델 가중치, 학습 LoRA, 벨 음성팩, 외부 캐릭터팩이나 개인 대화·설정을 포함하지 않습니다.
 
 ## 데스크톱 조작
 
@@ -153,7 +167,7 @@ WAV 기준 음성은 Vox에서도 별도 학습·LoRA 없이 사용할 수 있�
 
 **연결·재연결 때 Dots 음성은 기본 음소거입니다.** 음성을 들으려면 기존 엔진·모델·선택 음성 준비, **음성 사용** ON과 0보다 큰 음량을 확인하고, 트레이의 **dot 표현 · 현재 세션 → 음소거**를 직접 해제하세요. 도구에서 음소거를 해제할 수 없습니다. `speak:true`로 시험하고 실제 소리를 확인하세요. `voice:requested`는 재생 완료를 보장하지 않습니다. Dots 출력을 시험할 때는 캐릭터 화면을 사용하는 로컬/작업 대화창·실험창을 닫으세요. 숨긴 캐릭터나 다른 대화가 사용 중인 화면에는 출력을 쌓아 나중에 재생하지 않습니다.
 
-[마법사·상태 확인 상세](docs/belle-connection-wizard.md) · [출력 도구와 제한](docs/dot-presentation-bridge.md) · [v0.8.3 공개 검증 범위](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.3)
+[마법사·상태 확인 상세](docs/belle-connection-wizard.md) · [출력 도구와 제한](docs/dot-presentation-bridge.md) · [v0.8.4 공개 검증 범위](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4)
 
 ## 캐릭터 추가하기
 
@@ -225,7 +239,7 @@ Windows는 **CMD와 PowerShell**을 지원합니다. Hook 실행에 별도 Node.
 
 ## 캐릭터 제작과 개발
 
-[**캐릭터 제작 스킬 0.8.1 ZIP 다운로드**](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/Daemonlet-creator-skill-0.8.1.zip) — 제작 지침과 독립 실행용 런타임 소스를 함께 포함합니다. 앱 0.8.3과 별개로, 제작 스킬 ZIP의 최신 공개본은 0.8.1입니다.
+[**캐릭터 제작 스킬 0.8.4 ZIP 다운로드**](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-creator-skill-0.8.4.zip) — 제작 지침과 독립 실행용 런타임 소스를 함께 포함합니다. ComfyUI·See-through·모델은 포함하지 않습니다.
 
 확인된 감정·제스처 의미 정보를 팩 내보내기에 자동 포함하고, `upgrade-chat`으로 기존 팩의 시각 자산을 유지한 대화 설정 후보를 만들 수 있습니다. [캐릭터챗 제작 지침](skills/create-pet-character/references/character-chat.md)을 참고하세요.
 
@@ -265,6 +279,8 @@ npm run electron:package
 Electron 준비에는 lockfile에 고정된 로컬 설치 스크립트를 사용합니다. 소스에서 직접 빌드한 앱에는 배포본의 서명·공증이 자동 적용되지 않습니다.
 
 </details>
+
+Windows GGUF 실행 환경을 포함한 배포 빌드는 고정 런타임 아카이브도 별도로 배치해야 합니다. CI의 소스 전용 검증은 실제 설치 패키지 검증을 대신하지 않습니다. v0.8.4의 앱·런타임 대응은 [빌드 출처](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/SOURCE-PROVENANCE.json), 런타임 재빌드·LGPL 교체 안내는 [재빌드 소스 ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/daemonlet-0.8.4-runtime-rebuild-source.zip)을 확인하세요.
 
 ## 라이선스와 출처
 
