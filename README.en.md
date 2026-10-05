@@ -10,17 +10,25 @@ This is not an official OpenAI product and is not affiliated with OpenAI.
 
 <img src="docs/images/gpichan.png" width="360" alt="Gpichan running in Daemonlet for Codex">
 
-## Downloads — v0.8.3
+## Downloads — v0.8.4
 
 | Platform | Download | Notes |
 |---|---|---|
-| macOS · Apple Silicon | [Mac ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/Daemonlet-for-Codex-0.8.3-macOS-arm64.zip) | macOS 13+ · Developer ID signed and notarized by Apple |
-| Windows · x64 | [Installer](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/Daemonlet-for-Codex-0.8.3-windows-x64-Setup.exe) | Windows 10 build 19045+ · Per-user installation · Unsigned |
-| Windows · x64 | [Portable ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/Daemonlet-for-Codex-0.8.3-windows-x64.zip) | Extract the entire folder and run · Unsigned |
+| macOS · Apple Silicon | [Mac ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-for-Codex-0.8.4-macOS-arm64.zip) | macOS 13+ · Developer ID signed and notarized by Apple |
+| Windows · x64 | [Installer](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-for-Codex-0.8.4-windows-x64-Setup.exe) | Windows 10 build 19045+ · Per-user installation · Unsigned |
+| Windows · x64 | [Portable ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-for-Codex-0.8.4-windows-x64.zip) | Extract the entire folder and run · Unsigned |
 
-[Release notes and verification limits](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.3) · [SHA-256 checksums](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/SHA256SUMS.txt) · [Build provenance](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.3/SOURCE-PROVENANCE.json)
+[Release notes and verification limits](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4) · [SHA-256 checksums](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/SHA256SUMS.txt) · [Build provenance](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/SOURCE-PROVENANCE.json)
 
-The core app needs no separate Node.js, Python, ComfyUI or manual server installation. **Local chat and voice TTS each need a model installed separately through the app.** Windows default voice and both Qwen installers also prepare dedicated runtimes. Task status and authored click reactions do not need model weights. **Dots connection separately requires Node.js, the official tunnel-client and account setup.** Both Windows packages are unsigned: their publisher signature cannot be verified. SHA-256 checks that a file matches the published download.
+The core app needs no separate Node.js, Python, ComfyUI or manual server installation. **Local chat and voice TTS each need a model installed separately through the app.** Windows GGUF runtimes are bundled with the release; their models download separately. Mac Qwen and legacy Windows PyTorch installers also prepare dedicated Python environments. Task status and authored click reactions do not need model weights. **Dots connection separately requires Node.js, the official tunnel-client and account setup.** Both Windows packages are unsigned: their publisher signature cannot be verified. SHA-256 checks that a file matches the published download.
+
+## What's new in v0.8.4
+
+- **Windows GGUF voice:** Prepare Qwen 0.6B Base Q8 or VoxCPM2 F16 with CUDA/Vulkan, including model download, verification, cancellation and removal.
+- **Four-step voice setup:** Choose an engine, prepare its files, select a voice and test playback. Existing PyTorch connections remain in legacy management.
+- **Repeated speech preparation:** Retain prepared workers after normal Dots speech and reduce duplicate file hashing during Mac Vox preparation.
+
+[Release details and verification limits](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4)
 
 ## Quick start
 
@@ -30,7 +38,7 @@ The core app needs no separate Node.js, Python, ComfyUI or manual server install
 2. Run **Daemonlet for Codex**. The built-in Gpichan appears.
 3. Choose a feature:
    - **Local chat:** Open **Local character chat (로컬 캐릭터 대화)** from the character context menu or menu bar/tray, install a model in **Daemonlet Settings → Chat & voice**, and send a message. No Codex login or parent conversation is required.
-   - **Listen to replies:** In **Settings → Chat & voice → Voice installation & advanced settings**, choose **Install default voice**. After installation, open character chat, enable voice and choose **Test voice**.
+   - **Listen to replies:** In **Settings → Chat & voice → Character voice**, choose an engine and **Get and connect the required files**. Select a voice, open character chat, enable voice and choose **Test voice**. Qwen requires an authorized WAV reference.
    - **Task status:** Start a task in the **Codex desktop app** under the same OS user account.
    - **Dots output:** Open **Settings → Dots connection → Open Dots connection wizard**. Follow the installation, permissions and output test in [Dots connection](#dots-connection--optional) below.
 
@@ -51,7 +59,7 @@ For installation, recovery and removal details, see the [Mac guide](docs/install
 
 - **Local character chat:** Talk in a speech bubble with streamed replies, cancellation and retry.
 - **Voice TTS · experimental:** Automatically read replies, reread saved answers, stop speech, and choose chunk or complete playback.
-- **Vox, Qwen and WAV:** Use default VoxCPM2, an optional Qwen engine and an authorized WAV reference voice.
+- **Vox, Qwen and WAV:** Windows GGUF CUDA/Vulkan and Mac Metal/MLX paths support authorized WAV references and compatible Vox trained packs.
 - **Dots connection:** Prepare a personal tunnel with the wizard and send/cancel output with `present` and `cancel` tools.
 - **Audio lip-sync:** Compatible packs move the mouth to actual playback amplitude. Belle 1.2.3 supports 37 poses.
 - **Chat & voice settings:** Manage local models, voice installation/connections, playback mode and volume in Settings.
@@ -80,53 +88,59 @@ After model installation, **reply generation runs locally**. It uses no paid ext
 | Mac · Apple Silicon | Metal |
 | Windows · x64 + NVIDIA GPU | CUDA |
 
-E4B/12B multi-turn generation, cancellation and recovery were checked on both platforms. The earlier [0.8.2 verification](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.2) included actual upgrades with the notarized Mac app and official Windows installer, settings/conversation preservation and voice behavior. **Minimum RAM/VRAM requirements have not been established.** Intel Mac and Windows AMD/Intel GPU paths are not presented as verified. See the [0.8.3 release notes](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.3) for the latest verification scope and remaining limitations.
+E4B/12B multi-turn generation, cancellation and recovery were checked on both platforms. The earlier [0.8.2 verification](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.2) included actual upgrades with the notarized Mac app and official Windows installer, settings/conversation preservation and voice behavior. **Minimum RAM/VRAM requirements have not been established.** Intel Mac and Windows AMD/Intel GPU paths are not presented as verified. See the [0.8.4 release notes](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4) for the latest verification scope and remaining limitations.
 
 Chat names, persona and emotional poses come from the pack. Legacy packs without chat metadata can still chat in their default pose. Fast replies skip the preparation pose, and the final reply pose remains until the next request. New conversations, cancellation, errors and character/model changes clear that state.
 
 [Usage, models and storage](docs/local-character-chat.md) · [Windows runtime guide](docs/windows-character-chat.md)
 
-## Voice TTS — experimental in v0.8.3
+## Voice TTS — experimental in v0.8.4
 
-Use **Settings → Chat & voice** to select the engine, default/WAV/trained voice, playback mode, automatic reading and volume. **VoxCPM2** remains the default engine; Qwen is optional. Local character chat must be open for test playback.
+Under **Settings → Chat & voice → Character voice**, follow **① Choose a voice engine → ② Get and connect the required files → ③ Choose or add a voice → ④ Test and enable voice**. New Windows x64 installations use **Qwen GGUF** as the recommended default; Apple Silicon uses **VoxCPM2 Metal**. Existing engine, model and voice choices are preserved.
 
-1. Choose **Voice installation & advanced settings → Install default voice**. No trained pack, reference recording or LoRA is required.
-2. After installation and verification, turn on **Enable voice** and choose **Test voice**. The default uses a fixed female voice description. New synthesis uses a random seed per reply by default; a fixed seed is optional. See [seeds and replay](docs/character-chat-voice-seeds.md) for cached replay and regeneration with another seed.
-3. Enable **Read new replies automatically**, or use **Play / Replay saved audio** on an existing answer. Its **Voice options** allow regeneration with another seed, the same conditions or current settings. **Stop voice** stops speech; hiding or closing character chat also cancels it.
+1. Choose an engine: Qwen/Vox GGUF on Windows, or Vox Metal/Qwen MLX on Mac. Existing Windows PyTorch paths remain under **Legacy engines and models**.
+2. Choose **Get and connect the required files** to prepare the selected model and app-local runtime. Previously downloaded files are verified and reused. Managed Windows GGUF runtimes require reviewing and explicitly accepting the original terms for the included Microsoft components. **Acceptance alone starts neither installation nor speech.**
+3. Under **Choose or add a voice → Character voice**, select the Vox default, an authorized WAV reference or a compatible trained pack. **Qwen requires a WAV reference.**
+4. Enable voice, open local character chat and choose **Test voice**. Set automatic reading and volume; select chunk or complete playback under **Advanced settings and existing files → Voice execution mode**.
 
-| Environment | Default voice installation | Playback modes |
+| Platform/engine | Models and runtime | Playback |
 |---|---|---|
-| Mac · Apple Silicon | Bundled Metal engine + about 5.1GB of separately downloaded GGUF models | Metal · chunk / complete playback |
-| Windows · x64 + BF16-capable NVIDIA GPU | Python/PyTorch CUDA environment + base model, about 8.6GB download; 30GB free space required | CUDA · chunk / complete playback |
+| Mac · VoxCPM2 Metal | Bundled Metal engine + about 5.1GB of separately downloaded GGUF models | Chunk / complete |
+| Mac · Qwen MLX | mlx-community MLX 4-bit conversion + dedicated Python/MLX runtime · About 1.86GB total · 8GiB free space | Chunk / complete |
+| Windows · Qwen GGUF | Community-converted 0.6B Base Q8 + codec Q8 models, about 1.28GB · Separately prepare the bundled app-local runtime | CUDA / Vulkan · chunk / complete |
+| Windows · VoxCPM2 GGUF | Community-converted BaseLM F16 + Acoustic F16 models, about 5.07GB · Separately prepare the bundled app-local runtime | CUDA / Vulkan · chunk / complete |
 
-Installation starts only from the button and supports progress, cancellation, resume and checksum verification. Initial preparation includes model loading and may require compilation on Windows. Launching the app or enabling voice does not download models.
+**The Windows GGUF CUDA builds require compute capability 8.9 and an R580 or newer NVIDIA driver.** GPU validation of CUDA and Vulkan is limited to the RTX 4090 development environment. AMD/Intel GPUs and other NVIDIA GPUs are not established as working. Adding GGUF voice paths does not broaden the verified GPU support of local character chat. The app does not install a CUDA SDK or GPU driver.
 
-Chunk mode plays audio as it is generated. Complete playback waits for **each utterance group** to finish synthesis and can leave gaps between groups. Short expressions stay together; longer replies split at conversational transitions. This is experimental: speed and quality vary with hardware and other running models.
+Model downloads start only from an explicit button and support progress, cancellation, resume and SHA-256 verification. The Windows GGUF models are **community conversions**, not official GGUF releases from Qwen or OpenBMB. Downloading a model alone does not change the engine or voice. Runtime-file verification, model connection and actual GPU loading are separate stages; initial loading and reference conditioning still take time.
 
-### Install Qwen and add a WAV reference voice
+Chunk mode plays generated audio in order. Complete playback waits for **each utterance group** to finish and can leave gaps between groups. Short expressions stay together; longer replies split at conversational transitions. New synthesis uses a random seed per reply by default, with an optional fixed seed. Use **Play / Replay saved audio** and **Voice options** on an answer to replay or regenerate with another seed, the same conditions or current settings. **Stop voice** cancels speech; hiding or closing character chat also stops it. See [seeds and replay](docs/character-chat-voice-seeds.md).
 
-1. In **Settings → Chat & voice → Voice installation & advanced settings**, choose **Download, install and apply Qwen**. It downloads the model and dedicated Python/runtime and verifies them. **Success selects and applies Qwen.** Failure/cancellation preserves the existing engine, settings and references. If a newer settings choice defers application, use **Apply installed Qwen**.
-2. Under **Add a voice from WAV**, enter a name, confirm permission and import one clear speaker's **2–20 second WAV, at most 20MiB**. PCM16, PCM24 and float32 mono/stereo are supported. Explicitly select it under **Character voice** afterward. Importing alone neither changes the selected voice nor downloads a model.
-3. Qwen requires an authorized WAV reference; Vox default voices and LoRAs cannot serve as its reference. **X-vector** uses the speaker embedding; **ICL** also needs the exact words spoken in the reference WAV. Installation alone does not open a chat or speak, and preserves voice enablement, automatic reading and volume.
+### WAV references and trained packs
 
-| Environment | Qwen installation | Playback modes |
-|---|---|---|
-| Mac · Apple Silicon | mlx-community MLX 4-bit conversion · Model + runtime about 1.86GB · 8GiB free space | Chunk / complete playback |
-| Windows · x64 + BF16-capable NVIDIA GPU | Official Qwen3-TTS 0.6B + Python/PyTorch CUDA · About 6.21GB · 30GiB free space | Complete playback |
+Under **Choose or add a voice → Add a voice from WAV**, enter a name, confirm permission and import one clear speaker's **2–20 second WAV, at most 20MiB**. PCM16, PCM24 and float32 mono/stereo are supported. Select the imported profile under **Character voice** afterward. Importing alone neither changes the current voice nor downloads a model.
 
-Vox also supports WAV references without training or LoRA. Output is AI-generated speech and does not guarantee an identical voice. No speed or quality advantage is claimed for either engine. See [Qwen install, apply and recovery](docs/character-chat-voice-qwen-managed-install.md) and [WAV formats, storage and deletion](docs/character-chat-wav-cloning.md).
+- **Qwen:** Reference cloning does not apply VoxCPM2 LoRA weights. **X-vector** uses the speaker embedding; **ICL** also needs the exact words spoken in the WAV. Choose the reference mode in advanced settings.
+- **Vox default/WAV:** Uses the public base model without a personal LoRA. WAV reference conditioning requires no separate training.
+- **Vox trained packs:** Require a compatible F16 GGUF containing that pack's LoRA, or a validated legacy runtime. Switching to Qwen does not apply Vox training weights to Qwen. Original packs and reference WAVs are preserved.
 
-**Prepare voice engine** prepares the installed engine and selected reference without opening chat, creating a conversation or playing audio. Dots mute and zero volume do not block preparation. Initial model loading, verification and Windows compilation can take time; stopping, closing chat or changing engines may require preparation again. Further latency improvements are tracked in [issue #32](https://github.com/ddol2ya/DAEMONLET/issues/32); immediate speech is not guaranteed.
+Output is AI-generated speech and does not guarantee an identical voice. Speed and quality vary with the reference, hardware and other running models. See [WAV formats, storage and deletion](docs/character-chat-wav-cloning.md).
+
+### Prepared engines and model management
+
+**Prepare voice engine** loads the installed engine and selected voice without opening chat, creating a conversation or playing audio. Voice must be enabled; Dots mute and zero volume do not block preparation. After normal Dots speech, the prepared worker is retained for reuse. Disabling all voice, changing engines and quitting unload the prepared worker. Dots mute releases a Dots-only worker while preserving one used by local chat. Initial readiness time and speedup factors are not guaranteed.
+
+Use **Manage app-downloaded voice models** or **Legacy engines and models → Keep or remove legacy models** to review removal targets. Only app-managed models and model download caches move to the trash; external models, personal trained GGUF files, trained packs and reference WAVs are excluded. Removing a currently used model requires preparing it again. Disk space remains occupied until the trash is emptied.
+
+Legacy Windows PyTorch installers remain available: Vox downloads about 8.6GB and Qwen about 6.21GB, each requiring 30GiB free space and a BF16-capable NVIDIA GPU. Existing connections are preserved without automatic migration or deletion. See [legacy Vox installation](docs/character-chat-voice-base-install.md) and [legacy Qwen install, apply and recovery](docs/character-chat-voice-qwen-managed-install.md).
 
 ### Trained voice packs and distribution policy
 
-A trained voice pack is a folder separate from a `.petchar` character pack. It needs `voice.json`, complete checksums, LoRA configuration/weights, reference/preview audio, provenance and license notes. Use **Import voice package** to select the entire folder and bind it to a character. A standalone LoRA file is insufficient.
+A trained voice pack is a folder separate from a `.petchar` character pack. It needs `voice.json`, complete checksums, LoRA configuration/weights, reference/preview audio, provenance and license notes. Use **Advanced settings and existing files → Import voice package** to select the entire folder and bind it to a character. A standalone LoRA file is insufficient.
 
-Trained packs also need a compatible independent runtime and the pinned original VoxCPM2 model. Default voice installation does not automatically configure arbitrary trained-pack environments. On Mac, the first preparation creates and caches a separate GGUF with the selected LoRA applied, requiring 30GB of temporary free space. External Windows voices remain limited to the currently validated selected-package contract. **Arbitrary models and LoRAs are not universally compatible.** See the [required files, platform setup and import guide (Korean)](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/VOICE-PACK-GUIDE.md).
+Trained packs also need a compatible independent runtime and the pinned original VoxCPM2 model. Preparing public models/runtimes does not automatically convert arbitrary trained packs. On Mac, first preparation creates and caches a separate GGUF with the selected LoRA applied, requiring 30GB of temporary free space. Windows admission is limited to validated pack/derivative contracts; compatible Mac F16 derivatives can be reused after verification. **Arbitrary models and LoRAs are not universally compatible.** See the [required files, platform setup and import guide (Korean)](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.2/VOICE-PACK-GUIDE.md).
 
-Because trained voice packs can reproduce a specific person’s voice, **the project has no plans to distribute them separately.** Import is intended for compatible packs users prepare themselves and have permission to use. Releases do not include voice model weights, trained LoRAs, the Belle voice pack, external character packs or personal conversations/settings. The default voice model is downloaded separately through the app.
-
-[Default voice installation and validation](docs/character-chat-voice-base-install.md) · [Chat & voice settings](docs/character-chat-settings-ui.md)
+Because trained voice packs can reproduce a specific person's voice, **the project has no plans to distribute them separately.** Import is intended for compatible packs users prepare themselves and have permission to use. Releases do not include voice model weights, trained LoRAs, the Belle voice pack, external character packs or personal conversations/settings.
 
 ## Desktop controls
 
@@ -153,7 +167,7 @@ Keys are stored in **Mac Keychain / Windows Credential Manager**, with no plaint
 
 **Dots voice starts muted on connection/reconnection.** To hear it, prepare the existing engine/model/selected voice, enable voice and set volume above zero, then locally uncheck **dot presentation · this session → Mute** in the tray. Remote tools cannot unmute. Test `speak:true` and check the actual sound; `voice:requested` does not guarantee playback completion. Close local/task chat and lab windows using the character surface before testing Dots. Output blocked by a hidden character or another chat is not queued for later playback.
 
-[Wizard and status details](docs/belle-connection-wizard.md) · [Output tools and limits](docs/dot-presentation-bridge.md) · [v0.8.3 public verification scope](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.3)
+[Wizard and status details](docs/belle-connection-wizard.md) · [Output tools and limits](docs/dot-presentation-bridge.md) · [v0.8.4 public verification scope](https://github.com/ddol2ya/DAEMONLET/releases/tag/v0.8.4)
 
 ## Add a character
 
@@ -226,7 +240,7 @@ Import a `.petchar` file from the [public character packs](https://huggingface.c
 
 ## Character creation and development
 
-[**Download the character creation skill 0.8.1 ZIP**](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.1/Daemonlet-creator-skill-0.8.1.zip) — includes authoring instructions and standalone runtime source. The latest separately published creator skill ZIP remains 0.8.1, independent of app version 0.8.3.
+[**Download the character creation skill 0.8.4 ZIP**](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/Daemonlet-creator-skill-0.8.4.zip) — includes authoring instructions and standalone runtime source. ComfyUI, See-through and models are not included.
 
 Export includes confirmed emotion/gesture meaning metadata. Use `upgrade-chat` to prepare a chat metadata update while preserving an existing pack's visual assets. See the [character chat authoring guide](skills/create-pet-character/references/character-chat.md).
 
@@ -266,6 +280,8 @@ To run local chat or package the app, prepare the platform-specific pinned runti
 Electron setup uses the local installation script from the lockfile-pinned dependency. Apps built from source do not automatically inherit the release binaries' signing or notarization.
 
 </details>
+
+Distribution builds that include Windows GGUF runtimes also require separately staged, pinned runtime archives. CI source-only verification does not replace actual installer validation. See [build provenance](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/SOURCE-PROVENANCE.json) for v0.8.4 app/runtime identities, and the [runtime rebuild source ZIP](https://github.com/ddol2ya/DAEMONLET/releases/download/v0.8.4/daemonlet-0.8.4-runtime-rebuild-source.zip) for rebuild and LGPL replacement guidance.
 
 ## Licenses and attribution
 
